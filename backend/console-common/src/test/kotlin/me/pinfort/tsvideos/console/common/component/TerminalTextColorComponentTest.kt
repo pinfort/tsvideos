@@ -1,7 +1,7 @@
-package me.pinfort.tsvideos.manager.console.component
+package me.pinfort.tsvideos.console.common.component
 
 import io.kotest.core.spec.style.ExpectSpec
-import org.assertj.core.api.Assertions
+import io.kotest.matchers.shouldBe
 
 class TerminalTextColorComponentTest :
     ExpectSpec({
@@ -12,7 +12,7 @@ class TerminalTextColorComponentTest :
                 val actual = terminalTextColorComponent.warn("test")
 
                 val expected = "\u001B[${TerminalTextColorComponent.COLOR.YELLOW.code + 10}mtest\u001B[0m"
-                Assertions.assertThat(actual).isEqualTo(expected)
+                actual shouldBe expected
             }
         }
 
@@ -21,7 +21,7 @@ class TerminalTextColorComponentTest :
                 val actual = terminalTextColorComponent.debug("test")
 
                 val expected = "\u001B[${TerminalTextColorComponent.COLOR.WHITE.code + 10}mtest\u001B[0m"
-                Assertions.assertThat(actual).isEqualTo(expected)
+                actual shouldBe expected
             }
         }
 
@@ -30,7 +30,7 @@ class TerminalTextColorComponentTest :
                 val actual = terminalTextColorComponent.info("test")
 
                 val expected = "\u001B[${TerminalTextColorComponent.COLOR.GREEN.code + 10}mtest\u001B[0m"
-                Assertions.assertThat(actual).isEqualTo(expected)
+                actual shouldBe expected
             }
         }
 
@@ -39,7 +39,7 @@ class TerminalTextColorComponentTest :
                 val actual = terminalTextColorComponent.error("test")
 
                 val expected = "\u001B[${TerminalTextColorComponent.COLOR.RED.code + 10}mtest\u001B[0m"
-                Assertions.assertThat(actual).isEqualTo(expected)
+                actual shouldBe expected
             }
         }
     })

@@ -9,6 +9,7 @@ import org.springframework.boot.runApplication
 @SpringBootApplication(
     scanBasePackages = [
         "me.pinfort.tsvideos.core",
+        "me.pinfort.tsvideos.console.common",
         "me.pinfort.tsvideos.manager",
     ],
 )

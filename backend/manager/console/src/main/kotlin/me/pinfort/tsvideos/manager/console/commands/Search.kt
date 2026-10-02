@@ -4,8 +4,8 @@ import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
+import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
 import me.pinfort.tsvideos.core.command.ProgramCommand
-import me.pinfort.tsvideos.manager.console.component.TerminalTextColorComponent
 import org.springframework.stereotype.Component
 import java.time.format.DateTimeFormatter
 

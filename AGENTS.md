@@ -46,11 +46,12 @@ pnpm coverage                # vitest run --coverage
 ### Backend module graph
 
 - `core` — no internal deps; everything else depends on it
+- `console-common` — no internal deps; Clikt/terminal I/O components shared by both consoles (`UserQuestionComponent`, `TerminalTextColorComponent`, package `me.pinfort.tsvideos.console.common`). Only put things here that both `manager:console` and `processor:console` actually use
 - `manager:infrastructure` — depends on `core`
 - `manager:api` — depends on `core` + `manager:infrastructure`
-- `manager:console` — depends on `core` + `manager:infrastructure`
+- `manager:console` — depends on `core` + `console-common` + `manager:infrastructure`
 - `processor:infrastructure` — depends on `core`
-- `processor:console` — depends on `core` + `processor:infrastructure`
+- `processor:console` — depends on `core` + `console-common` + `processor:infrastructure`
 
 - **`core`** owns everything shared: domain models (`core/domain`), MyBatis DTOs/mappers for DB access (`core/external/database`, where each DTO converts itself to its domain model via `toDomain()`), the Samba/NAS client (`core/external/samba`), shell execution (`core/external/shell`), wrappers around external recording tools (`core/external/tool` — `TsSplitterClient`, `AmatsukazeAddTaskClient`, `DurationProbeClient`), reusable pipeline helpers (`core/component` — e.g. `CompressComponent`, `DirectoryNameComponent`, `MainSplittedFileFinderComponent`), and **`command`** classes (e.g. `ProgramCommand`, `ExecutedFileCommand`, `SplittedFileCommand`, `CreatedFileCommand`) that are the actual business-logic layer other modules call into. New cross-cutting logic (DB queries, NAS/shell/tool interaction, domain rules) belongs here, not in `manager`/`processor`.
 - **`manager:api`** is a thin Spring MVC layer (`controller`/`response`/`exception`) over `core`'s commands — controllers should stay free of business logic.
