@@ -66,14 +66,22 @@ class DuplicateProgramCommandTest :
 
         context("group") {
             expect("same channel and start time is SAME_BROADCAST") {
-                val actual = duplicateProgramCommand.group(listOf(program(1), program(2)), 0.5)
+                val actual =
+                    duplicateProgramCommand.group(
+                        listOf(program(1), program(2)),
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
+                    )
 
                 actual shouldHaveSize 1
                 actual[0].reason shouldBe DuplicateGroup.Reason.SAME_BROADCAST
             }
 
             expect("same start time without duration is still SAME_BROADCAST") {
-                val actual = duplicateProgramCommand.group(listOf(program(1, duration = -1.0), program(2, duration = -1.0)), 0.5)
+                val actual =
+                    duplicateProgramCommand.group(
+                        listOf(program(1, duration = -1.0), program(2, duration = -1.0)),
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
+                    )
 
                 actual shouldHaveSize 1
                 actual[0].reason shouldBe DuplicateGroup.Reason.SAME_BROADCAST
@@ -83,7 +91,7 @@ class DuplicateProgramCommandTest :
                 val actual =
                     duplicateProgramCommand.group(
                         listOf(program(1), program(2, recordedAt = base.plusMinutes(5))),
-                        0.5,
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
                     )
 
                 actual shouldHaveSize 1
@@ -91,28 +99,77 @@ class DuplicateProgramCommandTest :
                 actual[0].programs.map { it.id }.toSet() shouldBe setOf(1L, 2L)
             }
 
-            expect("short recording inside a long one is OVERLAP") {
+            expect("overlap exactly at the ratio is OVERLAP") {
                 val actual =
                     duplicateProgramCommand.group(
-                        listOf(program(1, duration = 7200.0), program(2, recordedAt = base.plusMinutes(60), duration = 1800.0)),
+                        listOf(program(1), program(2, recordedAt = base.plusMinutes(15))),
                         0.5,
                     )
 
                 actual shouldHaveSize 1
+                actual[0].reason shouldBe DuplicateGroup.Reason.OVERLAP
             }
 
-            expect("margin overlap between consecutive programs is not duplicate") {
+            expect("overlap just below the ratio is not duplicate") {
                 val actual =
                     duplicateProgramCommand.group(
-                        listOf(program(1, duration = 1830.0), program(2, recordedAt = base.plusMinutes(30))),
+                        listOf(program(1), program(2, recordedAt = base.plusMinutes(15).plusSeconds(1))),
                         0.5,
                     )
 
                 actual.shouldBeEmpty()
             }
 
+            expect("long recording covering two different programs is not duplicate") {
+                val actual =
+                    duplicateProgramCommand.group(
+                        listOf(
+                            program(1, duration = 7200.0),
+                            program(2, duration = 3660.0),
+                            program(3, recordedAt = base.plusMinutes(60), duration = 3660.0),
+                        ),
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
+                    )
+
+                actual.shouldBeEmpty()
+            }
+
+            expect("short partial recording inside a long one is not duplicate") {
+                val actual =
+                    duplicateProgramCommand.group(
+                        listOf(program(1, duration = 7200.0), program(2, recordedAt = base.plusMinutes(60), duration = 1800.0)),
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
+                    )
+
+                actual.shouldBeEmpty()
+            }
+
+            expect("margin overlap between consecutive programs is not duplicate") {
+                val actual =
+                    duplicateProgramCommand.group(
+                        listOf(program(1, duration = 1830.0), program(2, recordedAt = base.plusMinutes(30))),
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
+                    )
+
+                actual.shouldBeEmpty()
+            }
+
+            expect("same start time with very different durations is not duplicate") {
+                val actual =
+                    duplicateProgramCommand.group(
+                        listOf(program(1, duration = 7200.0), program(2, duration = 3600.0)),
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
+                    )
+
+                actual.shouldBeEmpty()
+            }
+
             expect("different channels are not duplicate") {
-                val actual = duplicateProgramCommand.group(listOf(program(1), program(2, channel = "BS101")), 0.5)
+                val actual =
+                    duplicateProgramCommand.group(
+                        listOf(program(1), program(2, channel = "BS101")),
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
+                    )
 
                 actual.shouldBeEmpty()
             }
@@ -121,7 +178,7 @@ class DuplicateProgramCommandTest :
                 val actual =
                     duplicateProgramCommand.group(
                         listOf(program(1, recordedAt = LocalDateTime.MIN), program(2, recordedAt = LocalDateTime.MIN)),
-                        0.5,
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
                     )
 
                 actual.shouldBeEmpty()
@@ -132,10 +189,10 @@ class DuplicateProgramCommandTest :
                     duplicateProgramCommand.group(
                         listOf(
                             program(1),
-                            program(2, recordedAt = base.plusMinutes(10)),
-                            program(3, recordedAt = base.plusMinutes(20)),
+                            program(2, recordedAt = base.plusMinutes(4)),
+                            program(3, recordedAt = base.plusMinutes(8)),
                         ),
-                        0.5,
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
                     )
 
                 actual shouldHaveSize 1
@@ -155,7 +212,7 @@ class DuplicateProgramCommandTest :
                             program(7),
                             program(8),
                         ),
-                        0.5,
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
                     )
 
                 actual shouldHaveSize 1
@@ -169,7 +226,7 @@ class DuplicateProgramCommandTest :
                 val actual =
                     duplicateProgramCommand.group(
                         listOf(program(1, recordedAt = later), program(2, recordedAt = later), program(3), program(4)),
-                        0.5,
+                        DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO,
                     )
 
                 actual.map { group -> group.programs.map { it.id }.toSet() } shouldBe listOf(setOf(3L, 4L), setOf(1L, 2L))

@@ -27,7 +27,7 @@ class Duplicates(
 
     private val minOverlapRatio by option(
         "--min-overlap",
-        help = "minimum overlap ratio against the shorter recording to treat as duplicate",
+        help = "minimum overlap ratio against the longer recording to treat as duplicate",
     ).double()
         .default(DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO)
         .check("must be greater than 0 and at most 1") { it > 0.0 && it <= 1.0 }
