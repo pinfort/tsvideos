@@ -15,6 +15,7 @@ import io.mockk.verify
 import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
 import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
+import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.component.DirectoryNameComponent
@@ -31,6 +32,7 @@ class TsVideosManagerTest :
         lateinit var programCommand: ProgramCommand
         lateinit var executedFileCommand: ExecutedFileCommand
         lateinit var createdFileCommand: CreatedFileCommand
+        lateinit var duplicateProgramCommand: DuplicateProgramCommand
         lateinit var terminalTextColorComponent: TerminalTextColorComponent
         lateinit var userQuestionComponent: UserQuestionComponent
         lateinit var directoryNameComponent: DirectoryNameComponent
@@ -40,6 +42,7 @@ class TsVideosManagerTest :
         lateinit var get: Get
         lateinit var delete: Delete
         lateinit var modify: Modify
+        lateinit var duplicates: Duplicates
         lateinit var tsVideosManager: TsVideosManager
 
         beforeTest {
@@ -48,6 +51,7 @@ class TsVideosManagerTest :
             programCommand = mockk()
             executedFileCommand = mockk()
             createdFileCommand = mockk()
+            duplicateProgramCommand = mockk()
             terminalTextColorComponent = mockk()
             userQuestionComponent = mockk()
             directoryNameComponent = mockk()
@@ -57,7 +61,8 @@ class TsVideosManagerTest :
             get = Get(programCommand, executedFileCommand, programDetailToTextComponent)
             delete = Delete(programCommand, userQuestionComponent, createdFileCommand)
             modify = Modify(programCommand, directoryNameComponent, userQuestionComponent)
-            tsVideosManager = TsVideosManager(search, get, delete, modify)
+            duplicates = Duplicates(duplicateProgramCommand, programCommand, terminalTextColorComponent)
+            tsVideosManager = TsVideosManager(search, get, delete, modify, duplicates)
         }
 
         val dummyProgram =
@@ -149,6 +154,16 @@ class TsVideosManagerTest :
 
                 verify(exactly = 1) {
                     programCommand.moveCreatedFiles(dummyProgram, "newDirectory", false)
+                }
+            }
+
+            expect("duplicates") {
+                every { duplicateProgramCommand.detect(any()) } returns listOf()
+
+                tsVideosManager.main(arrayOf("duplicates"))
+
+                verify(exactly = 1) {
+                    duplicateProgramCommand.detect(DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO)
                 }
             }
 

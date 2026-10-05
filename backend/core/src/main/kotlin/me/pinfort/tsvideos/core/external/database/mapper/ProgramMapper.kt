@@ -148,6 +148,28 @@ interface ProgramMapper {
     )
     fun findByExecutedFileId(executedFileId: Long): ProgramDto?
 
+    @Select(
+        """
+            SELECT
+                pg.id,
+                pg.name,
+                pg.executed_file_id,
+                pg.status,
+                ex.drops,
+                ex.size,
+                ex.recorded_at,
+                ex.channel,
+                ex.title,
+                ex.channelName,
+                ex.duration
+            FROM
+                program pg
+                INNER JOIN executed_file ex
+                    ON pg.executed_file_id = ex.id
+        """,
+    )
+    fun selectAll(): List<ProgramDto>
+
     @Update(
         """
             UPDATE

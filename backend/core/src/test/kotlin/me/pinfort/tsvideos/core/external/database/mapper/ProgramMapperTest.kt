@@ -385,6 +385,48 @@ class ProgramMapperTest : ExpectSpec() {
             }
         }
 
+        context("selectAll") {
+            expect("only programs with executed file") {
+                val connection = dataSource.connection
+                connection.prepareStatement("DELETE FROM program").execute()
+                connection.prepareStatement("DELETE FROM executed_file").execute()
+                connection
+                    .prepareStatement(
+                        """
+                    INSERT INTO program(id,name,executed_file_id,status) VALUES(1,'test',1,'REGISTERED'),(2,'orphan',2,'REGISTERED');
+                """,
+                    ).execute()
+                connection
+                    .prepareStatement(
+                        """
+                        INSERT INTO executed_file(id,file,drops,`size`,recorded_at,channel,title,channelName,duration,status)
+                        VALUES(1,'filepath',0,2,cast('2009-08-03 23:58:01' as datetime),'BSxx','myTitle','myChannel',3,'SPLITTED');
+                        """.trimIndent(),
+                    ).execute()
+                connection.commit()
+
+                val actual = programMapper.selectAll()
+                connection.close()
+
+                actual shouldBe
+                    listOf(
+                        ProgramDto(
+                            1,
+                            "test",
+                            1,
+                            ProgramDto.Status.REGISTERED,
+                            0,
+                            2,
+                            LocalDateTime.of(2009, 8, 3, 23, 58, 1),
+                            "BSxx",
+                            "myTitle",
+                            "myChannel",
+                            3.0,
+                        ),
+                    )
+            }
+        }
+
         context("findByExecutedFileId") {
             expect("single") {
                 val connection = dataSource.connection
