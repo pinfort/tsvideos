@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.processor.console.component
+package me.pinfort.tsvideos.console.common.component
 
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
@@ -42,6 +42,38 @@ class UserQuestionComponentTest :
             expect("foo returns false") {
                 every { readlnOrNull() } returns "foo"
                 userQuestionComponent.askDefaultFalse("question") shouldBe false
+            }
+        }
+
+        context("askDefaultTrue") {
+            expect("y returns true") {
+                every { readlnOrNull() } returns "y"
+                userQuestionComponent.askDefaultTrue("question") shouldBe true
+            }
+
+            expect("Y returns true") {
+                every { readlnOrNull() } returns "Y"
+                userQuestionComponent.askDefaultTrue("question") shouldBe true
+            }
+
+            expect("n returns false") {
+                every { readlnOrNull() } returns "n"
+                userQuestionComponent.askDefaultTrue("question") shouldBe false
+            }
+
+            expect("N returns false") {
+                every { readlnOrNull() } returns "N"
+                userQuestionComponent.askDefaultTrue("question") shouldBe false
+            }
+
+            expect("null returns true") {
+                every { readlnOrNull() } returns null
+                userQuestionComponent.askDefaultTrue("question") shouldBe true
+            }
+
+            expect("foo returns true") {
+                every { readlnOrNull() } returns "foo"
+                userQuestionComponent.askDefaultTrue("question") shouldBe true
             }
         }
     })

@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.manager.console.component
+package me.pinfort.tsvideos.console.common.component
 
 import org.springframework.stereotype.Component
 

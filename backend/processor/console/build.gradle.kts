@@ -20,6 +20,7 @@ tasks.test {
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":console-common"))
     implementation(project(":processor:infrastructure"))
     implementation("org.springframework.boot:spring-boot-starter")
     implementation(libs.mybatis.spring.boot)

@@ -5,9 +5,9 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
+import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.manager.console.component.TerminalTextColorComponent
 import java.time.LocalDateTime
 
 class SearchTest :

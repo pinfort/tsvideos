@@ -7,9 +7,9 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.int
+import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.component.DirectoryNameComponent
-import me.pinfort.tsvideos.manager.console.component.UserQuestionComponent
 import org.springframework.stereotype.Component
 import java.nio.file.Path
 
