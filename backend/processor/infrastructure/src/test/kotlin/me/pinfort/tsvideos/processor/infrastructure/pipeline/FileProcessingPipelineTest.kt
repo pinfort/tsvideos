@@ -129,7 +129,7 @@ class FileProcessingPipelineTest :
                 lateinit var splitFile: File
 
                 every { programCommand.findByName(original.name) } returns null
-                every { tsSelectClient.check(any()) } returns 0
+                every { tsSelectClient.check(any(), any()) } returns 0
                 every { durationProbeClient.probe(any(), any()) } returns 100.0
                 every {
                     executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
@@ -209,7 +209,7 @@ class FileProcessingPipelineTest :
                 val result = fileProcessingPipeline.processFile(original)
 
                 result shouldBe FileProcessingPipeline.Result.SKIPPED_ALREADY_REGISTERED
-                verify(exactly = 0) { tsSelectClient.check(any()) }
+                verify(exactly = 0) { tsSelectClient.check(any(), any()) }
             }
         }
 
@@ -233,7 +233,7 @@ class FileProcessingPipelineTest :
                 val executedFile = executedFileFixture(original)
 
                 every { programCommand.findByName(original.name) } returns null
-                every { tsSelectClient.check(any()) } returns 0
+                every { tsSelectClient.check(any(), any()) } returns 0
                 every { durationProbeClient.probe(any(), any()) } returns 100.0
                 every {
                     executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
@@ -266,7 +266,7 @@ class FileProcessingPipelineTest :
                 lateinit var splitFile: File
 
                 every { programCommand.findByName(original.name) } returns null
-                every { tsSelectClient.check(any()) } returns 0
+                every { tsSelectClient.check(any(), any()) } returns 0
                 every { durationProbeClient.probe(any(), any()) } returns 100.0
                 every {
                     executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
@@ -316,7 +316,7 @@ class FileProcessingPipelineTest :
                 lateinit var mainSplittedFile: SplittedFile
 
                 every { programCommand.findByName(original.name) } returns null
-                every { tsSelectClient.check(any()) } returns 0
+                every { tsSelectClient.check(any(), any()) } returns 0
                 every { durationProbeClient.probe(any(), any()) } returns 100.0
                 every {
                     executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())

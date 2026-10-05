@@ -20,12 +20,19 @@ class ProcessCommand(
     private val paths by argument("paths", help = "file or directory containing .m2ts files").multiple(required = true)
     private val dryRun by option("-d", "--dry-run").flag(default = false)
 
+    private val dropCheckProgressPrinter = ProgressPrinter("Drop checking")
     private val compressProgressPrinter = ProgressPrinter("Compressing")
     private val uploadProgressPrinter = ProgressPrinter("Uploading")
 
     override fun run() {
         paths.forEach {
-            pathProcessingRunner.processPath(Path.of(it), dryRun, compressProgressPrinter::render, uploadProgressPrinter::render)
+            pathProcessingRunner.processPath(
+                Path.of(it),
+                dryRun,
+                dropCheckProgressPrinter::render,
+                compressProgressPrinter::render,
+                uploadProgressPrinter::render,
+            )
         }
     }
 }

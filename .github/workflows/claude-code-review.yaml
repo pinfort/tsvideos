@@ -41,4 +41,8 @@ jobs:
 
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://docs.claude.com/en/docs/claude-code/cli-reference for available options
-          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
+          # The review agent needs the read tools (Read/Grep/Glob) to inspect the diff;
+          # without them every tool call is denied and the run ends without posting a review.
+          claude_args: |
+            --max-turns 30
+            --allowed-tools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr review:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"

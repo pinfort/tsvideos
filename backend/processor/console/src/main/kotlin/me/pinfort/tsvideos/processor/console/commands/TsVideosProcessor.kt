@@ -10,9 +10,10 @@ import org.springframework.stereotype.Component
 class TsVideosProcessor(
     private val process: ProcessCommand,
     private val afterEncode: AfterEncodeCommand,
+    private val reset: ResetCommand,
 ) : CliktCommand(name = "tvpcli") {
     init {
-        subcommands(process, afterEncode)
+        subcommands(process, afterEncode, reset)
         versionOption(ApplicationVersion.value)
     }
 

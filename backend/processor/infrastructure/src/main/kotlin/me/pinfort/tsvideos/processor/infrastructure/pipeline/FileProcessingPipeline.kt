@@ -64,6 +64,7 @@ class FileProcessingPipeline(
     fun processFile(
         file: File,
         dryRun: Boolean = false,
+        onDropCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ): Result {
@@ -82,7 +83,7 @@ class FileProcessingPipeline(
                 throw e
             }
 
-        val dropChkOutcome = stage({ rollbackDropChk(file, dryRun) }) { dropChk(file, dryRun) }
+        val dropChkOutcome = stage({ rollbackDropChk(file, dryRun) }) { dropChk(file, dryRun, onDropCheckProgress) }
 
         val executedFile =
             when (dropChkOutcome) {
@@ -110,6 +111,7 @@ class FileProcessingPipeline(
     private fun dropChk(
         file: File,
         dryRun: Boolean,
+        onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
     ): DropChkOutcome {
         if (!file.exists()) {
             throw TsVideosException("file not found, file=$file")
@@ -117,7 +119,7 @@ class FileProcessingPipeline(
 
         programCommand.findByName(file.name)?.let { return DropChkOutcome.AlreadyExists(it) }
 
-        val drops = tsSelectClient.check(file)
+        val drops = tsSelectClient.check(file, onProgress)
         val fileName = FileName.fromFileNameString(file.name)
         val duration = durationProbeClient.probe(file)
 

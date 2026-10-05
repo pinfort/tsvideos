@@ -15,6 +15,7 @@ class PathProcessingRunner(
     fun processPath(
         path: Path,
         dryRun: Boolean = false,
+        onDropCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ) {
@@ -29,7 +30,7 @@ class PathProcessingRunner(
 
         resolveFiles(target).forEach { file ->
             try {
-                fileProcessingPipeline.processFile(file, dryRun, onCompressProgress, onUploadProgress)
+                fileProcessingPipeline.processFile(file, dryRun, onDropCheckProgress, onCompressProgress, onUploadProgress)
             } catch (e: Exception) {
                 logger.error("processing file failed, file=$file", e)
                 val message = "processing file failed. file:$file reason:${e.message}\nstackTrace:\n```\n${e.stackTraceToString()}\n```"

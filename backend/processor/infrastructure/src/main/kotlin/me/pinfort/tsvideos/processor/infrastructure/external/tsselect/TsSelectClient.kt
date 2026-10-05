@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.processor.infrastructure.external.tsselect
 
+import me.pinfort.tsselect.ProgressListener
 import me.pinfort.tsselect.tsDump
 import org.springframework.stereotype.Component
 import java.io.File
@@ -18,5 +19,27 @@ class TsSelectClient {
      * @throws me.pinfort.tsselect.TsSourceOpenException ファイルを開けない場合
      * @throws me.pinfort.tsselect.TsFormatException 188/192/204 バイトの TS パケット列でない場合
      */
-    fun check(file: File): Int = tsDump(file).pids.sumOf { it.drop }.toInt()
+    fun check(file: File): Int = check(file) { _, _ -> }
+
+    /**
+     * ドロップ数を数えつつ、読み込んだバイト数 / 全体バイト数を [onProgress] に通知する。
+     * tsselect は読み込みチャンクごとに 1 回、完了時にもう 1 回コールバックする。
+     * 完了通知 (finished) の bytesProcessed は末尾処理分だけ全体より僅かに少ないことがあるため、
+     * プログレスバーが 100% で終わるよう totalBytes に丸めて渡す。
+     *
+     * @throws me.pinfort.tsselect.TsSourceOpenException ファイルを開けない場合
+     * @throws me.pinfort.tsselect.TsFormatException 188/192/204 バイトの TS パケット列でない場合
+     */
+    fun check(
+        file: File,
+        onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
+    ): Int =
+        tsDump(
+            file,
+            ProgressListener { progress ->
+                val processed =
+                    if (progress.finished && progress.totalBytes > 0) progress.totalBytes else progress.bytesProcessed
+                onProgress(processed, progress.totalBytes)
+            },
+        ).pids.sumOf { it.drop }.toInt()
 }

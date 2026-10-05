@@ -57,4 +57,18 @@ class TsSelectClientTest :
                 }
             }
         }
+
+        context("check with progress") {
+            expect("reports progress and finishes at 100% of the file size") {
+                // 8192 バイトの読み込みチャンクを跨ぐよう、十分な数のパケットを並べる。
+                val file = tempTs(stream(200) { it and 0x0f })
+                val events = mutableListOf<Pair<Long, Long>>()
+
+                tsSelectClient.check(file) { bytesProcessed, totalBytes -> events += bytesProcessed to totalBytes }
+
+                events.forEach { (_, total) -> total shouldBe file.length() }
+                events.any { (processed, _) -> processed < file.length() } shouldBe true
+                events.last() shouldBe (file.length() to file.length())
+            }
+        }
     })
