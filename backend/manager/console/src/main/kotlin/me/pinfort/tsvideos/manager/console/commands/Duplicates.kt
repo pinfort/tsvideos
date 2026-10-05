@@ -6,10 +6,10 @@ import com.github.ajalt.clikt.parameters.options.check
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.double
+import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
 import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.manager.console.component.TerminalTextColorComponent
 import org.springframework.stereotype.Component
 import java.time.format.DateTimeFormatter
 import kotlin.time.Duration.Companion.seconds
