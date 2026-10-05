@@ -12,6 +12,8 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
+import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
+import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
@@ -22,8 +24,6 @@ import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
 import me.pinfort.tsvideos.core.version.ApplicationVersion
 import me.pinfort.tsvideos.manager.console.component.ProgramDetailToTextComponent
-import me.pinfort.tsvideos.manager.console.component.TerminalTextColorComponent
-import me.pinfort.tsvideos.manager.console.component.UserQuestionComponent
 import java.nio.file.Path
 import java.time.LocalDateTime
 
