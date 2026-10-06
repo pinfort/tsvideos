@@ -10,6 +10,7 @@ WORKDIR /app
 COPY gradlew settings.gradle.kts ./
 COPY gradle gradle
 COPY core/build.gradle.kts core/build.gradle.kts
+COPY console-common/build.gradle.kts console-common/build.gradle.kts
 COPY manager/infrastructure/build.gradle.kts manager/infrastructure/build.gradle.kts
 COPY manager/console/build.gradle.kts manager/console/build.gradle.kts
 COPY manager/api/build.gradle.kts manager/api/build.gradle.kts
