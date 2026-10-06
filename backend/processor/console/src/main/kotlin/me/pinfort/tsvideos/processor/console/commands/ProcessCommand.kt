@@ -21,6 +21,7 @@ class ProcessCommand(
     private val dryRun by option("-d", "--dry-run").flag(default = false)
 
     private val dropCheckProgressPrinter = ProgressPrinter("Drop checking")
+    private val emergencyCheckProgressPrinter = ProgressPrinter("Emergency checking")
     private val compressProgressPrinter = ProgressPrinter("Compressing")
     private val uploadProgressPrinter = ProgressPrinter("Uploading")
 
@@ -30,6 +31,7 @@ class ProcessCommand(
                 Path.of(it),
                 dryRun,
                 dropCheckProgressPrinter::render,
+                emergencyCheckProgressPrinter::render,
                 compressProgressPrinter::render,
                 uploadProgressPrinter::render,
             )

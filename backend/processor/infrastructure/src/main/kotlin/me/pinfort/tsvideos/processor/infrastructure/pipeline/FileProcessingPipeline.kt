@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
@@ -9,6 +10,7 @@ import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ExecutedFile
+import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.core.domain.FileName
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
@@ -18,6 +20,7 @@ import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient
 import me.pinfort.tsvideos.core.external.tool.TsSplitterClient
+import me.pinfort.tsvideos.processor.infrastructure.external.ts.EmergencyBroadcastDetector
 import me.pinfort.tsvideos.processor.infrastructure.external.tsselect.TsSelectClient
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
@@ -25,16 +28,18 @@ import java.io.File
 import kotlin.math.ceil
 
 /**
- * DropCheck(tsselect) -> TsSplitter -> CompressAndSave -> AmatsukazeAddTask の4段パイプライン。
+ * DropCheck(tsselect + 緊急警報放送/文字スーパー検出) -> TsSplitter -> CompressAndSave -> AmatsukazeAddTask の4段パイプライン。
  * 各段は失敗すると自身とそれ以前の段を逆順にロールバックしてから例外を再送出する。
  */
 @Component
 class FileProcessingPipeline(
     private val executedFileCommand: ExecutedFileCommand,
+    private val executedFileTagCommand: ExecutedFileTagCommand,
     private val splittedFileCommand: SplittedFileCommand,
     private val createdFileCommand: CreatedFileCommand,
     private val programCommand: ProgramCommand,
     private val tsSelectClient: TsSelectClient,
+    private val emergencyBroadcastDetector: EmergencyBroadcastDetector,
     private val tsSplitterClient: TsSplitterClient,
     private val amatsukazeAddTaskClient: AmatsukazeAddTaskClient,
     private val durationProbeClient: DurationProbeClient,
@@ -65,6 +70,7 @@ class FileProcessingPipeline(
         file: File,
         dryRun: Boolean = false,
         onDropCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> },
+        onEmergencyCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ): Result {
@@ -83,7 +89,10 @@ class FileProcessingPipeline(
                 throw e
             }
 
-        val dropChkOutcome = stage({ rollbackDropChk(file, dryRun) }) { dropChk(file, dryRun, onDropCheckProgress) }
+        val dropChkOutcome =
+            stage({ rollbackDropChk(file, dryRun) }) {
+                dropChk(file, dryRun, onDropCheckProgress, onEmergencyCheckProgress)
+            }
 
         val executedFile =
             when (dropChkOutcome) {
@@ -107,11 +116,12 @@ class FileProcessingPipeline(
         return Result.PROCESSED
     }
 
-    // Stage 1: drop-frame check, then register executed_file + program
+    // Stage 1: drop-frame check + emergency broadcast detection, then register executed_file + program
     private fun dropChk(
         file: File,
         dryRun: Boolean,
         onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
+        onEmergencyCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
     ): DropChkOutcome {
         if (!file.exists()) {
             throw TsVideosException("file not found, file=$file")
@@ -120,6 +130,10 @@ class FileProcessingPipeline(
         programCommand.findByName(file.name)?.let { return DropChkOutcome.AlreadyExists(it) }
 
         val drops = tsSelectClient.check(file, onProgress)
+        val emergency = emergencyBroadcastDetector.detect(file, onEmergencyCheckProgress)
+        if (emergency.ewsDetected || emergency.superimposeDetected) {
+            logger.warn("Emergency broadcast detected, file=$file, result=$emergency")
+        }
         val fileName = FileName.fromFileNameString(file.name)
         val duration = durationProbeClient.probe(file)
 
@@ -136,6 +150,7 @@ class FileProcessingPipeline(
                 dryRun = dryRun,
             )
         programCommand.insert(file.name, executedFile.id, dryRun)
+        executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, emergency.tags(), dryRun)
 
         return DropChkOutcome.Registered(executedFile)
     }

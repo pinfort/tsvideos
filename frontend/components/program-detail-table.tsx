@@ -1,4 +1,5 @@
 import { programStatusToJapanese } from "@/lib/api/status-labels";
+import { detectionToJapanese, KNOWN_TAGS } from "@/lib/api/tags";
 import type { ProgramDetail } from "@/lib/api/types";
 
 export function ProgramDetailTable({ program }: { program: ProgramDetail }) {
@@ -8,6 +9,10 @@ export function ProgramDetailTable({ program }: { program: ProgramDetail }) {
     ["executedFileId", program.executedFileId],
     ["状態", programStatusToJapanese(program.status)],
     ["ドロップ数", program.drops],
+    ...KNOWN_TAGS.map((knownTag): [string, React.ReactNode] => [
+      knownTag.label,
+      detectionToJapanese(program, knownTag),
+    ]),
   ];
 
   return (

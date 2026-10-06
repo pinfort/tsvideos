@@ -12,6 +12,7 @@ import io.mockk.verify
 import io.mockk.verifyOrder
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
@@ -21,6 +22,8 @@ import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFile
+import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
+import me.pinfort.tsvideos.core.domain.ExecutedFileTag
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
@@ -29,6 +32,7 @@ import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient
 import me.pinfort.tsvideos.core.external.tool.TsSplitterClient
+import me.pinfort.tsvideos.processor.infrastructure.external.ts.EmergencyBroadcastDetector
 import me.pinfort.tsvideos.processor.infrastructure.external.tsselect.TsSelectClient
 import org.slf4j.Logger
 import java.io.File
@@ -38,10 +42,12 @@ import java.time.LocalDateTime
 class FileProcessingPipelineTest :
     ExpectSpec({
         lateinit var executedFileCommand: ExecutedFileCommand
+        lateinit var executedFileTagCommand: ExecutedFileTagCommand
         lateinit var splittedFileCommand: SplittedFileCommand
         lateinit var createdFileCommand: CreatedFileCommand
         lateinit var programCommand: ProgramCommand
         lateinit var tsSelectClient: TsSelectClient
+        lateinit var emergencyBroadcastDetector: EmergencyBroadcastDetector
         lateinit var tsSplitterClient: TsSplitterClient
         lateinit var amatsukazeAddTaskClient: AmatsukazeAddTaskClient
         lateinit var durationProbeClient: DurationProbeClient
@@ -67,10 +73,14 @@ class FileProcessingPipelineTest :
         beforeTest {
             clearAllMocks()
             executedFileCommand = mockk()
+            executedFileTagCommand = mockk(relaxed = true)
             splittedFileCommand = mockk()
             createdFileCommand = mockk()
             programCommand = mockk()
             tsSelectClient = mockk()
+            emergencyBroadcastDetector = mockk()
+            every { emergencyBroadcastDetector.detect(any(), any()) } returns
+                EmergencyBroadcastDetector.Result(ewsDetected = false, superimposeDetected = false)
             tsSplitterClient = mockk()
             amatsukazeAddTaskClient = mockk()
             durationProbeClient = mockk()
@@ -81,10 +91,12 @@ class FileProcessingPipelineTest :
             fileProcessingPipeline =
                 FileProcessingPipeline(
                     executedFileCommand = executedFileCommand,
+                    executedFileTagCommand = executedFileTagCommand,
                     splittedFileCommand = splittedFileCommand,
                     createdFileCommand = createdFileCommand,
                     programCommand = programCommand,
                     tsSelectClient = tsSelectClient,
+                    emergencyBroadcastDetector = emergencyBroadcastDetector,
                     tsSplitterClient = tsSplitterClient,
                     amatsukazeAddTaskClient = amatsukazeAddTaskClient,
                     durationProbeClient = durationProbeClient,
@@ -130,6 +142,8 @@ class FileProcessingPipelineTest :
 
                 every { programCommand.findByName(original.name) } returns null
                 every { tsSelectClient.check(any(), any()) } returns 0
+                every { emergencyBroadcastDetector.detect(original, any()) } returns
+                    EmergencyBroadcastDetector.Result(ewsDetected = true, superimposeDetected = false)
                 every { durationProbeClient.probe(any(), any()) } returns 100.0
                 every {
                     executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
@@ -183,6 +197,15 @@ class FileProcessingPipelineTest :
 
                 result shouldBe FileProcessingPipeline.Result.PROCESSED
                 verify { amatsukazeAddTaskClient.addTask(any(), any(), "30fps_light") }
+                // the emergency broadcast detection result is recorded as tags, along with the check itself
+                verify {
+                    executedFileTagCommand.recordCheck(
+                        executedFile.id,
+                        ExecutedFileCheck.EMERGENCY_BROADCAST,
+                        setOf(ExecutedFileTag.EWS),
+                        false,
+                    )
+                }
                 verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
                 // the file stored in created_file must include the NAS baseDir, matching the physical upload location
                 verify {
@@ -210,6 +233,7 @@ class FileProcessingPipelineTest :
 
                 result shouldBe FileProcessingPipeline.Result.SKIPPED_ALREADY_REGISTERED
                 verify(exactly = 0) { tsSelectClient.check(any(), any()) }
+                verify(exactly = 0) { emergencyBroadcastDetector.detect(any(), any()) }
             }
         }
 

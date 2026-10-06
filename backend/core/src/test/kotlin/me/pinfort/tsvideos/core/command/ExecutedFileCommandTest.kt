@@ -19,6 +19,7 @@ import java.time.LocalDateTime
 class ExecutedFileCommandTest :
     ExpectSpec({
         lateinit var executedFileMapper: ExecutedFileMapper
+        lateinit var executedFileTagCommand: ExecutedFileTagCommand
         lateinit var logger: Logger
         lateinit var executedFileCommand: ExecutedFileCommand
 
@@ -53,8 +54,9 @@ class ExecutedFileCommandTest :
         beforeTest {
             clearAllMocks()
             executedFileMapper = mockk()
+            executedFileTagCommand = mockk()
             logger = mockk()
-            executedFileCommand = ExecutedFileCommand(executedFileMapper, logger)
+            executedFileCommand = ExecutedFileCommand(executedFileMapper, executedFileTagCommand, logger)
         }
 
         context("find") {
@@ -189,23 +191,27 @@ class ExecutedFileCommandTest :
 
         context("delete") {
             expect("success") {
+                every { executedFileTagCommand.deleteByExecutedFileId(any(), any()) } just Runs
                 every { executedFileMapper.delete(any()) } just Runs
                 every { logger.info(any()) } just Runs
 
                 executedFileCommand.delete(executedFile)
 
                 verifySequence {
+                    executedFileTagCommand.deleteByExecutedFileId(executedFile.id, false)
                     executedFileMapper.delete(executedFile.id)
                     logger.info(any())
                 }
             }
 
             expect("dryRun") {
+                every { executedFileTagCommand.deleteByExecutedFileId(any(), any()) } just Runs
                 every { logger.info(any()) } just Runs
 
                 executedFileCommand.delete(executedFile, true)
 
                 verifySequence {
+                    executedFileTagCommand.deleteByExecutedFileId(executedFile.id, true)
                     logger.info(any())
                 }
                 verify(exactly = 0) { executedFileMapper.delete(any()) }
