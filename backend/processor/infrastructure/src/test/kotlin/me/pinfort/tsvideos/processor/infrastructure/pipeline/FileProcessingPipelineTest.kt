@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
+import io.mockk.Called
 import io.mockk.Runs
 import io.mockk.clearAllMocks
 import io.mockk.every
@@ -15,8 +16,8 @@ import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
-import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
+import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.CreatedFile
@@ -91,8 +92,7 @@ class FileProcessingPipelineTest :
                     mainSplittedFileFinderComponent = MainSplittedFileFinderComponent(),
                     compressComponent = CompressComponent(logger),
                     nasComponent = nasComponent,
-                    sambaClient = sambaClient,
-                    directoryNameComponent = DirectoryNameComponent(NormalizeComponent()),
+                    nasDestinationResolver = NasDestinationResolver(NormalizeComponent(), sambaClient),
                     processorToolConfigurationProperties = properties,
                     logger = logger,
                 )
@@ -120,6 +120,37 @@ class FileProcessingPipelineTest :
             duration = 100.0,
             status = ExecutedFile.Status.DROPCHECKED,
         )
+
+        context("processFile - dry run") {
+            expect("checks the recording without creating files or invoking mutating dependencies") {
+                val original = newOriginalFile()
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+
+                fileProcessingPipeline.processFile(original, dryRun = true) shouldBe FileProcessingPipeline.Result.DRY_RUN
+
+                original.parentFile.listFiles()!!.toList() shouldBe listOf(original)
+                verify(exactly = 1) { tsSelectClient.check(original, any()) }
+                verify(exactly = 1) { durationProbeClient.probe(original, any()) }
+                verify {
+                    listOf(
+                        executedFileCommand,
+                        splittedFileCommand,
+                        createdFileCommand,
+                        tsSplitterClient,
+                        nasComponent,
+                        amatsukazeAddTaskClient,
+                    ) wasNot Called
+                }
+                verify(exactly = 0) { programCommand.insert(any(), any(), any()) }
+            }
+            expect("does not run rollback when read-only validation fails") {
+                val missing = File("/nonexistent/recording.m2ts")
+                shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(missing, dryRun = true) }
+                verify { listOf(executedFileCommand, splittedFileCommand, createdFileCommand, programCommand) wasNot Called }
+            }
+        }
 
         context("processFile - happy path") {
             expect("processes all four stages and returns PROCESSED") {

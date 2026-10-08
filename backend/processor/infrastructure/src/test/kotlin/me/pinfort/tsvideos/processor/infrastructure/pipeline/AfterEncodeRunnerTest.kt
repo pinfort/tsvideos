@@ -13,8 +13,8 @@ import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
-import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.MimeTypeComponent
+import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
 import me.pinfort.tsvideos.core.domain.CreatedFile
@@ -60,7 +60,6 @@ class AfterEncodeRunnerTest :
         lateinit var logger: Logger
         lateinit var afterEncodeRunner: AfterEncodeRunner
 
-        val directoryNameComponent = DirectoryNameComponent(NormalizeComponent())
         val mimeTypeComponent = MimeTypeComponent()
 
         fun splittedFileOf(fixture: Fixture) =
@@ -155,8 +154,7 @@ class AfterEncodeRunnerTest :
                     executedFileCommand,
                     programCommand,
                     nasComponent,
-                    sambaClient,
-                    directoryNameComponent,
+                    NasDestinationResolver(NormalizeComponent(), sambaClient),
                     mimeTypeComponent,
                     validateCompletedComponent,
                     slackClient,

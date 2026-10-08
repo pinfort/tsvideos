@@ -5,8 +5,8 @@ import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
-import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
+import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.FileName
@@ -41,13 +41,13 @@ class FileProcessingPipeline(
     private val mainSplittedFileFinderComponent: MainSplittedFileFinderComponent,
     private val compressComponent: CompressComponent,
     private val nasComponent: NasComponent,
-    private val sambaClient: SambaClient,
-    private val directoryNameComponent: DirectoryNameComponent,
+    private val nasDestinationResolver: NasDestinationResolver,
     private val processorToolConfigurationProperties: ProcessorToolConfigurationProperties,
     private val logger: Logger,
 ) {
     enum class Result {
         PROCESSED,
+        DRY_RUN,
         SKIPPED_ALREADY_REGISTERED,
     }
 
@@ -68,22 +68,21 @@ class FileProcessingPipeline(
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ): Result {
-        // 成功した段のロールバックを新しい順に積み、失敗時は「失敗した段自身 -> それ以前の段」の順で実行する。
-        val completedRollbacks = ArrayDeque<() -> Unit>()
+        if (dryRun) {
+            if (!file.isFile) throw TsVideosException("file not found, file=$file")
+            if (programCommand.findByName(file.name) != null) return Result.SKIPPED_ALREADY_REGISTERED
+            FileName.fromFileNameString(file.name)
+            val drops = tsSelectClient.check(file, onDropCheckProgress)
+            val duration = durationProbeClient.probe(file)
+            logger.info(
+                "Dry run: checked file=$file, drops=$drops, duration=$duration; " +
+                    "would register, split, compress, upload and submit encoding",
+            )
+            return Result.DRY_RUN
+        }
+        val runner = RollbackRunner()
 
-        fun <T> stage(
-            rollback: () -> Unit,
-            body: () -> T,
-        ): T =
-            try {
-                body().also { completedRollbacks.addFirst(rollback) }
-            } catch (e: Exception) {
-                rollback()
-                completedRollbacks.forEach { it() }
-                throw e
-            }
-
-        val dropChkOutcome = stage({ rollbackDropChk(file, dryRun) }) { dropChk(file, dryRun, onDropCheckProgress) }
+        val dropChkOutcome = runner.stage({ rollbackDropChk(file, dryRun) }) { dropChk(file, dryRun, onDropCheckProgress) }
 
         val executedFile =
             when (dropChkOutcome) {
@@ -94,13 +93,13 @@ class FileProcessingPipeline(
                 is DropChkOutcome.Registered -> dropChkOutcome.executedFile
             }
 
-        val mainSplittedFile = stage({ rollbackTsSplit(executedFile, dryRun) }) { tsSplit(executedFile, dryRun) }
+        val mainSplittedFile = runner.stage({ rollbackTsSplit(executedFile, dryRun) }) { tsSplit(executedFile, dryRun) }
 
-        stage({ rollbackCompressAndSave(mainSplittedFile, dryRun) }) {
+        runner.stage({ rollbackCompressAndSave(mainSplittedFile, dryRun) }) {
             compressAndSave(mainSplittedFile, dryRun, onCompressProgress, onUploadProgress)
         }
 
-        stage({ rollbackAmatsukazeAddTask(mainSplittedFile) }) {
+        runner.stage({ rollbackAmatsukazeAddTask(mainSplittedFile) }) {
             amatsukazeAddTask(mainSplittedFile)
         }
 
@@ -229,14 +228,12 @@ class FileProcessingPipeline(
             return
         }
 
-        // splitFile.parentFile is the "tssplitter" directory; its parent is the original recording's directory,
-        // whose normalized name is the NAS bucket/program-directory name.
-        val tssplitterDir = splitFile.parentFile.toPath()
-        val bucket = directoryNameComponent.indexDirectoryName(tssplitterDir)
-        val programDirectory = directoryNameComponent.programDirectoryName(tssplitterDir)
-        val relativeTargetFile = "$bucket/$programDirectory/${compressedFile.name}"
-        // NAS の baseDir を含めた、共有ルートからの相対パスとして DB にも保存する。
-        val targetFile = sambaClient.resolvePathUnderBaseDir(SambaClient.NasType.ORIGINAL_STORE_NAS, relativeTargetFile)
+        val targetFile =
+            nasDestinationResolver.resolve(
+                splitFile.parentFile.parentFile.toPath(),
+                compressedFile.name,
+                SambaClient.NasType.ORIGINAL_STORE_NAS,
+            )
 
         nasComponent.uploadResource(compressedFile, targetFile, SambaClient.NasType.ORIGINAL_STORE_NAS, onUploadProgress)
         createdFileCommand.insert(
