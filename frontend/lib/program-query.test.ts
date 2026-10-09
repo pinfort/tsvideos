@@ -6,6 +6,13 @@ describe("parseProgramQuery", () => {
     expect(parseProgramQuery({})).toEqual({ name: "", limit: 10, offset: 0 });
     expect(parseProgramQuery({ limit: "NaN", offset: "Infinity" })).toEqual({ name: "", limit: 10, offset: 0 });
   });
+  it.each(["0", "", "   "])("preserves pagination defaults for %j", (value) => {
+    expect(parseProgramQuery({ limit: value, offset: value })).toEqual({
+      name: "",
+      limit: 10,
+      offset: 0,
+    });
+  });
   it("truncates fractions and preserves the search term", () => {
     expect(parseProgramQuery({ name: "番組", limit: "2.8", offset: "3.9" })).toEqual({ name: "番組", limit: 2, offset: 3 });
   });
