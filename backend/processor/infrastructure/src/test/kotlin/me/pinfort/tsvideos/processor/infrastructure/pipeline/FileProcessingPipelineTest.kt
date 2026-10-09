@@ -152,6 +152,30 @@ class FileProcessingPipelineTest :
             }
         }
 
+        context("processFile - shared inspection") {
+            for (dryRun in listOf(false, true)) {
+                expect("rejects directories before calling collaborators, dryRun=$dryRun") {
+                    val directory = Files.createTempDirectory("inspection-directory").toFile()
+                    try {
+                        shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(directory, dryRun) }
+                        verify {
+                            listOf(programCommand, executedFileCommand, tsSelectClient, durationProbeClient) wasNot Called
+                        }
+                    } finally {
+                        directory.delete()
+                    }
+                }
+                expect("inspection failure never rolls back existing records, dryRun=$dryRun") {
+                    val original = newOriginalFile()
+                    every { programCommand.findByName(original.name) } returns null
+                    every { tsSelectClient.check(any(), any()) } throws TsVideosException("inspection failed")
+                    shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original, dryRun) }
+                    verify { listOf(executedFileCommand, splittedFileCommand, createdFileCommand) wasNot Called }
+                    original.exists() shouldBe true
+                }
+            }
+        }
+
         context("processFile - happy path") {
             expect("processes all four stages and returns PROCESSED") {
                 val original = newOriginalFile()
@@ -245,16 +269,41 @@ class FileProcessingPipelineTest :
         }
 
         context("processFile - drop chk failure") {
-            expect("rolls back drop chk and rethrows when the file does not exist") {
+            expect("rejects a missing file before registering rollback") {
                 val missing = File("/nonexistent/path/[210708-0030][BSBS13_1][channel]title.m2ts")
-                every { executedFileCommand.findByFile(missing.absolutePath) } returns null
 
                 shouldThrow<TsVideosException> {
                     fileProcessingPipeline.processFile(missing)
                 }
 
-                verify { executedFileCommand.findByFile(missing.absolutePath) }
+                verify(exactly = 0) { executedFileCommand.findByFile(missing.absolutePath) }
                 verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
+            }
+        }
+
+        context("processFile - registration failure") {
+            expect("rolls back a partially registered recording") {
+                val original = newOriginalFile()
+                val executedFile = executedFileFixture(original)
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+                every {
+                    executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
+                } returns executedFile
+                every { programCommand.insert(any(), any(), any()) } throws TsVideosException("registration failed")
+                every { executedFileCommand.findByFile(original.absolutePath) } returns executedFile
+                every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+                every { executedFileCommand.delete(any(), any()) } just Runs
+
+                shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                verifyOrder {
+                    programCommand.insert(original.name, executedFile.id, false)
+                    programCommand.deleteByExecutedFileId(executedFile.id, false)
+                    executedFileCommand.delete(executedFile, false)
+                }
+                verify { tsSplitterClient wasNot Called }
             }
         }
 
