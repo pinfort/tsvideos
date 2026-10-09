@@ -36,6 +36,7 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 - `reset <録画ファイル>` — 指定した録画ファイルの処理をリセットします。`executed_file` → `program` を辿り、`splitted_file` / `created_file` の各レコード、NAS 上のファイル、ローカルに残った分割ファイルを削除したうえで `program` と `executed_file` のレコードも消します（元の録画ファイルは残します）。実行前に確認を求めます。ロールバックは行いません（Python 版 `reset.py` の移植）。
 
 いずれも `-d` / `--dry-run` で書き込みを行わずに実行できます。
+`process --dry-run` は登録済み確認・ファイル名検証・ドロップチェック・長さの取得まで行い、以降の予定をログに出します。DB 登録、分割、圧縮、NAS アップロード、エンコード投入、ロールバックは実行しません。
 
 ```bash
 ./gradlew processor:console:bootRun --args="process D:\\rec\\foo.m2ts"

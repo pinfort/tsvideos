@@ -4,8 +4,8 @@ import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
-import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.MimeTypeComponent
+import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.Program
@@ -34,8 +34,7 @@ class AfterEncodeRunner(
     private val executedFileCommand: ExecutedFileCommand,
     private val programCommand: ProgramCommand,
     private val nasComponent: NasComponent,
-    private val sambaClient: SambaClient,
-    private val directoryNameComponent: DirectoryNameComponent,
+    private val nasDestinationResolver: NasDestinationResolver,
     private val mimeTypeComponent: MimeTypeComponent,
     private val validateCompletedComponent: ValidateCompletedComponent,
     private val slackClient: SlackClient,
@@ -139,20 +138,12 @@ class AfterEncodeRunner(
             RegisteredFile(localFile, createdFile)
         }
 
-    /**
-     * 出力ファイルは <録画ディレクトリ>/tssplitter/encoded/ に置かれるため、2つ上の tssplitter
-     * ディレクトリを DirectoryNameComponent に渡すと録画ディレクトリ名が得られる。
-     * FileProcessingPipeline の圧縮ファイルと異なり、エンコード済みファイルは VIDEO_STORE_NAS に置く。
-     */
-    private fun nasTargetFile(file: Path): String {
-        val splittedFileDirectory = file.parent.parent
-        val bucket = directoryNameComponent.indexDirectoryName(splittedFileDirectory)
-        val programDirectory = directoryNameComponent.programDirectoryName(splittedFileDirectory)
-        return sambaClient.resolvePathUnderBaseDir(
+    private fun nasTargetFile(file: Path): String =
+        nasDestinationResolver.resolve(
+            file.parent.parent.parent,
+            file.fileName.toString(),
             SambaClient.NasType.VIDEO_STORE_NAS,
-            "$bucket/$programDirectory/${file.fileName}",
         )
-    }
 
     private fun moveFiles(
         registeredFiles: List<RegisteredFile>,

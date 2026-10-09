@@ -5,12 +5,11 @@ import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
-import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
+import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.FileName
-import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import me.pinfort.tsvideos.core.external.samba.NasComponent
@@ -41,25 +40,21 @@ class FileProcessingPipeline(
     private val mainSplittedFileFinderComponent: MainSplittedFileFinderComponent,
     private val compressComponent: CompressComponent,
     private val nasComponent: NasComponent,
-    private val sambaClient: SambaClient,
-    private val directoryNameComponent: DirectoryNameComponent,
+    private val nasDestinationResolver: NasDestinationResolver,
     private val processorToolConfigurationProperties: ProcessorToolConfigurationProperties,
     private val logger: Logger,
 ) {
     enum class Result {
         PROCESSED,
+        DRY_RUN,
         SKIPPED_ALREADY_REGISTERED,
     }
 
-    private sealed class DropChkOutcome {
-        data class Registered(
-            val executedFile: ExecutedFile,
-        ) : DropChkOutcome()
-
-        data class AlreadyExists(
-            val program: Program,
-        ) : DropChkOutcome()
-    }
+    private data class RecordingInspection(
+        val fileName: FileName,
+        val drops: Int,
+        val duration: Double,
+    )
 
     fun processFile(
         file: File,
@@ -68,61 +63,54 @@ class FileProcessingPipeline(
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ): Result {
-        // 成功した段のロールバックを新しい順に積み、失敗時は「失敗した段自身 -> それ以前の段」の順で実行する。
-        val completedRollbacks = ArrayDeque<() -> Unit>()
+        val inspection = inspect(file, onDropCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
+        if (dryRun) {
+            logger.info(
+                "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}; " +
+                    "would register, split, compress, upload and submit encoding",
+            )
+            return Result.DRY_RUN
+        }
+        val runner = RollbackRunner()
+        val executedFile = runner.stage({ rollbackRegistration(file) }) { registerRecording(file, inspection) }
 
-        fun <T> stage(
-            rollback: () -> Unit,
-            body: () -> T,
-        ): T =
-            try {
-                body().also { completedRollbacks.addFirst(rollback) }
-            } catch (e: Exception) {
-                rollback()
-                completedRollbacks.forEach { it() }
-                throw e
-            }
+        val mainSplittedFile = runner.stage({ rollbackTsSplit(executedFile) }) { tsSplit(executedFile) }
 
-        val dropChkOutcome = stage({ rollbackDropChk(file, dryRun) }) { dropChk(file, dryRun, onDropCheckProgress) }
-
-        val executedFile =
-            when (dropChkOutcome) {
-                is DropChkOutcome.AlreadyExists -> {
-                    logger.info("Program already registered, skip processing, file=$file, program=${dropChkOutcome.program}")
-                    return Result.SKIPPED_ALREADY_REGISTERED
-                }
-                is DropChkOutcome.Registered -> dropChkOutcome.executedFile
-            }
-
-        val mainSplittedFile = stage({ rollbackTsSplit(executedFile, dryRun) }) { tsSplit(executedFile, dryRun) }
-
-        stage({ rollbackCompressAndSave(mainSplittedFile, dryRun) }) {
-            compressAndSave(mainSplittedFile, dryRun, onCompressProgress, onUploadProgress)
+        runner.stage({ rollbackCompressAndSave(mainSplittedFile) }) {
+            compressAndSave(mainSplittedFile, onCompressProgress, onUploadProgress)
         }
 
-        stage({ rollbackAmatsukazeAddTask(mainSplittedFile) }) {
+        runner.stage({ rollbackAmatsukazeAddTask(mainSplittedFile) }) {
             amatsukazeAddTask(mainSplittedFile)
         }
 
         return Result.PROCESSED
     }
 
-    // Stage 1: drop-frame check, then register executed_file + program
-    private fun dropChk(
+    // Read-only checks shared by normal processing and dry-run, before any rollback is needed.
+    private fun inspect(
         file: File,
-        dryRun: Boolean,
         onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
-    ): DropChkOutcome {
-        if (!file.exists()) {
-            throw TsVideosException("file not found, file=$file")
+    ): RecordingInspection? {
+        if (!file.isFile) {
+            throw TsVideosException("file not found or not a regular file, file=$file")
         }
-
-        programCommand.findByName(file.name)?.let { return DropChkOutcome.AlreadyExists(it) }
-
-        val drops = tsSelectClient.check(file, onProgress)
+        programCommand.findByName(file.name)?.let {
+            logger.info("Program already registered, skip processing, file=$file, program=$it")
+            return null
+        }
         val fileName = FileName.fromFileNameString(file.name)
+        val drops = tsSelectClient.check(file, onProgress)
         val duration = durationProbeClient.probe(file)
+        return RecordingInspection(fileName, drops, duration)
+    }
 
+    // Stage 1: register the inspected recording as executed_file + program.
+    private fun registerRecording(
+        file: File,
+        inspection: RecordingInspection,
+    ): ExecutedFile {
+        val (fileName, drops, duration) = inspection
         val executedFile =
             executedFileCommand.insert(
                 file = file.absolutePath,
@@ -133,31 +121,24 @@ class FileProcessingPipeline(
                 title = fileName.title,
                 channelName = fileName.channelName,
                 duration = duration,
-                dryRun = dryRun,
             )
-        programCommand.insert(file.name, executedFile.id, dryRun)
+        programCommand.insert(file.name, executedFile.id)
 
-        return DropChkOutcome.Registered(executedFile)
+        return executedFile
     }
 
-    private fun rollbackDropChk(
-        file: File,
-        dryRun: Boolean,
-    ) {
+    private fun rollbackRegistration(file: File) {
         val executedFile = executedFileCommand.findByFile(file.absolutePath)
         if (executedFile == null) {
             logger.warn("No executed file to rollback, file=$file")
             return
         }
-        programCommand.deleteByExecutedFileId(executedFile.id, dryRun)
-        executedFileCommand.delete(executedFile, dryRun)
+        programCommand.deleteByExecutedFileId(executedFile.id)
+        executedFileCommand.delete(executedFile)
     }
 
     // Stage 2: split into elementary streams, register splitted_file rows, pick the main file
-    private fun tsSplit(
-        executedFile: ExecutedFile,
-        dryRun: Boolean,
-    ): SplittedFile {
+    private fun tsSplit(executedFile: ExecutedFile): SplittedFile {
         val originalFile = File(executedFile.file)
         if (!originalFile.exists()) {
             throw TsVideosException("file not found, file=$originalFile")
@@ -186,21 +167,18 @@ class FileProcessingPipeline(
         val insertedSplittedFiles =
             foundFiles.map { splitFile ->
                 val duration = durationProbeClient.probe(splitFile)
-                splittedFileCommand.insert(executedFile.id, splitFile.absolutePath, splitFile.length(), duration, dryRun)
+                splittedFileCommand.insert(executedFile.id, splitFile.absolutePath, splitFile.length(), duration)
             }
-        executedFileCommand.updateStatus(executedFile, ExecutedFile.Status.SPLITTED, dryRun)
+        executedFileCommand.updateStatus(executedFile, ExecutedFile.Status.SPLITTED)
 
         return mainSplittedFileFinderComponent.find(executedFile, insertedSplittedFiles)
     }
 
-    private fun rollbackTsSplit(
-        executedFile: ExecutedFile,
-        dryRun: Boolean,
-    ) {
+    private fun rollbackTsSplit(executedFile: ExecutedFile) {
         val originalFile = File(executedFile.file)
         val outDir = File(originalFile.parentFile, "tssplitter")
         findSplitFiles(originalFile, outDir).forEach { it.delete() }
-        splittedFileCommand.selectByExecutedFileId(executedFile.id).forEach { splittedFileCommand.delete(it, dryRun) }
+        splittedFileCommand.selectByExecutedFileId(executedFile.id).forEach { splittedFileCommand.delete(it) }
     }
 
     private fun findSplitFiles(
@@ -217,7 +195,6 @@ class FileProcessingPipeline(
     // Stage 3: gzip-compress the main split file and upload it to the original-store NAS
     private fun compressAndSave(
         splittedFile: SplittedFile,
-        dryRun: Boolean,
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
     ) {
@@ -229,14 +206,12 @@ class FileProcessingPipeline(
             return
         }
 
-        // splitFile.parentFile is the "tssplitter" directory; its parent is the original recording's directory,
-        // whose normalized name is the NAS bucket/program-directory name.
-        val tssplitterDir = splitFile.parentFile.toPath()
-        val bucket = directoryNameComponent.indexDirectoryName(tssplitterDir)
-        val programDirectory = directoryNameComponent.programDirectoryName(tssplitterDir)
-        val relativeTargetFile = "$bucket/$programDirectory/${compressedFile.name}"
-        // NAS の baseDir を含めた、共有ルートからの相対パスとして DB にも保存する。
-        val targetFile = sambaClient.resolvePathUnderBaseDir(SambaClient.NasType.ORIGINAL_STORE_NAS, relativeTargetFile)
+        val targetFile =
+            nasDestinationResolver.resolve(
+                splitFile.parentFile.parentFile.toPath(),
+                compressedFile.name,
+                SambaClient.NasType.ORIGINAL_STORE_NAS,
+            )
 
         nasComponent.uploadResource(compressedFile, targetFile, SambaClient.NasType.ORIGINAL_STORE_NAS, onUploadProgress)
         createdFileCommand.insert(
@@ -245,20 +220,16 @@ class FileProcessingPipeline(
             compressedFile.length(),
             "video/vnd.dlna.mpeg-tts",
             "gzip",
-            dryRun = dryRun,
         )
-        splittedFileCommand.updateStatus(splittedFile, SplittedFile.Status.COMPRESS_SAVED, dryRun)
+        splittedFileCommand.updateStatus(splittedFile, SplittedFile.Status.COMPRESS_SAVED)
         compressedFile.delete()
     }
 
-    private fun rollbackCompressAndSave(
-        splittedFile: SplittedFile,
-        dryRun: Boolean,
-    ) {
+    private fun rollbackCompressAndSave(splittedFile: SplittedFile) {
         createdFileCommand
             .selectBySplittedFileId(splittedFile.id)
             .filter { it.encoding == "gzip" }
-            .forEach { createdFileCommand.delete(it, dryRun) }
+            .forEach { createdFileCommand.delete(it) }
     }
 
     // Stage 4: submit the main split file to the running Amatsukaze server

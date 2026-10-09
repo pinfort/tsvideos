@@ -13,8 +13,8 @@ import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
-import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.MimeTypeComponent
+import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
 import me.pinfort.tsvideos.core.domain.CreatedFile
@@ -35,9 +35,11 @@ import java.time.LocalDateTime
  * <root>/myprogram/tssplitter/succeeded/rec_1.m2ts     Amatsukazeが移動した入力ファイル (IN_PATH)
  * <root>/myprogram/tssplitter/encoded/rec_1.mp4        エンコード済みファイル (FILES)
  */
-private class Fixture {
+private class Fixture(
+    recordingDirectoryName: String = "myprogram",
+) {
     val root: File = Files.createTempDirectory("after-encode-test").toFile()
-    val recordingDir = File(root, "myprogram").also { it.mkdirs() }
+    val recordingDir = File(root, recordingDirectoryName).also { it.mkdirs() }
     val tssplitterDir = File(recordingDir, "tssplitter").also { it.mkdirs() }
     val succeededDir = File(tssplitterDir, "succeeded").also { it.mkdirs() }
     val encodedDir = File(tssplitterDir, "encoded").also { it.mkdirs() }
@@ -60,7 +62,6 @@ class AfterEncodeRunnerTest :
         lateinit var logger: Logger
         lateinit var afterEncodeRunner: AfterEncodeRunner
 
-        val directoryNameComponent = DirectoryNameComponent(NormalizeComponent())
         val mimeTypeComponent = MimeTypeComponent()
 
         fun splittedFileOf(fixture: Fixture) =
@@ -155,8 +156,7 @@ class AfterEncodeRunnerTest :
                     executedFileCommand,
                     programCommand,
                     nasComponent,
-                    sambaClient,
-                    directoryNameComponent,
+                    NasDestinationResolver(NormalizeComponent(), sambaClient),
                     mimeTypeComponent,
                     validateCompletedComponent,
                     slackClient,
@@ -191,6 +191,47 @@ class AfterEncodeRunnerTest :
                 verify(exactly = 0) { createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any()) }
                 verify(exactly = 0) { nasComponent.uploadResource(any(), any(), any(), any()) }
                 fixture.outFile.exists() shouldBe true
+            }
+        }
+
+        context("run - NAS destination") {
+            expect("uses the normalized recording directory above tssplitter and encoded for registration and upload") {
+                val fixture = Fixture("Ａnime:０１")
+                try {
+                    stubRegisterAndMove(fixture)
+                    every { programCommand.findByExecutedFileId(10) } returns program
+                    every { validateCompletedComponent.validate(1) } returns true
+                    every { executedFileCommand.find(10) } returns executedFileOf(fixture)
+                    every { splittedFileCommand.selectByExecutedFileId(10) } returns listOf(splittedFileOf(fixture))
+                    every { programCommand.updateStatusByExecutedFileId(any(), any(), any()) } just Runs
+
+                    afterEncodeRunner.run(inputOf(fixture))
+
+                    verify(exactly = 1) {
+                        sambaClient.resolvePathUnderBaseDir(SambaClient.NasType.VIDEO_STORE_NAS, "A/Anime：01/rec_1.mp4")
+                    }
+                    verify(exactly = 1) {
+                        createdFileCommand.insert(
+                            20,
+                            "nas-base-dir/A/Anime：01/rec_1.mp4",
+                            7,
+                            "video/mp4",
+                            null,
+                            CreatedFile.Status.ENCODE_SUCCESS,
+                            false,
+                        )
+                    }
+                    verify(exactly = 1) {
+                        nasComponent.uploadResource(
+                            fixture.outFile,
+                            "nas-base-dir/A/Anime：01/rec_1.mp4",
+                            SambaClient.NasType.VIDEO_STORE_NAS,
+                            any(),
+                        )
+                    }
+                } finally {
+                    fixture.root.deleteRecursively()
+                }
             }
         }
 
