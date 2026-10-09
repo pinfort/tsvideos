@@ -1,3 +1,4 @@
+import { parseProgramQuery } from "@/lib/program-query";
 import { Pager } from "@/components/pager";
 import { ProgramsTable } from "@/components/programs-table";
 import { SearchForm } from "@/components/search-form";
@@ -8,11 +9,7 @@ export default async function HomePage({
 }: {
   searchParams: Promise<{ name?: string; limit?: string; offset?: string }>;
 }) {
-  const { name = "", limit = "10", offset = "0" } = await searchParams;
-  // Clamp to the ranges the backend actually accepts (limit: 1-100, offset: >=0)
-  // so a hand-edited URL can't send an out-of-range value and hit its 400.
-  const limitNum = Math.min(Math.max(Number(limit) || 10, 1), 100);
-  const offsetNum = Math.max(Number(offset) || 0, 0);
+  const { name, limit: limitNum, offset: offsetNum } = parseProgramQuery(await searchParams);
   // Fetch one extra row to detect whether a next page exists without relying
   // on a total count from the API (SearchResponse doesn't provide one). Can't
   // do this when limitNum is already at the backend's max, so fall back to
