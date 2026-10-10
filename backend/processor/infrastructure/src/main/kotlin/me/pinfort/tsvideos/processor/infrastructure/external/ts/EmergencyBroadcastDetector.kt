@@ -3,7 +3,9 @@ package me.pinfort.tsvideos.processor.infrastructure.external.ts
 import me.pinfort.tsvideos.core.domain.ExecutedFileTag
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import org.springframework.stereotype.Component
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 
 /**
  * TS を 1 パス読み、緊急警報放送 (EWS) と文字スーパーの有無を検出する。
@@ -105,7 +107,7 @@ class EmergencyBroadcastDetector {
     }
 
     private fun readFully(
-        input: java.io.InputStream,
+        input: InputStream,
         buf: ByteArray,
         off: Int,
         len: Int,
@@ -278,7 +280,7 @@ class EmergencyBroadcastDetector {
 
     /** PSI セクションを TS パケットのペイロードから組み立てる */
     private class SectionAssembler {
-        private val buffer = java.io.ByteArrayOutputStream()
+        private val buffer = ByteArrayOutputStream()
         private var assembling = false
 
         fun reset() {
@@ -296,7 +298,7 @@ class EmergencyBroadcastDetector {
             if (payloadUnitStart) {
                 val pointer = buf.u8(p)
                 p += 1
-                if (assembling) buffer.write(buf, p, (pointer).coerceAtMost(end - p))
+                if (assembling) buffer.write(buf, p, pointer.coerceAtMost(end - p))
                 val sections = drain()
                 buffer.reset()
                 p += pointer
@@ -336,7 +338,7 @@ class EmergencyBroadcastDetector {
 
     /** PES を TS パケットのペイロードから組み立てる。完成した PES を返す (途中で切れたものも含む) */
     private class PesAssembler {
-        private val buffer = java.io.ByteArrayOutputStream()
+        private val buffer = ByteArrayOutputStream()
         private var assembling = false
 
         fun reset() {
