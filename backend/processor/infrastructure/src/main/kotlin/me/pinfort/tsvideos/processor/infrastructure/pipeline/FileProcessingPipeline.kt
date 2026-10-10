@@ -59,7 +59,8 @@ class FileProcessingPipeline(
         val fileName: FileName,
         val drops: Int,
         val duration: Double,
-        val tags: Set<String>,
+        // null when emergency broadcast detection failed: the recording is left "not checked"
+        val emergencyTags: Set<String>?,
     )
 
     fun processFile(
@@ -74,7 +75,7 @@ class FileProcessingPipeline(
         if (dryRun) {
             logger.info(
                 "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}, " +
-                    "tags=${inspection.tags}; " +
+                    "tags=${inspection.emergencyTags}; " +
                     "would register, split, compress, upload and submit encoding",
             )
             return Result.DRY_RUN
@@ -111,12 +112,28 @@ class FileProcessingPipeline(
         }
         val fileName = FileName.fromFileNameString(file.name)
         val drops = tsSelectClient.check(file, onProgress)
-        val emergency = emergencyBroadcastDetector.detect(file, onEmergencyCheckProgress)
+        val emergencyTags = detectEmergencyBroadcast(file, onEmergencyCheckProgress)
+        val duration = durationProbeClient.probe(file)
+        return RecordingInspection(fileName, drops, duration, emergencyTags)
+    }
+
+    // Detection is supplementary, so a failure must not stop processing: log it and return null so
+    // the check is not recorded and the recording shows as "not checked".
+    private fun detectEmergencyBroadcast(
+        file: File,
+        onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
+    ): Set<String>? {
+        val emergency =
+            try {
+                emergencyBroadcastDetector.detect(file, onProgress)
+            } catch (e: Exception) {
+                logger.warn("Emergency broadcast detection failed, leave it unchecked, file=$file", e)
+                return null
+            }
         if (emergency.ewsDetected || emergency.superimposeDetected) {
             logger.warn("Emergency broadcast detected, file=$file, result=$emergency")
         }
-        val duration = durationProbeClient.probe(file)
-        return RecordingInspection(fileName, drops, duration, emergency.tags())
+        return emergency.tags()
     }
 
     // Stage 1: register the inspected recording as executed_file + program.
@@ -137,7 +154,9 @@ class FileProcessingPipeline(
                 duration = duration,
             )
         programCommand.insert(file.name, executedFile.id)
-        executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, inspection.tags)
+        inspection.emergencyTags?.let {
+            executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, it)
+        }
 
         return executedFile
     }

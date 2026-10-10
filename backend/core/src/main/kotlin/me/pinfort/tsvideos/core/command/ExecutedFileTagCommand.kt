@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.domain.ExecutedFileTag
 import me.pinfort.tsvideos.core.external.database.mapper.ExecutedFileCheckMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ExecutedFileTagMapper
 import org.slf4j.Logger
@@ -22,7 +23,11 @@ class ExecutedFileTagCommand(
 
     fun selectChecks(executedFileId: Long): List<String> = executedFileCheckMapper.selectByExecutedFileId(executedFileId)
 
-    /** 検出処理 [checker] を実行したことと、それが見つけた [tags] を記録する */
+    /**
+     * 検出処理 [checker] を実行したことと、それが見つけた [tags] を記録する。
+     * [checker] が付けるタグ ([ExecutedFileTag.CHECKERS]) は [tags] で置き換えるので、
+     * 再検査で結果が変わっても以前のタグは残らない。
+     */
     @Transactional
     fun recordCheck(
         executedFileId: Long,
@@ -30,7 +35,12 @@ class ExecutedFileTagCommand(
         tags: Set<String>,
         dryRun: Boolean = false,
     ) {
+        val ownedTags = ExecutedFileTag.CHECKERS.filterValues { it == checker }.keys
+        require(ownedTags.containsAll(tags)) { "tags not owned by checker, checker=$checker, tags=$tags" }
         if (!dryRun) {
+            if (ownedTags.isNotEmpty()) {
+                executedFileTagMapper.deleteByExecutedFileIdAndTags(executedFileId, ownedTags)
+            }
             tags.forEach { executedFileTagMapper.insert(executedFileId, it) }
             executedFileCheckMapper.upsert(executedFileId, checker, LocalDateTime.now())
         }

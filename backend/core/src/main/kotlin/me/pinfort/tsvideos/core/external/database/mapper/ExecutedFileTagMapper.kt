@@ -41,4 +41,23 @@ interface ExecutedFileTagMapper {
         """,
     )
     fun deleteByExecutedFileId(executedFileId: Long): Int
+
+    @Delete(
+        """
+            <script>
+            DELETE FROM
+                executed_file_tag
+            WHERE
+                executed_file_id = #{executedFileId}
+                AND tag IN
+                <foreach item="tag" collection="tags" open="(" separator="," close=")">
+                    #{tag}
+                </foreach>
+            </script>
+        """,
+    )
+    fun deleteByExecutedFileIdAndTags(
+        executedFileId: Long,
+        tags: Collection<String>,
+    ): Int
 }

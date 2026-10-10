@@ -57,5 +57,19 @@ class ExecutedFileTagMapperTest : ExpectSpec() {
                 executedFileTagMapper.selectByExecutedFileId(2) shouldBe listOf("ews")
             }
         }
+
+        context("deleteByExecutedFileIdAndTags") {
+            expect("deletes only the given tags of the given executed file") {
+                executedFileTagMapper.insert(1, "ews")
+                executedFileTagMapper.insert(1, "superimpose")
+                executedFileTagMapper.insert(1, "other")
+                executedFileTagMapper.insert(2, "ews")
+
+                executedFileTagMapper.deleteByExecutedFileIdAndTags(1, setOf("ews", "superimpose")) shouldBe 2
+
+                executedFileTagMapper.selectByExecutedFileId(1) shouldBe listOf("other")
+                executedFileTagMapper.selectByExecutedFileId(2) shouldBe listOf("ews")
+            }
+        }
     }
 }

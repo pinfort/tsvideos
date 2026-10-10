@@ -1,11 +1,13 @@
 package me.pinfort.tsvideos.core.command
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.mockk.verifyOrder
 import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.core.domain.ExecutedFileTag
 import me.pinfort.tsvideos.core.external.database.mapper.ExecutedFileCheckMapper
@@ -25,7 +27,8 @@ class ExecutedFileTagCommandTest :
         }
 
         context("recordCheck") {
-            expect("inserts every tag and the check") {
+            expect("replaces the checker's tags and records the check") {
+                every { executedFileTagMapper.deleteByExecutedFileIdAndTags(any(), any()) } returns 0
                 every { executedFileTagMapper.insert(any(), any()) } returns 1
                 every { executedFileCheckMapper.upsert(any(), any(), any()) } returns 1
 
@@ -35,22 +38,37 @@ class ExecutedFileTagCommandTest :
                     setOf(ExecutedFileTag.EWS, ExecutedFileTag.SUPERIMPOSE),
                 )
 
-                verify { executedFileTagMapper.insert(1, ExecutedFileTag.EWS) }
-                verify { executedFileTagMapper.insert(1, ExecutedFileTag.SUPERIMPOSE) }
-                verify { executedFileCheckMapper.upsert(1, ExecutedFileCheck.EMERGENCY_BROADCAST, any()) }
+                verifyOrder {
+                    executedFileTagMapper.deleteByExecutedFileIdAndTags(1, setOf(ExecutedFileTag.EWS, ExecutedFileTag.SUPERIMPOSE))
+                    executedFileTagMapper.insert(1, ExecutedFileTag.EWS)
+                    executedFileTagMapper.insert(1, ExecutedFileTag.SUPERIMPOSE)
+                    executedFileCheckMapper.upsert(1, ExecutedFileCheck.EMERGENCY_BROADCAST, any())
+                }
             }
 
-            expect("records the check even when nothing was detected") {
+            expect("records the check and clears earlier tags even when nothing was detected") {
+                every { executedFileTagMapper.deleteByExecutedFileIdAndTags(any(), any()) } returns 1
                 every { executedFileCheckMapper.upsert(any(), any(), any()) } returns 1
 
                 executedFileTagCommand.recordCheck(1, ExecutedFileCheck.EMERGENCY_BROADCAST, emptySet())
 
+                verify { executedFileTagMapper.deleteByExecutedFileIdAndTags(1, setOf(ExecutedFileTag.EWS, ExecutedFileTag.SUPERIMPOSE)) }
                 verify(exactly = 0) { executedFileTagMapper.insert(any(), any()) }
                 verify { executedFileCheckMapper.upsert(1, ExecutedFileCheck.EMERGENCY_BROADCAST, any()) }
             }
 
             expect("dryRun writes nothing") {
                 executedFileTagCommand.recordCheck(1, ExecutedFileCheck.EMERGENCY_BROADCAST, setOf(ExecutedFileTag.EWS), dryRun = true)
+
+                verify(exactly = 0) { executedFileTagMapper.deleteByExecutedFileIdAndTags(any(), any()) }
+                verify(exactly = 0) { executedFileTagMapper.insert(any(), any()) }
+                verify(exactly = 0) { executedFileCheckMapper.upsert(any(), any(), any()) }
+            }
+
+            expect("rejects tags the checker does not own") {
+                shouldThrow<IllegalArgumentException> {
+                    executedFileTagCommand.recordCheck(1, "other_checker", setOf(ExecutedFileTag.EWS))
+                }
 
                 verify(exactly = 0) { executedFileTagMapper.insert(any(), any()) }
                 verify(exactly = 0) { executedFileCheckMapper.upsert(any(), any(), any()) }

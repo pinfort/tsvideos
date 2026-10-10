@@ -305,6 +305,44 @@ class FileProcessingPipelineTest :
             }
         }
 
+        context("processFile - emergency broadcast detection failure") {
+            expect("keeps processing and leaves the recording unchecked") {
+                val original = newOriginalFile()
+                val executedFile = executedFileFixture(original)
+
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { emergencyBroadcastDetector.detect(original, any()) } throws TsVideosException("not a transport stream")
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+                every {
+                    executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
+                } returns executedFile
+                every { programCommand.insert(any(), any(), any()) } returns mockk()
+                // stop at the next stage; only registration matters here
+                every { tsSplitterClient.split(any(), any(), any()) } throws TsVideosException("ts split failed")
+                every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
+                every { executedFileCommand.findByFile(original.absolutePath) } returns executedFile
+                every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+                every { executedFileCommand.delete(any(), any()) } just Runs
+
+                val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldBe "ts split failed"
+                verify { programCommand.insert(original.name, executedFile.id, false) }
+                verify(exactly = 0) { executedFileTagCommand.recordCheck(any(), any(), any(), any()) }
+            }
+
+            expect("dry run does not fail") {
+                val original = newOriginalFile()
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { emergencyBroadcastDetector.detect(original, any()) } throws TsVideosException("not a transport stream")
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+
+                fileProcessingPipeline.processFile(original, dryRun = true) shouldBe FileProcessingPipeline.Result.DRY_RUN
+            }
+        }
+
         context("processFile - registration failure") {
             expect("rolls back a partially registered recording") {
                 val original = newOriginalFile()
