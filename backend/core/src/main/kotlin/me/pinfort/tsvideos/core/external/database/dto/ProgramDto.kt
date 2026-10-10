@@ -45,7 +45,11 @@ data class ProgramDto(
             duration = duration ?: -1.0,
         )
 
-    fun toProgramDetail(createdFiles: List<CreatedFileDto>): ProgramDetail =
+    fun toProgramDetail(
+        createdFiles: List<CreatedFileDto>,
+        tags: List<String> = emptyList(),
+        checks: List<String> = emptyList(),
+    ): ProgramDetail =
         ProgramDetail(
             id = id,
             name = name,
@@ -59,5 +63,7 @@ data class ProgramDto(
             channelName = channelName ?: "",
             duration = duration ?: -1.0,
             createdFiles = createdFiles.map { it.toDomain() },
+            tags = tags,
+            checks = checks,
         )
 }

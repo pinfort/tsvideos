@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
@@ -9,6 +10,7 @@ import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ExecutedFile
+import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.core.domain.FileName
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
@@ -17,6 +19,7 @@ import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient
 import me.pinfort.tsvideos.core.external.tool.TsSplitterClient
+import me.pinfort.tsvideos.processor.infrastructure.external.ts.EmergencyBroadcastDetector
 import me.pinfort.tsvideos.processor.infrastructure.external.tsselect.TsSelectClient
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
@@ -24,16 +27,18 @@ import java.io.File
 import kotlin.math.ceil
 
 /**
- * DropCheck(tsselect) -> TsSplitter -> CompressAndSave -> AmatsukazeAddTask の4段パイプライン。
+ * DropCheck(tsselect + 緊急警報放送/文字スーパー検出) -> TsSplitter -> CompressAndSave -> AmatsukazeAddTask の4段パイプライン。
  * 各段は失敗すると自身とそれ以前の段を逆順にロールバックしてから例外を再送出する。
  */
 @Component
 class FileProcessingPipeline(
     private val executedFileCommand: ExecutedFileCommand,
+    private val executedFileTagCommand: ExecutedFileTagCommand,
     private val splittedFileCommand: SplittedFileCommand,
     private val createdFileCommand: CreatedFileCommand,
     private val programCommand: ProgramCommand,
     private val tsSelectClient: TsSelectClient,
+    private val emergencyBroadcastDetector: EmergencyBroadcastDetector,
     private val tsSplitterClient: TsSplitterClient,
     private val amatsukazeAddTaskClient: AmatsukazeAddTaskClient,
     private val durationProbeClient: DurationProbeClient,
@@ -54,19 +59,23 @@ class FileProcessingPipeline(
         val fileName: FileName,
         val drops: Int,
         val duration: Double,
+        // null when emergency broadcast detection failed: the recording is left "not checked"
+        val emergencyTags: Set<String>?,
     )
 
     fun processFile(
         file: File,
         dryRun: Boolean = false,
         onDropCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> },
+        onEmergencyCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ): Result {
-        val inspection = inspect(file, onDropCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
+        val inspection = inspect(file, onDropCheckProgress, onEmergencyCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
         if (dryRun) {
             logger.info(
-                "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}; " +
+                "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}, " +
+                    "tags=${inspection.emergencyTags}; " +
                     "would register, split, compress, upload and submit encoding",
             )
             return Result.DRY_RUN
@@ -87,10 +96,12 @@ class FileProcessingPipeline(
         return Result.PROCESSED
     }
 
-    // Read-only checks shared by normal processing and dry-run, before any rollback is needed.
+    // Read-only checks (drop-frame count, emergency broadcast detection, duration) shared by
+    // normal processing and dry-run, before any rollback is needed.
     private fun inspect(
         file: File,
         onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
+        onEmergencyCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
     ): RecordingInspection? {
         if (!file.isFile) {
             throw TsVideosException("file not found or not a regular file, file=$file")
@@ -101,8 +112,28 @@ class FileProcessingPipeline(
         }
         val fileName = FileName.fromFileNameString(file.name)
         val drops = tsSelectClient.check(file, onProgress)
+        val emergencyTags = detectEmergencyBroadcast(file, onEmergencyCheckProgress)
         val duration = durationProbeClient.probe(file)
-        return RecordingInspection(fileName, drops, duration)
+        return RecordingInspection(fileName, drops, duration, emergencyTags)
+    }
+
+    // Detection is supplementary, so a failure must not stop processing: log it and return null so
+    // the check is not recorded and the recording shows as "not checked".
+    private fun detectEmergencyBroadcast(
+        file: File,
+        onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
+    ): Set<String>? {
+        val emergency =
+            try {
+                emergencyBroadcastDetector.detect(file, onProgress)
+            } catch (e: Exception) {
+                logger.warn("Emergency broadcast detection failed, leave it unchecked, file=$file", e)
+                return null
+            }
+        if (emergency.ewsDetected || emergency.superimposeDetected) {
+            logger.warn("Emergency broadcast detected, file=$file, result=$emergency")
+        }
+        return emergency.tags()
     }
 
     // Stage 1: register the inspected recording as executed_file + program.
@@ -123,6 +154,9 @@ class FileProcessingPipeline(
                 duration = duration,
             )
         programCommand.insert(file.name, executedFile.id)
+        inspection.emergencyTags?.let {
+            executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, it)
+        }
 
         return executedFile
     }

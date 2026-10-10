@@ -16,6 +16,8 @@ const detail: ProgramDetail = {
   channelName: "Channel 2",
   duration: 3600,
   createdFiles: [],
+  tags: ["ews"],
+  checks: ["emergency_broadcast"],
 };
 
 describe("ProgramDetailTable", () => {
@@ -27,5 +29,7 @@ describe("ProgramDetailTable", () => {
     expect(screen.getByText("Detail Program")).toBeInTheDocument();
     expect(screen.getByText("エラー")).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();
+    expect(screen.getByText("緊急警報放送").nextElementSibling).toHaveTextContent("あり");
+    expect(screen.getByText("文字スーパー").nextElementSibling).toHaveTextContent("なし");
   });
 });

@@ -56,6 +56,43 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 
 `after-encode` はロールバックを行いません。NAS へのアップロードやローカルファイルの削除が済んだ後に失敗を巻き戻すことはできないため、失敗時はログと Slack 通知（`SLACK_WEBHOOK_URL`）を行い、番組を `ERROR` にします。
 
+### 緊急警報放送・文字スーパーの検出とタグ
+
+`process` はドロップチェックの直後に録画ファイルをもう一度読み、次のものを検出して録画にタグとして付けます。
+
+| タグ (`executed_file_tag.tag`) | 内容 |
+| --- | --- |
+| `ews` | 緊急警報放送 — PMT の緊急情報記述子 (tag 0xFC) に開始/継続中のエントリがある |
+| `superimpose` | 文字スーパー — PMT 上の文字スーパー ES (component_tag 0x38〜0x3F) に文字を含む本文が流れている（画面消去だけのデータは数えない） |
+
+タグは録画全体に対して付きます。録画中に一度でも条件を満たせば（数秒だけの緊急警報放送でも）タグが付き、どの時間帯だったかは記録しません。
+
+あわせて、検出処理を実行したこと自体を `executed_file_check`（`checker = 'emergency_broadcast'`）に記録します。タグが無い録画が「検出なし」なのか「未検査」（検出機能の導入前に登録された録画）なのかは、このチェックの有無で区別します。`tvmcli get` とフロントエンドの番組詳細には「あり / なし / 未検査」で表示されます。
+
+放送局が映像に焼き込んだテロップ（多くのニュース速報・地震速報）は TS のデータとしては存在しないため、検出できません。
+
+新しい検出を足すときは `core` の `ExecutedFileTag` / `ExecutedFileCheck` に定数を足し、検出処理から `ExecutedFileTagCommand.recordCheck` を呼ぶだけで、DB のスキーマ変更は不要です（画面の表示名は `frontend/lib/api/tags.ts` と `ProgramDetailToTextComponent` に追加します）。`recordCheck` はその検出処理が付けるタグ（`ExecutedFileTag.CHECKERS`）を置き換えるので、再検査で結果が変わっても古いタグは残りません。
+
+`executed_file_tag` / `executed_file_check` には外部キーや CASCADE がありません。タグと実行記録は `ExecutedFileCommand.delete`（パイプラインのロールバック・`reset`・`tvmcli delete`）でだけ一緒に消えるので、SQL を直接実行して `executed_file` の行を消した場合は、両テーブルの該当行も手で消してください。
+
+既存の DB には次のテーブルを一度だけ作成してください。**この機能を含むビルドをデプロイする前に**作成する必要があります。番組詳細の取得（`ProgramCommand.findDetail`）が両テーブルを参照するため、テーブルが無いと manager の API・CLI の詳細表示が失敗します。
+
+```sql
+CREATE TABLE executed_file_tag (
+    executed_file_id bigint(20) NOT NULL,
+    tag varchar(64) NOT NULL,
+    PRIMARY KEY (executed_file_id, tag),
+    KEY tag (tag)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE executed_file_check (
+    executed_file_id bigint(20) NOT NULL,
+    checker varchar(64) NOT NULL,
+    checked_at datetime NOT NULL,
+    PRIMARY KEY (executed_file_id, checker)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+```
+
 ## CLI のバージョン確認
 
 `tvmcli`（`manager:console`）と `tvpcli`（`processor:console`）は `--version` でバージョンと git コミットハッシュを `tvmcli version 0.0.1-SNAPSHOT (d87cab7)` の形式で表示します。どちらもビルド時に `core` のリソース（`version.properties`）へ埋め込まれます（バージョンは Gradle プロジェクトバージョン、コミットハッシュは `git rev-parse --short HEAD`）。git リポジトリ外でビルドした場合（Docker ビルドなど）はコミットハッシュが取得できないため、バージョンのみを表示します。
