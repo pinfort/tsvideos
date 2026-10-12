@@ -56,8 +56,6 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 
 `after-encode` はロールバックを行いません。NAS へのアップロードやローカルファイルの削除が済んだ後に失敗を巻き戻すことはできないため、失敗時はログと Slack 通知（`SLACK_WEBHOOK_URL`）を行い、番組を `ERROR` にします。
 
-## CLI のバージョン確認
-
 ## manager:console の整合性検証 (`tvmcli verify`)
 
 `verify` は全番組、`verify --program 123` は指定番組の `created_file`（圧縮済み原本・エンコード済みファイル等の NAS 成果物）を読み取り専用で検証します。DB、NAS、ローカルファイルを変更しません。`executed_file` / `splitted_file` のローカル処理用パスは対象外です。
@@ -81,6 +79,8 @@ java -jar manager/console/build/libs/console.jar verify --json > verification.js
 既存の NAS 解決順（video store → original store）を使い、DB パス内の baseDir は重ねて付加しません。先の NAS がアクセス不能なら、後の NAS のファイルを使って検証成功とはしません。個別ファイルの問題があっても後続ファイルを検証します。サイズ一致は内容の完全性を保証せず、検証後にファイルが変化することもあります。
 
 終了コードは `0`（全件正常・空ライブラリ）、`1`（DB 等の実行失敗）、`2`（引数不正）、`3`（指定番組がない）、`4`（`VERIFIED` 以外の finding がある）です。
+
+自動処理用の共通規約として、`manager:console` の全サブコマンドで引数・オプションの使用方法エラーを終了コード `2` に統一しています。また、全サブコマンドのログ出力先を stderr とし、ルートロガーの既定レベルを `WARN` に設定しています。パッケージ別のログレベル設定も適用されます。これらは `verify` や `--json` 指定時だけでなく、通常の対話的な実行にも適用されます。
 
 ### 深いメディア検証の別モード仕様
 
