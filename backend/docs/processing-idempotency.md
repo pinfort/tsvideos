@@ -67,7 +67,7 @@ Do not clear callback_manifest or delete FILE_MOVED rows to force a changed call
 Preserve local artifacts if a pending upload is missing or NAS verification fails.
 For CLAIMED with no possible encoder task, inspect all registrations and generated
 artifacts. With an executed_file row, transition the inspected CLAIMED job to REJECTED
-under stopped workers, then reset. Without a row, remove any owned partial artifacts
+under stopped workers, then reset. If a crash occurred between registration and job linkage, first set the inspected job's executed_file_id to that verified row ID using a guarded UPDATE requiring state='CLAIMED' and executed_file_id IS NULL; never guess from a basename. Without a row, remove any owned partial artifacts
 only after checking provenance; when no effects remain, transition CLAIMED to RETRYABLE.
 Never reset active CLAIMED jobs. Failed RESETTING cleanup can be replayed; do not run
 callbacks concurrently with that cleanup.

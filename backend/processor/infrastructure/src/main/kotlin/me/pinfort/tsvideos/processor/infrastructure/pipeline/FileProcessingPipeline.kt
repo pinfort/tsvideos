@@ -103,7 +103,11 @@ class FileProcessingPipeline(
                     registerRecording(File(identity.path), inspection).also { registered = it }
                 }
             processingJobCommand.link(job, executedFile.id)
-            val mainSplittedFile = runner.stage({ rollbackTsSplit(executedFile) }) { tsSplit(executedFile) }
+            var splitInvoked = false
+            val mainSplittedFile =
+                runner.stage({ if (splitInvoked) rollbackTsSplit(executedFile) }) {
+                    tsSplit(executedFile) { splitInvoked = true }
+                }
             uploadStarted = true
             runner.stage({ rollbackCompressAndSave(mainSplittedFile) }) {
                 compressAndSave(mainSplittedFile, onCompressProgress, onUploadProgress)
@@ -174,7 +178,10 @@ class FileProcessingPipeline(
     }
 
     // Stage 2: split into elementary streams, register splitted_file rows, pick the main file
-    private fun tsSplit(executedFile: ExecutedFile): SplittedFile {
+    private fun tsSplit(
+        executedFile: ExecutedFile,
+        beforeSplit: () -> Unit,
+    ): SplittedFile {
         val originalFile = File(executedFile.file)
         if (!originalFile.exists()) {
             throw TsVideosException("file not found, file=$originalFile")
@@ -190,6 +197,7 @@ class FileProcessingPipeline(
         }
 
         val timeoutSec = maxOf(ceil(executedFile.duration).toLong(), 600L)
+        beforeSplit()
         val exitCode = tsSplitterClient.split(originalFile, outDir, timeoutSec)
         if (exitCode != 0) {
             throw TsVideosException("TsSplitter failed, exitCode=$exitCode, originalFile=$originalFile")

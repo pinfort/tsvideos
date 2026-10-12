@@ -358,6 +358,23 @@ class FileProcessingPipelineTest :
                 }
             }
         }
+        expect("pre-existing split artifacts are not deleted by rejected processing") {
+            val original = newOriginalFile()
+            val executed = executedFileFixture(original)
+            val outDir = File(original.parentFile, "tssplitter").apply { mkdirs() }
+            val existing = File(outDir, "${original.nameWithoutExtension}_1.m2ts").apply { writeText("unowned") }
+            every { programCommand.findByName(original.name) } returns null
+            every { tsSelectClient.check(any(), any()) } returns 0
+            every { durationProbeClient.probe(any(), any()) } returns 100.0
+            every { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns executed
+            every { programCommand.insert(any(), any(), any()) } returns mockk()
+            every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+            every { executedFileCommand.delete(any(), any()) } just Runs
+            shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+            existing.readText() shouldBe "unowned"
+            verify(exactly = 0) { tsSplitterClient.split(any(), any(), any()) }
+            verify(exactly = 0) { splittedFileCommand.delete(any(), any()) }
+        }
         context("processFile - already registered") {
             expect("returns SKIPPED_ALREADY_REGISTERED without running drop chk") {
                 val original = File.createTempFile("process-file-test", ".m2ts")

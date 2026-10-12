@@ -13,4 +13,3 @@ CREATE TABLE IF NOT EXISTS processing_job (
  updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
  KEY executed_file_id (executed_file_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
-
