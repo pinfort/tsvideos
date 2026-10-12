@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.core.command
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.external.database.mapper.ProcessingJobMapper
+import org.springframework.dao.DuplicateKeyException
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -11,16 +12,14 @@ import java.util.UUID
 @Component
 class ProcessingJobCommand(
     private val mapper: ProcessingJobMapper,
+    private val claims: ProcessingJobClaimCommand,
 ) {
-    @Transactional
-    fun claim(identity: ProcessingIdentity): ProcessingJob? {
-        if (mapper.claim(identity.key, identity.path, identity.size, identity.modifiedMillis) != 1 &&
-            mapper.retry(identity.key) != 1
-        ) {
-            return null
+    fun claim(identity: ProcessingIdentity): ProcessingJob? =
+        try {
+            claims.insert(identity)
+        } catch (duplicate: DuplicateKeyException) {
+            claims.retry(identity)
         }
-        return checkNotNull(mapper.find(identity.key))
-    }
 
     fun find(identity: ProcessingIdentity): ProcessingJob? = mapper.find(identity.key)
 
@@ -37,12 +36,37 @@ class ProcessingJobCommand(
     }
 
     @Transactional
-    fun state(
+    fun transition(
         job: ProcessingJob,
-        state: String,
+        expected: String,
+        next: String,
     ) {
-        check(mapper.state(job.id, state) == 1)
+        require(expected to next in allowedTransitions) { "Unsupported processing job transition: $expected -> $next" }
+        check(mapper.transition(job.id, expected, next) == 1) { "Processing job state changed; reconcile before proceeding" }
     }
+
+    /** A fast callback may complete before the encoder client's acknowledgement is recorded. */
+    @Transactional
+    fun acknowledgeSubmission(job: ProcessingJob) {
+        if (mapper.transition(job.id, "SUBMISSION_UNKNOWN", "SUBMITTED") == 1) return
+        check(mapper.find(job.identityKey)?.state in setOf("SUBMITTED", "COMPLETED")) {
+            "Submission acknowledgement conflicts with current job state"
+        }
+    }
+
+    @Transactional
+    fun complete(job: ProcessingJob) {
+        // Try both legitimate predecessor states; submission acknowledgement can race this callback.
+        if (mapper.transition(job.id, "SUBMISSION_UNKNOWN", "COMPLETED") == 1) return
+        if (mapper.transition(job.id, "SUBMITTED", "COMPLETED") == 1) return
+        check(mapper.find(job.identityKey)?.state == "COMPLETED") { "Cannot complete this job state" }
+    }
+
+    private val allowedTransitions =
+        setOf(
+            "CLAIMED" to "RETRYABLE",
+            "CLAIMED" to "SUBMISSION_UNKNOWN",
+        )
 
     @Transactional
     fun claimCallback(job: ProcessingJob): String? {

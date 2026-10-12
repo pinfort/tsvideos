@@ -328,7 +328,7 @@ class FileProcessingPipelineTest :
                 every { executedFileCommand.find(executedFile.id) } returns executedFile
                 every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } returns 0
 
-                every { jobs.state(any(), "SUBMITTED") } throws IllegalStateException("DB commit failed")
+                every { jobs.acknowledgeSubmission(any()) } throws IllegalStateException("DB commit failed")
                 shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
                 every { jobs.find(any()) } returns
                     ProcessingJob(
@@ -589,7 +589,7 @@ class FileProcessingPipelineTest :
                     fileProcessingPipeline.processFile(original)
                 }
 
-                verify { jobs.state(any(), "SUBMISSION_UNKNOWN") }
+                verify { jobs.transition(any(), "CLAIMED", "SUBMISSION_UNKNOWN") }
                 verify(exactly = 0) { createdFileCommand.delete(any(), any()) }
                 verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
                 splitFile.exists() shouldBe true

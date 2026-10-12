@@ -9,7 +9,7 @@ import org.apache.ibatis.annotations.Update
 @Mapper
 interface ProcessingJobMapper {
     @Insert(
-        "INSERT IGNORE INTO processing_job(identity_key,input_path,input_size,modified_millis,state) VALUES(#{key},#{path},#{size},#{modified},'CLAIMED')",
+        "INSERT INTO processing_job(identity_key,input_path,input_size,modified_millis,state) VALUES(#{key},#{path},#{size},#{modified},'CLAIMED')",
     )
     fun claim(
         key: String,
@@ -28,18 +28,19 @@ interface ProcessingJobMapper {
     )
     fun findByExecutedFile(id: Long): ProcessingJob?
 
-    @Update("UPDATE processing_job SET executed_file_id=#{executedId}, updated_at=UTC_TIMESTAMP(6) WHERE id=#{id}")
+    @Update(
+        "UPDATE processing_job SET executed_file_id=#{executedId}, updated_at=UTC_TIMESTAMP(6) WHERE id=#{id} AND state='CLAIMED' AND executed_file_id IS NULL",
+    )
     fun link(
         id: Long,
         executedId: Long,
     ): Int
 
-    @Update(
-        "UPDATE processing_job SET state=CASE WHEN state='COMPLETED' AND #{state}='SUBMITTED' THEN state ELSE #{state} END, updated_at=UTC_TIMESTAMP(6) WHERE id=#{id}",
-    )
-    fun state(
+    @Update("UPDATE processing_job SET state=#{next}, updated_at=UTC_TIMESTAMP(6) WHERE id=#{id} AND state=#{expected}")
+    fun transition(
         id: Long,
-        state: String,
+        expected: String,
+        next: String,
     ): Int
 
     @Update(
@@ -57,7 +58,7 @@ interface ProcessingJobMapper {
     ): Int
 
     @Update(
-        "UPDATE processing_job SET callback_manifest=#{manifest} WHERE id=#{id} AND callback_claim=#{token} AND (callback_manifest IS NULL OR callback_manifest=#{manifest})",
+        "UPDATE processing_job SET callback_manifest=#{manifest}, updated_at=UTC_TIMESTAMP(6) WHERE id=#{id} AND callback_claim=#{token} AND (callback_manifest IS NULL OR callback_manifest=#{manifest})",
     )
     fun manifest(
         id: Long,
@@ -66,7 +67,7 @@ interface ProcessingJobMapper {
     ): Int
 
     @Update(
-        "UPDATE processing_job SET state=#{next} WHERE id=#{id} AND state=#{expected} AND callback_claim IS NULL AND state IN ('SUBMITTED','SUBMISSION_UNKNOWN','COMPLETED')",
+        "UPDATE processing_job SET state=#{next}, updated_at=UTC_TIMESTAMP(6) WHERE id=#{id} AND state=#{expected} AND callback_claim IS NULL AND state IN ('SUBMITTED','SUBMISSION_UNKNOWN','COMPLETED')",
     )
     fun reconcile(
         id: Long,
@@ -80,12 +81,12 @@ interface ProcessingJobMapper {
     fun removeReset(id: Long): Int
 
     @Update(
-        "UPDATE processing_job SET state='CLAIMED',executed_file_id=NULL WHERE identity_key=#{key} AND state='RETRYABLE' AND callback_claim IS NULL",
+        "UPDATE processing_job SET state='CLAIMED',executed_file_id=NULL, updated_at=UTC_TIMESTAMP(6) WHERE identity_key=#{key} AND state='RETRYABLE' AND callback_claim IS NULL",
     )
     fun retry(key: String): Int
 
     @Update(
-        "UPDATE processing_job SET state='RESETTING' WHERE id=#{id} AND callback_claim IS NULL AND state IN ('COMPLETED','REJECTED','RETRYABLE','RESETTING')",
+        "UPDATE processing_job SET state='RESETTING', updated_at=UTC_TIMESTAMP(6) WHERE id=#{id} AND callback_claim IS NULL AND state IN ('COMPLETED','REJECTED','RETRYABLE','RESETTING')",
     )
     fun prepareReset(id: Long): Int
 

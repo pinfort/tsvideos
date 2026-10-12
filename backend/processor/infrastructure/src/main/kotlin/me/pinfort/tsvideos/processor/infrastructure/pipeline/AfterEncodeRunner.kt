@@ -226,7 +226,7 @@ class AfterEncodeRunner(
                 deleteLocalFile(inPath.toFile(), dryRun)
                 removeExecutedFile(executedFileId, dryRun)
                 programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.COMPLETED, dryRun)
-                if (!dryRun) processingJobCommand.findByExecutedFile(executedFileId)?.let { processingJobCommand.state(it, "COMPLETED") }
+                if (!dryRun) processingJobCommand.findByExecutedFile(executedFileId)?.let { processingJobCommand.complete(it) }
             } else {
                 logger.error("program invalid, programId=${program.id}")
                 slackClient.notify("program invalid. programId:${program.id}")

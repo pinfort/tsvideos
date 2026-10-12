@@ -93,3 +93,15 @@ The first replay freezes the manifest and claims ownership like a new job. The l
 key never claims to reconstruct unavailable original timestamps. A later `process`
 requires reset of the existing registration. This deliberate adoption prevents an
 upgrade from guessing that unrelated pre-existing NAS targets belong to a callback.
+
+## Shared job command transition contract
+
+`ProcessingJobCommand.claim` catches only duplicate-key insertion failures. Initial
+INSERT and retry CAS run in separate REQUIRES_NEW transactions through
+ProcessingJobClaimCommand: each claim commits before work begins, and duplicate
+index locks are released before attempting the retry update. Other DB errors propagate.
+`link` accepts only a CLAIMED row without an executed-file link. `transition` permits
+only CLAIMED -> RETRYABLE or CLAIMED -> SUBMISSION_UNKNOWN using expected-state CAS.
+`acknowledgeSubmission` advances UNKNOWN -> SUBMITTED while preserving an already
+COMPLETED callback; `complete` accepts only UNKNOWN/SUBMITTED/already COMPLETED.
+Retry, manifest persistence, reconciliation and reset reservations update activity time.

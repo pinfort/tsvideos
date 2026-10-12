@@ -21,6 +21,10 @@ import java.util.concurrent.TimeUnit
 @org.springframework.transaction.annotation.Transactional(
     propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED,
 )
+@org.springframework.context.annotation.Import(
+    me.pinfort.tsvideos.core.command.ProcessingJobCommand::class,
+    me.pinfort.tsvideos.core.command.ProcessingJobClaimCommand::class,
+)
 @MybatisTest
 @SpringJUnitConfig
 @ActiveProfiles("infrastructure")
@@ -28,9 +32,36 @@ import java.util.concurrent.TimeUnit
 class ProcessingJobMapperTest : ExpectSpec() {
     @Autowired private lateinit var mapper: ProcessingJobMapper
 
+    @Autowired private lateinit var command: me.pinfort.tsvideos.core.command.ProcessingJobCommand
+
     @Autowired private lateinit var dataSource: javax.sql.DataSource
 
     init {
+        expect("stale transitions and repeated registration links cannot overwrite a job") {
+            val key = UUID.randomUUID().toString()
+            mapper.claim(key, "/guarded", 1, 2)
+            val job = checkNotNull(mapper.find(key))
+            mapper.link(job.id, 87654) shouldBe 1
+            mapper.link(job.id, 87655) shouldBe 0
+            mapper.transition(job.id, "SUBMITTED", "COMPLETED") shouldBe 0
+            mapper.transition(job.id, "CLAIMED", "SUBMISSION_UNKNOWN") shouldBe 1
+            mapper.link(job.id, 87656) shouldBe 0
+            mapper.transition(job.id, "CLAIMED", "RETRYABLE") shouldBe 0
+            command.complete(job)
+            command.acknowledgeSubmission(job)
+            mapper.find(key)?.state shouldBe "COMPLETED"
+        }
+        expect("duplicate claim can atomically reacquire only a known retryable job") {
+            val key = UUID.randomUUID().toString()
+            val identity =
+                me.pinfort.tsvideos.core.domain
+                    .ProcessingIdentity(key, "/retry-command", 1, 2)
+            val job = checkNotNull(command.claim(identity))
+            command.claim(identity) shouldBe null
+            command.transition(job, "CLAIMED", "RETRYABLE")
+            command.claim(identity)?.id shouldBe job.id
+            command.claim(identity) shouldBe null
+        }
         expect("documented legacy adoption creates exactly one callback-capable job") {
             dataSource.connection.use { connection ->
                 connection.createStatement().use { statement ->
@@ -52,7 +83,7 @@ class ProcessingJobMapperTest : ExpectSpec() {
             val job = checkNotNull(mapper.findByExecutedFile(76543))
             job.modifiedMillis shouldBe -1
             mapper.claimCallback(job.id, "legacy-owner") shouldBe 1
-            mapper.state(job.id, "COMPLETED") shouldBe 1
+            mapper.transition(job.id, "SUBMITTED", "COMPLETED") shouldBe 1
             mapper.releaseCallback(job.id, "legacy-owner") shouldBe 1
             mapper.prepareReset(job.id) shouldBe 1
             mapper.claimCallback(job.id, "racing-callback") shouldBe 0
@@ -63,7 +94,7 @@ class ProcessingJobMapperTest : ExpectSpec() {
             val job = checkNotNull(mapper.find(key))
             mapper.prepareReset(job.id) shouldBe 0
             mapper.retry(key) shouldBe 0
-            mapper.state(job.id, "RETRYABLE") shouldBe 1
+            mapper.transition(job.id, "CLAIMED", "RETRYABLE") shouldBe 1
             mapper.retry(key) shouldBe 1
             mapper.retry(key) shouldBe 0
         }
@@ -77,18 +108,51 @@ class ProcessingJobMapperTest : ExpectSpec() {
                         pool.submit(
                             Callable {
                                 start.await()
-                                mapper.claim(key, "/recording", 12, 13)
+                                if (command.claim(
+                                        me.pinfort.tsvideos.core.domain
+                                            .ProcessingIdentity(key, "/recording", 12, 13),
+                                    ) !=
+                                    null
+                                ) {
+                                    1
+                                } else {
+                                    0
+                                }
                             },
                         )
                     }
                 start.countDown()
                 futures.sumOf { it.get(20, TimeUnit.SECONDS) } shouldBe 1
-                mapper.claim(key, "/recording", 12, 13) shouldBe 0
+                command.claim(
+                    me.pinfort.tsvideos.core.domain
+                        .ProcessingIdentity(key, "/recording", 12, 13),
+                ) shouldBe null
                 val job = checkNotNull(mapper.find(key))
                 job.inputSize shouldBe 12
                 job.state shouldBe "CLAIMED"
                 mapper.link(job.id, 54321) shouldBe 1
                 mapper.findByExecutedFile(54321)?.id shouldBe job.id
+                command.transition(job, "CLAIMED", "RETRYABLE")
+                val retryStart = CountDownLatch(1)
+                val retries =
+                    (1..4).map {
+                        pool.submit(
+                            Callable {
+                                retryStart.await()
+                                if (command.claim(
+                                        me.pinfort.tsvideos.core.domain
+                                            .ProcessingIdentity(key, "/recording", 12, 13),
+                                    ) != null
+                                ) {
+                                    1
+                                } else {
+                                    0
+                                }
+                            },
+                        )
+                    }
+                retryStart.countDown()
+                retries.sumOf { it.get(20, TimeUnit.SECONDS) } shouldBe 1
             } finally {
                 pool.shutdownNow()
             }
@@ -97,7 +161,8 @@ class ProcessingJobMapperTest : ExpectSpec() {
             val key = UUID.randomUUID().toString()
             mapper.claim(key, "/callback", 1, 2)
             val job = checkNotNull(mapper.find(key))
-            mapper.state(job.id, "SUBMITTED")
+            mapper.transition(job.id, "CLAIMED", "SUBMISSION_UNKNOWN")
+            mapper.transition(job.id, "SUBMISSION_UNKNOWN", "SUBMITTED")
             val start = CountDownLatch(1)
             val pool = Executors.newFixedThreadPool(4)
             try {
@@ -128,7 +193,7 @@ class ProcessingJobMapperTest : ExpectSpec() {
             mapper.claim(key, "/unknown", 1, 2)
             val job = checkNotNull(mapper.find(key))
             mapper.link(job.id, 65432)
-            mapper.state(job.id, "SUBMISSION_UNKNOWN") shouldBe 1
+            mapper.transition(job.id, "CLAIMED", "SUBMISSION_UNKNOWN") shouldBe 1
             mapper.removeReset(65432) shouldBe 0
             mapper.reconcile(job.id, "SUBMISSION_UNKNOWN", "REJECTED") shouldBe 1
             mapper.removeReset(65432) shouldBe 1

@@ -117,12 +117,12 @@ class FileProcessingPipeline(
                 compressAndSave(mainSplittedFile, onCompressProgress, onUploadProgress)
             }
             // Once submission starts rollback would destroy input possibly already consumed by the encoder.
-            processingJobCommand.state(job, "SUBMISSION_UNKNOWN")
+            processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
             amatsukazeAddTask(mainSplittedFile)
-            processingJobCommand.state(job, "SUBMITTED")
+            processingJobCommand.acknowledgeSubmission(job)
         } catch (e: Exception) {
             if (!uploadStarted && e.suppressed.isEmpty() && executedFileCommand.findByFile(identity.path) == null) {
-                processingJobCommand.state(job, "RETRYABLE")
+                processingJobCommand.transition(job, "CLAIMED", "RETRYABLE")
             }
             // Keep durable evidence even after an external effect succeeded but its DB update failed.
             logger.error("Processing job ${job.id} requires reconciliation", e)
