@@ -1,0 +1,88 @@
+package me.pinfort.tsvideos.manager.console.commands
+
+import com.github.ajalt.clikt.core.CliktError
+import com.github.ajalt.clikt.core.ProgramResult
+import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.mockk.every
+import io.mockk.mockk
+import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
+import me.pinfort.tsvideos.core.domain.FileFinding
+import me.pinfort.tsvideos.core.domain.VerificationReport
+import me.pinfort.tsvideos.core.domain.VerificationStatus
+import me.pinfort.tsvideos.manager.console.parseManager
+import tools.jackson.databind.json.JsonMapper
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
+import java.time.Instant
+
+class VerifyTest :
+    ExpectSpec({
+        lateinit var command: LibraryVerificationCommand
+        beforeTest { command = mockk() }
+        expect("empty library succeeds and emits exactly one JSON object") {
+            every { command.verify(null) } returns VerificationReport(emptyList())
+            val output = captureVerifyOutput { Verify(command).parseManager(listOf("--json")) }
+            val tree = JsonMapper.builder().build().readTree(output)
+            tree["schemaVersion"].intValue() shouldBe 1
+            tree["findings"].size() shouldBe 0
+            tree["summary"]["VERIFIED"].intValue() shouldBe 0
+        }
+        expect("issues retain machine-readable output and exit four") {
+            every { command.verify(7) } returns
+                VerificationReport(
+                    listOf(
+                        FileFinding(
+                            7,
+                            8,
+                            "番組/\"test\".mp4",
+                            VerificationStatus.MISSING,
+                            Instant.parse("2026-01-01T00:00:00Z"),
+                            12,
+                            null,
+                            "Absent",
+                        ),
+                    ),
+                )
+            val output =
+                captureVerifyOutput {
+                    shouldThrow<ProgramResult> { Verify(command).parseManager(listOf("--program", "7", "--json")) }.statusCode shouldBe 4
+                }
+            val tree = JsonMapper.builder().build().readTree(output)
+            tree["findings"][0]["file"].stringValue() shouldBe "番組/\"test\".mp4"
+            tree["findings"][0]["checkedAt"].stringValue() shouldBe "2026-01-01T00:00:00Z"
+            tree["findings"][0]["actualBytes"].isNull shouldBe true
+        }
+        expect("human output includes a summary") {
+            every { command.verify(null) } returns VerificationReport(emptyList())
+            captureVerifyOutput { Verify(command).parseManager(emptyList()) } shouldContain "VERIFIED=0"
+        }
+        expect("missing selected program exits three") {
+            every { command.verify(9) } returns null
+            shouldThrow<CliktError> { Verify(command).parseManager(listOf("--program", "9")) }.statusCode shouldBe 3
+        }
+        expect("database errors exit one without exposing connection secrets") {
+            every { command.verify(null) } throws IllegalStateException("password=secret")
+            val error = shouldThrow<CliktError> { Verify(command).parseManager(emptyList()) }
+            error.statusCode shouldBe 1
+            error.message shouldBe "Library verification failed"
+        }
+        expect("invalid IDs and undefined deep mode exit two") {
+            shouldThrow<CliktError> { Verify(command).parseManager(listOf("--program", "0")) }.statusCode shouldBe 2
+            shouldThrow<CliktError> { Verify(command).parseManager(listOf("--deep")) }.statusCode shouldBe 2
+        }
+    })
+
+private fun captureVerifyOutput(block: () -> Unit): String {
+    val previous = System.out
+    val bytes = ByteArrayOutputStream()
+    try {
+        System.setOut(PrintStream(bytes, true, Charsets.UTF_8))
+        block()
+    } finally {
+        System.setOut(previous)
+    }
+    return bytes.toString(Charsets.UTF_8)
+}

@@ -30,6 +30,22 @@ class ProgramMapperTest : ExpectSpec() {
     private lateinit var programMapper: ProgramMapper
 
     init {
+        context("selectAllIds") {
+            expect("includes orphan programs and returns stable ID order") {
+                dataSource.connection.use { connection ->
+                    connection.prepareStatement("DELETE FROM program").execute()
+                    connection
+                        .prepareStatement(
+                            "INSERT INTO program(id,name,executed_file_id,status) VALUES(20,'b',99999,'ERROR'),(10,'a',99998,'ERROR')",
+                        ).execute()
+                    connection.commit()
+                    programMapper.selectAllIds() shouldBe listOf(10L, 20L)
+                    programMapper.find(10)?.executedFileId shouldBe 99998L
+                    programMapper.find(10)?.size shouldBe null
+                }
+            }
+        }
+
         context("insert") {
             expect("success") {
                 val connection = dataSource.connection
