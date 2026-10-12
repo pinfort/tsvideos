@@ -212,6 +212,7 @@ class EmergencyBroadcastDetector {
                 superimposePidsByPmt.remove(removed)
                 sectionAssemblers.remove(removed)
                 lastSectionCrc.remove(removed)
+                lastContinuityCounter[removed] = -1
             }
             pmtPids = newPmtPids
             syncPesAssemblers()
@@ -254,7 +255,10 @@ class EmergencyBroadcastDetector {
 
         private fun syncPesAssemblers() {
             val wanted = superimposePidsByPmt.values.flatten().toSet()
-            pesAssemblers.keys.retainAll(wanted)
+            (pesAssemblers.keys - wanted).forEach { removed ->
+                pesAssemblers.remove(removed)
+                lastContinuityCounter[removed] = -1
+            }
             wanted.forEach { pesAssemblers.getOrPut(it) { PesAssembler() } }
         }
 
@@ -336,7 +340,11 @@ class EmergencyBroadcastDetector {
         }
     }
 
-    /** PES を TS パケットのペイロードから組み立てる。完成した PES を返す (途中で切れたものも含む) */
+    /**
+     * PES を TS パケットのペイロードから組み立てる。完成した PES を返す (途中で切れたものも含む)。
+     * EOF では未完成の PES を破棄する。長さ 0 の PES は次の開始パケットまで確定しないため、
+     * 最後の PES だけに文字がある場合は検出できない。切断されたデータを EOF で確定させない。
+     */
     private class PesAssembler {
         private val buffer = ByteArrayOutputStream()
         private var assembling = false
@@ -414,31 +422,4 @@ class EmergencyBroadcastDetector {
 
         fun ByteArray.crcTail(): Int = (u8(size - 4) shl 24) or (u8(size - 3) shl 16) or (u8(size - 2) shl 8) or u8(size - 1)
     }
-}
-
-internal fun ByteArray.u8(i: Int): Int = this[i].toInt() and 0xff
-
-/** MPEG-2 PSI の CRC-32 (多項式 0x04C11DB7, 初期値 0xFFFFFFFF, 反転なし) */
-internal object Crc32Mpeg2 {
-    private val table =
-        IntArray(256) { i ->
-            var c = i shl 24
-            repeat(8) { c = if (c and 0x80000000.toInt() != 0) (c shl 1) xor 0x04c11db7 else c shl 1 }
-            c
-        }
-
-    fun compute(
-        buf: ByteArray,
-        start: Int = 0,
-        end: Int = buf.size,
-    ): Int {
-        var crc = -1
-        for (i in start until end) {
-            crc = (crc shl 8) xor table[((crc ushr 24) xor buf.u8(i)) and 0xff]
-        }
-        return crc
-    }
-
-    /** CRC を含めたセクション全体の CRC が 0 になれば正常 */
-    fun isValid(section: ByteArray): Boolean = section.size >= 4 && compute(section) == 0
 }

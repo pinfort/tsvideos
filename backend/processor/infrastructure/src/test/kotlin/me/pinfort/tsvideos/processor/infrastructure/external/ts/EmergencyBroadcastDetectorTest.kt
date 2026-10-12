@@ -51,8 +51,11 @@ class EmergencyBroadcastDetectorTest :
             section: ByteArray,
         ) = packets(pid, bytes(0x00) + section)
 
-        fun pat(): ByteArray {
-            val loop = bytes(serviceId shr 8, serviceId and 0xff, 0xe0 or (pmtPid shr 8), pmtPid and 0xff)
+        fun pat(services: Map<Int, Int> = mapOf(serviceId to pmtPid)): ByteArray {
+            val loop =
+                services.entries.fold(ByteArray(0)) { acc, (service, pid) ->
+                    acc + bytes(service shr 8, service and 0xff, 0xe0 or (pid shr 8), pid and 0xff)
+                }
             val length = 5 + loop.size + 4
             return withCrc(bytes(0x00, 0xb0 or (length shr 8), length and 0xff, 0x7f, 0xe1, 0xc1, 0x00, 0x00) + loop)
         }
@@ -197,6 +200,53 @@ class EmergencyBroadcastDetectorTest :
                         sectionPackets(0, pat()),
                         sectionPackets(pmtPid, pmt(withSuperimpose = false)),
                         packets(superimposePid, superimposePes(visibleText)),
+                    )
+
+                detector.detect(file).superimposeDetected shouldBe false
+            }
+
+            expect("reparses an identical PMT after its PID leaves and rejoins the PAT") {
+                val originalPmt = sectionPackets(pmtPid, pmt())
+                val originalPes = packets(superimposePid, superimposePes(clearOnly))
+                // Reintroduced streams may restart with the same CC as before removal.
+                continuityCounters.remove(superimposePid)
+                val file =
+                    tempTs(
+                        sectionPackets(0, pat()),
+                        originalPmt,
+                        originalPes,
+                        sectionPackets(0, pat(emptyMap())),
+                        sectionPackets(0, pat()),
+                        originalPmt,
+                        packets(superimposePid, superimposePes(visibleText)),
+                    )
+
+                detector.detect(file).superimposeDetected shouldBe true
+            }
+
+            expect("inspects every service in the original recording") {
+                val otherPmtPid = pmtPid + 1
+                val file =
+                    tempTs(
+                        sectionPackets(0, pat(mapOf(serviceId + 1 to otherPmtPid, serviceId to pmtPid))),
+                        sectionPackets(pmtPid, pmt(programInfo = emergencyDescriptor(active = true))),
+                        packets(superimposePid, superimposePes(visibleText)),
+                    )
+
+                detector.detect(file) shouldBe EmergencyBroadcastDetector.Result(true, true)
+            }
+
+            expect("discards an unbounded PES at EOF without a following start packet") {
+                val unbounded =
+                    superimposePes(visibleText).also {
+                        it[4] = 0
+                        it[5] = 0
+                    }
+                val file =
+                    tempTs(
+                        sectionPackets(0, pat()),
+                        sectionPackets(pmtPid, pmt()),
+                        packets(superimposePid, unbounded),
                     )
 
                 detector.detect(file).superimposeDetected shouldBe false
