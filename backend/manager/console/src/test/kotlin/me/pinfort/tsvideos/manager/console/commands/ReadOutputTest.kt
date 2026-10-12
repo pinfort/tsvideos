@@ -13,6 +13,7 @@ import me.pinfort.tsvideos.core.domain.DuplicateGroup
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
+import me.pinfort.tsvideos.core.domain.ProgramSearchPage
 import me.pinfort.tsvideos.manager.console.parseManager
 import tools.jackson.databind.json.JsonMapper
 import java.time.LocalDateTime
@@ -25,7 +26,7 @@ class ReadOutputTest :
 
         expect("search JSON preserves scalar types, escapes text and emits only the envelope") {
             val programs = mockk<ProgramCommand>()
-            every { programs.selectByName(any(), any(), any()) } returns listOf(program)
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(program), 1, 100, 0)
             every { programs.hasTsFile(any()) } returns true
             val result = Search(programs, mockk()).testRead("--name 番組 --json")
             result.statusCode shouldBe 0
@@ -42,13 +43,13 @@ class ReadOutputTest :
 
         expect("search IDs are deterministic with timestamp ties and require no extra queries") {
             val programs = mockk<ProgramCommand>()
-            every { programs.selectByName(any(), any(), any()) } returns listOf(program, program.copy(id = 1))
-            Search(programs, mockk()).testRead("--name 番組 --ids-only").stdout shouldBe "1\n9\n"
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(program, program.copy(id = 1)), 2, 100, 0)
+            Search(programs, mockk()).testRead("--name 番組 --ids-only").stdout shouldBe "9\n1\n"
         }
 
         expect("empty lists succeed with empty arrays or no ID lines") {
             val programs = mockk<ProgramCommand>()
-            every { programs.selectByName(any(), any(), any()) } returns emptyList()
+            every { programs.search(any()) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
             val json = Search(programs, mockk()).testRead("--name x --json")
             json.statusCode shouldBe 0
             mapper.readTree(json.stdout)["programs"].size() shouldBe 0
@@ -135,7 +136,7 @@ class ReadOutputTest :
 
         expect("operational failures never expose driver details or partial JSON") {
             val programs = mockk<ProgramCommand>()
-            every { programs.selectByName(any(), any(), any()) } throws IllegalStateException("password=secret")
+            every { programs.search(any()) } throws IllegalStateException("password=secret")
             val result = Search(programs, mockk()).testRead("--name x --json")
             result.statusCode shouldBe 1
             result.stdout shouldBe ""

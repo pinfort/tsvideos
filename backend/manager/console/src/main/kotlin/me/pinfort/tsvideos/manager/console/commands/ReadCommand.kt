@@ -29,8 +29,9 @@ abstract class ReadCommand : CliktCommand() {
     protected fun outputJson(
         key: String,
         value: Any?,
+        metadata: Map<String, Any?> = emptyMap(),
     ) {
-        echo(JsonMapper.builder().build().writeValueAsString(linkedMapOf("schemaVersion" to 1, key to value)))
+        echo(JsonMapper.builder().build().writeValueAsString(linkedMapOf("schemaVersion" to 1, key to value) + metadata))
     }
 
     protected fun missing(resource: String): Nothing = throw CliktError("$resource not found", statusCode = 3)

@@ -20,7 +20,7 @@ informational text behavior.
 
 | Command | Payload |
 | --- | --- |
-| `search --json` | `programs`: array of program objects with `tsExists` |
+| `search --json` | `programs`: array of program objects with `tsExists`; integer `total`, `limit`, `offset` |
 | `get program ID --json` | `program`: program object with `createdFiles` |
 | `get executed_file ID --json` | `executedFile`: executed-file object |
 | `duplicates --json` | `groups`: array of duplicate group objects |
@@ -45,12 +45,11 @@ Each duplicate group has string `reason` (`SAME_BROADCAST` or `OVERLAP`), intege
 `recommendedId`, integer array `candidateIds` (the other members), and `programs`
 in recommendation order, each with `tsExists`.
 
-`--ids-only` prints one program ID per line. Search emits results ordered by
-recording time then ID; get emits the requested program ID. Duplicates emits
+`--ids-only` prints one program ID per line. Search emits the requested page in
+its chosen sort order; get emits the requested program ID. Duplicates emits
 **all members, including recommended keepers**, deduplicated and sorted by ID;
 it is not a deletion-candidate list. `get executed_file --ids-only` is invalid
-because an executed-file ID is not a program ID. Search retains the existing
-500-result limit.
+because an executed-file ID is not a program ID.
 
 | Exit | Meaning |
 | --- | --- |
@@ -62,3 +61,57 @@ because an executed-file ID is not a program ID. Search retains the existing
 The missing-resource exit applies to human mode too. Read commands perform no
 mutations. Partial-batch and integrity status codes are reserved for commands
 that support those operations.
+
+## Search filters and pagination
+
+All filters are optional and combine with AND. `search` without filters lists
+the newest recordings. Existing `search -n NAME` syntax remains supported.
+
+| Option | Meaning |
+| --- | --- |
+| `-n`, `--name` | Case-insensitive literal substring of program name; `%` and `_` are ordinary characters |
+| `--channel` | Exact channel identifier, not the display channel name |
+| `--recorded-from` | Inclusive ISO local date-time, e.g. `2026-10-01T00:00:00` |
+| `--recorded-to` | Exclusive ISO local date-time; use the next midnight to include a whole day |
+| `--status` | `registered`, `completed`, `error` |
+| `--min-drops`, `--max-drops` | Inclusive nonnegative dropped-frame limits; unknown drops (`-1`) never match a numeric limit |
+| `--file-type` | `ts` or `encoded`, as defined below |
+| `--sort` | `recorded-at` (default), `duration`, `size` |
+| `--direction` | `desc` (default) or `asc`; program ID breaks ties in the same direction |
+| `--limit` | Page size, 1–500; default 100 |
+| `--offset` | Matching programs to skip; default 0, must be nonnegative |
+
+Date bounds must be ordered (`from < to`); drop limits must be ordered
+(`min <= max`). Dates retain the recording environment's local time convention.
+Sorting by size/duration uses original executed-file metadata (bytes/seconds),
+not aggregate generated-file size.
+Programs whose original metadata is missing remain searchable by name/status
+or without filters. SQL null sort values precede known values in ascending
+order and follow them in descending order, with the same ID tie-break. They
+do not match date/channel/drop/file-type filters. Existing domain fallback
+values remain unchanged in output (`drops: -1`, `duration: -1`, `size: 0`,
+empty strings, and the minimum local date-time).
+
+File filters require a registered created file in `FILE_MOVED` state. `ts`
+matches MIME `video/vnd.dlna.mpeg-tts`. `encoded` matches `video/*` except that
+TS MIME; null MIME and ancillary files do not qualify. A program with both
+types matches either filter, and multiple matching files do not duplicate a
+program or inflate totals. This is metadata availability, not a live NAS probe.
+
+JSON retains `schemaVersion: 1` and its `programs` array, adding `total` (all
+matches before pagination), `limit`, and `offset`. Human output ends with the
+same counts. ID-only output contains only the selected page's IDs; increment
+`--offset` by `--limit` to fetch later pages (or use JSON's `total`). Empty or
+beyond-end pages succeed. Separate page requests can reflect library changes;
+the stable tie-break avoids ambiguous ordering within each snapshot.
+
+```sh
+java -jar manager-console.jar search --channel BS1 --status completed --max-drops 0 --json
+java -jar manager-console.jar search --recorded-from 2026-10-01T00:00:00 --recorded-to 2026-11-01T00:00:00 --file-type encoded --sort size --direction desc --limit 50 --offset 50 --json
+```
+
+The shared backend API is `ProgramCommand.search(ProgramSearchQuery)` returning
+`ProgramSearchPage(items, total, limit, offset)`. Validation, filtering, and sort
+semantics live in core for the web interface to reuse. The older
+`selectByName` method is retained for existing callers; new search callers
+should use the shared paged API.

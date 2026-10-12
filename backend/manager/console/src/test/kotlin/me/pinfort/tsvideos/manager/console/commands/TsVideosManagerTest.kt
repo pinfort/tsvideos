@@ -22,6 +22,7 @@ import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
+import me.pinfort.tsvideos.core.domain.ProgramSearchPage
 import me.pinfort.tsvideos.core.version.ApplicationVersion
 import me.pinfort.tsvideos.manager.console.component.ProgramDetailToTextComponent
 import java.nio.file.Path
@@ -109,14 +110,17 @@ class TsVideosManagerTest :
 
         context("execute") {
             expect("search") {
-                every { programCommand.selectByName(any(), any(), any()) } returns listOf(dummyProgram)
+                every { programCommand.search(any()) } returns ProgramSearchPage(listOf(dummyProgram), 1, 100, 0)
                 every { programCommand.hasTsFile(any()) } returns true
                 every { terminalTextColorComponent.error(any()) } returns "1\t2023/01/01 00:00:00\tchannelName\t2\ttrue\ttitle"
 
                 tsVideosManager.main(arrayOf("search", "-n", "test"))
 
                 verify(exactly = 1) {
-                    programCommand.selectByName("test", 500, 0)
+                    programCommand.search(
+                        me.pinfort.tsvideos.core.domain
+                            .ProgramSearchQuery(name = "test"),
+                    )
                 }
             }
 
