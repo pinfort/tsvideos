@@ -82,7 +82,7 @@ class ResetRunnerTest :
             programCommand = mockk()
             splittedFileCommand = mockk()
             logger = mockk(relaxed = true)
-            resetRunner = ResetRunner(executedFileCommand, programCommand, splittedFileCommand, logger)
+            resetRunner = ResetRunner(executedFileCommand, programCommand, splittedFileCommand, logger, mockk(relaxed = true))
         }
 
         context("run") {

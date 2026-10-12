@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.domain.SplittedFile
@@ -30,12 +31,13 @@ class ResetRunner(
     private val programCommand: ProgramCommand,
     private val splittedFileCommand: SplittedFileCommand,
     private val logger: Logger,
+    private val processingJobCommand: ProcessingJobCommand,
 ) {
     fun run(
         file: Path,
         dryRun: Boolean = false,
     ) {
-        val target = file.toFile().absolutePath
+        val target = file.toFile().canonicalPath
         logger.info("resetting processing, file=$target, dryRun=$dryRun")
 
         val executedFile = executedFileCommand.findByFile(target)
@@ -57,9 +59,11 @@ class ResetRunner(
 
         // DB・NAS の削除を先に行う。失敗時はトランザクションでロールバックされ、
         // ローカルファイルには手を付けていないので再実行できる。
+        if (!dryRun) processingJobCommand.prepareReset(executedFile.id)
         programCommand.delete(program, dryRun)
 
         deleteLocalSplittedFiles(splittedFiles, dryRun)
+        if (!dryRun) processingJobCommand.reset(executedFile.id)
 
         logger.info("reset completed, file=$target, programId=${program.id}")
     }

@@ -13,6 +13,7 @@ import io.mockk.verify
 import io.mockk.verifyOrder
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
@@ -22,6 +23,7 @@ import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFile
+import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
@@ -48,6 +50,7 @@ class FileProcessingPipelineTest :
         lateinit var durationProbeClient: DurationProbeClient
         lateinit var nasComponent: NasComponent
         lateinit var sambaClient: SambaClient
+        lateinit var jobs: ProcessingJobCommand
         lateinit var logger: Logger
         lateinit var fileProcessingPipeline: FileProcessingPipeline
 
@@ -78,6 +81,15 @@ class FileProcessingPipelineTest :
             nasComponent = mockk()
             sambaClient = mockk()
             logger = mockk(relaxed = true)
+            jobs = mockk(relaxed = true)
+            every { jobs.find(any()) } returns null
+            every { jobs.findByPath(any()) } returns null
+            every { jobs.claim(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "CLAIMED", null, null)
+            every { executedFileCommand.findByFile(any()) } returns null
+            every { jobs.findByExecutedFile(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "SUBMITTED", 1, null)
+            every { jobs.claimCallback(any()) } returns "token"
+            every { createdFileCommand.selectBySplittedFileId(any()) } returns emptyList()
+            every { nasComponent.matchesSize(any(), any(), any()) } returns true
             every { sambaClient.resolvePathUnderBaseDir(any(), any()) } answers { secondArg() }
             fileProcessingPipeline =
                 FileProcessingPipeline(
@@ -95,6 +107,7 @@ class FileProcessingPipelineTest :
                     nasDestinationResolver = NasDestinationResolver(NormalizeComponent(), sambaClient),
                     processorToolConfigurationProperties = properties,
                     logger = logger,
+                    processingJobCommand = jobs,
                 )
         }
 
@@ -170,7 +183,8 @@ class FileProcessingPipelineTest :
                     every { programCommand.findByName(original.name) } returns null
                     every { tsSelectClient.check(any(), any()) } throws TsVideosException("inspection failed")
                     shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original, dryRun) }
-                    verify { listOf(executedFileCommand, splittedFileCommand, createdFileCommand) wasNot Called }
+                    verify { listOf(splittedFileCommand, createdFileCommand) wasNot Called }
+                    verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
                     original.exists() shouldBe true
                 }
             }
@@ -254,10 +268,102 @@ class FileProcessingPipelineTest :
             }
         }
 
+        context("acknowledgement failure") {
+            expect("does not resubmit after encoder success followed by DB acknowledgement failure") {
+                val original = newOriginalFile()
+                val outDir = File(original.parentFile, "tssplitter")
+                val executedFile = executedFileFixture(original)
+                lateinit var splitFile: File
+
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+                every {
+                    executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
+                } returns executedFile
+                every { programCommand.insert(any(), any(), any()) } returns mockk()
+
+                every { tsSplitterClient.split(any(), any(), any()) } answers {
+                    outDir.mkdirs()
+                    splitFile = File(outDir, "${original.nameWithoutExtension}_1.m2ts")
+                    splitFile.writeBytes("split content".toByteArray())
+                    0
+                }
+
+                every {
+                    splittedFileCommand.insert(any(), any(), any(), any(), any())
+                } answers {
+                    SplittedFile(
+                        id = 200,
+                        executedFileId = executedFile.id,
+                        file = splitFile.absolutePath,
+                        size = splitFile.length(),
+                        duration = 100.0,
+                        status = SplittedFile.Status.REGISTERED,
+                    )
+                }
+                every { executedFileCommand.updateStatus(any(), any(), any()) } returns executedFile
+                every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
+
+                every {
+                    sambaClient.resolvePathUnderBaseDir(SambaClient.NasType.ORIGINAL_STORE_NAS, any())
+                } answers { "nas-base-dir/${secondArg<String>()}" }
+
+                every { nasComponent.uploadResource(any(), any(), any(), any()) } returns true
+                every {
+                    createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any())
+                } returns
+                    CreatedFile(
+                        id = 300,
+                        splittedFileId = 200,
+                        file = "target",
+                        size = 1,
+                        mime = "video/vnd.dlna.mpeg-tts",
+                        encoding = "gzip",
+                        status = CreatedFile.Status.FILE_MOVED,
+                    )
+
+                every { executedFileCommand.find(executedFile.id) } returns executedFile
+                every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } returns 0
+
+                every { jobs.state(any(), "SUBMITTED") } throws IllegalStateException("DB commit failed")
+                shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
+                every { jobs.find(any()) } returns
+                    ProcessingJob(
+                        1,
+                        "key",
+                        original.canonicalPath,
+                        original.length(),
+                        original.lastModified(),
+                        "SUBMISSION_UNKNOWN",
+                        10,
+                        null,
+                    )
+                shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
+
+                verify(exactly = 1) { amatsukazeAddTaskClient.addTask(any(), any(), any()) }
+                verify { amatsukazeAddTaskClient.addTask(any(), any(), "30fps_light") }
+                verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
+                // the file stored in created_file must include the NAS baseDir, matching the physical upload location
+                verify {
+                    nasComponent.uploadResource(
+                        any(),
+                        match { it.startsWith("nas-base-dir/") },
+                        SambaClient.NasType.ORIGINAL_STORE_NAS,
+                        any(),
+                    )
+                }
+                verify {
+                    createdFileCommand.insert(200, match { it.startsWith("nas-base-dir/") }, any(), any(), any(), any(), any())
+                }
+            }
+        }
         context("processFile - already registered") {
             expect("returns SKIPPED_ALREADY_REGISTERED without running drop chk") {
                 val original = File.createTempFile("process-file-test", ".m2ts")
                 original.writeBytes("x".toByteArray())
+                every { jobs.find(any()) } returns
+                    ProcessingJob(1, "key", original.canonicalPath, original.length(), original.lastModified(), "SUBMITTED", 10, null)
                 val program = mockk<Program>()
                 every { programCommand.findByName(original.name) } returns program
 
@@ -292,7 +398,7 @@ class FileProcessingPipelineTest :
                     executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
                 } returns executedFile
                 every { programCommand.insert(any(), any(), any()) } throws TsVideosException("registration failed")
-                every { executedFileCommand.findByFile(original.absolutePath) } returns executedFile
+                every { executedFileCommand.findByFile(original.absolutePath) } returns null
                 every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
                 every { executedFileCommand.delete(any(), any()) } just Runs
 
@@ -300,7 +406,6 @@ class FileProcessingPipelineTest :
 
                 verifyOrder {
                     programCommand.insert(original.name, executedFile.id, false)
-                    programCommand.deleteByExecutedFileId(executedFile.id, false)
                     executedFileCommand.delete(executedFile, false)
                 }
                 verify { tsSplitterClient wasNot Called }
@@ -322,7 +427,7 @@ class FileProcessingPipelineTest :
                 every { tsSplitterClient.split(any(), any(), any()) } returns 1
 
                 every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
-                every { executedFileCommand.findByFile(original.absolutePath) } returns executedFile
+                every { executedFileCommand.findByFile(original.absolutePath) } returns null
                 every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
                 every { executedFileCommand.delete(any(), any()) } just Runs
 
@@ -388,7 +493,7 @@ class FileProcessingPipelineTest :
         }
 
         context("processFile - amatsukaze failure") {
-            expect("rolls back compress, ts split, and drop chk when Amatsukaze submission fails") {
+            expect("preserves encoder input and records ambiguous submission on failure") {
                 val original = newOriginalFile()
                 val outDir = File(original.parentFile, "tssplitter")
                 val executedFile = executedFileFixture(original)
@@ -457,7 +562,7 @@ class FileProcessingPipelineTest :
                     )
                 every { createdFileCommand.delete(any(), any()) } returns SambaClient.NasType.ORIGINAL_STORE_NAS
                 every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
-                every { executedFileCommand.findByFile(original.absolutePath) } returns executedFile
+                every { executedFileCommand.findByFile(original.absolutePath) } returns null
                 every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
                 every { executedFileCommand.delete(any(), any()) } just Runs
 
@@ -465,14 +570,10 @@ class FileProcessingPipelineTest :
                     fileProcessingPipeline.processFile(original)
                 }
 
-                verifyOrder {
-                    createdFileCommand.selectBySplittedFileId(200)
-                    createdFileCommand.delete(any(), false)
-                    splittedFileCommand.selectByExecutedFileId(executedFile.id)
-                    executedFileCommand.findByFile(original.absolutePath)
-                    programCommand.deleteByExecutedFileId(executedFile.id, false)
-                    executedFileCommand.delete(executedFile, false)
-                }
+                verify { jobs.state(any(), "SUBMISSION_UNKNOWN") }
+                verify(exactly = 0) { createdFileCommand.delete(any(), any()) }
+                verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
+                splitFile.exists() shouldBe true
             }
         }
     })

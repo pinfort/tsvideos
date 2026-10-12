@@ -64,3 +64,5 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 ./gradlew manager:console:bootRun --args="--version"
 ./gradlew processor:console:bootRun --args="--version"
 ```
+
+Processor deployment and recovery: [processing identity and reconciliation](docs/processing-idempotency.md). Apply migration 064 before upgrading.

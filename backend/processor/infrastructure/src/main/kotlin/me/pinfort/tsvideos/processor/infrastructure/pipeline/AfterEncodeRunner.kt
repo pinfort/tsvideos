@@ -2,12 +2,14 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.MimeTypeComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
 import me.pinfort.tsvideos.core.domain.CreatedFile
+import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.external.samba.NasComponent
@@ -39,6 +41,7 @@ class AfterEncodeRunner(
     private val validateCompletedComponent: ValidateCompletedComponent,
     private val slackClient: SlackClient,
     private val logger: Logger,
+    private val processingJobCommand: ProcessingJobCommand,
 ) {
     /**
      * Amatsukaze が実行後バッチに渡す環境変数のうち、この処理で使うもの。
@@ -80,13 +83,32 @@ class AfterEncodeRunner(
             return
         }
 
+        val job = processingJobCommand.findByExecutedFile(splittedFile.executedFileId)
+        check(job != null || dryRun) { "Legacy callback requires reconciliation before processing" }
+        val token = if (!dryRun) processingJobCommand.claimCallback(checkNotNull(job)) else null
+        check(dryRun || token != null) { "Callback already claimed; reconcile interrupted callback before retrying" }
         try {
+            require(input.files.isNotEmpty()) { "Callback output list is empty" }
+            val paths = input.files.map { it.toFile().canonicalPath }.sorted()
+            require(paths.distinct().size == paths.size) { "Duplicate callback output paths" }
+            if (job != null && token != null) {
+                processingJobCommand.freezeManifest(
+                    job,
+                    token,
+                    ProcessingIdentity.hash("${input.itemId}\u0000${paths.joinToString("\u0000")}"),
+                )
+            }
             val registeredFiles = registerFiles(splittedFile, input.files, dryRun)
             moveFiles(registeredFiles, dryRun, onUploadProgress)
+            finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
         } catch (e: Exception) {
             // アップロード済みのファイルや削除済みのローカルファイルは戻せないため、
             // 通知して番組を ERROR にするだけに留める。無人のバッチから呼ばれるので、
             // 例外をそのまま投げると誰も気づけない。
+            if (job?.state == "COMPLETED") {
+                logger.error("Rejected callback for completed job ${job.id}; existing outcome preserved", e)
+                return
+            }
             notifyFailure(
                 splittedFile.executedFileId,
                 "registering or uploading encoded files failed. in_path:${input.inPath}",
@@ -94,9 +116,9 @@ class AfterEncodeRunner(
                 dryRun,
             )
             return
+        } finally {
+            if (job != null && token != null) processingJobCommand.releaseCallback(job, token)
         }
-
-        finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
         logger.info("uploading file completed, targets=${input.files}")
     }
 
@@ -113,7 +135,7 @@ class AfterEncodeRunner(
      */
     private fun findOriginalSplittedFile(inPath: Path): SplittedFile? {
         val originalFile = inPath.parent.parent.resolve(inPath.fileName)
-        return splittedFileCommand.findByFile(originalFile.toFile().absolutePath)
+        return splittedFileCommand.findByFile(originalFile.toFile().canonicalPath)
     }
 
     private fun registerFiles(
@@ -124,16 +146,26 @@ class AfterEncodeRunner(
         files.map { path ->
             val localFile = path.toFile()
             val mimeType = mimeTypeComponent.guess(localFile.name)
+            val previous = createdFileCommand.selectBySplittedFileId(splittedFile.id).firstOrNull { it.file == nasTargetFile(path) }
+            if (previous == null && !dryRun) {
+                check(localFile.isFile) { "Unregistered callback output missing" }
+                check(!nasComponent.resourceExists(nasTargetFile(path))) { "Unowned NAS target exists; reconciliation required" }
+            }
             val createdFile =
-                createdFileCommand.insert(
-                    splittedFile.id,
-                    nasTargetFile(path),
-                    localFile.length(),
-                    mimeType.mime,
-                    mimeType.encoding,
-                    CreatedFile.Status.ENCODE_SUCCESS,
-                    dryRun,
-                )
+                previous
+                    ?: createdFileCommand.insert(
+                        splittedFile.id,
+                        nasTargetFile(path),
+                        localFile.length(),
+                        mimeType.mime,
+                        mimeType.encoding,
+                        CreatedFile.Status.ENCODE_SUCCESS,
+                        dryRun,
+                    )
+            check(dryRun || createdFile.status == CreatedFile.Status.FILE_MOVED || localFile.isFile) {
+                "Pending callback output missing; reconciliation required"
+            }
+            check(!localFile.exists() || localFile.length() == createdFile.size) { "Callback output size changed" }
             logger.info("created file registered, file=$localFile, splittedFileId=${splittedFile.id}")
             RegisteredFile(localFile, createdFile)
         }
@@ -151,6 +183,11 @@ class AfterEncodeRunner(
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
     ) {
         registeredFiles.forEach { (localFile, createdFile) ->
+            if (createdFile.status == CreatedFile.Status.FILE_MOVED) {
+                deleteLocalFile(localFile, dryRun)
+                return@forEach
+            }
+            check(localFile.isFile || dryRun) { "Pending output is missing; reconciliation required" }
             if (!dryRun) {
                 nasComponent.uploadResource(
                     localFile,
@@ -158,6 +195,11 @@ class AfterEncodeRunner(
                     SambaClient.NasType.VIDEO_STORE_NAS,
                     onUploadProgress,
                 )
+            }
+            if (!dryRun) {
+                check(nasComponent.matchesSize(createdFile.file, createdFile.size, SambaClient.NasType.VIDEO_STORE_NAS)) {
+                    "Upload has uncertain outcome or size mismatch; local output preserved"
+                }
             }
             createdFileCommand.updateStatus(createdFile, CreatedFile.Status.FILE_MOVED, dryRun)
             logger.info("file uploaded, file=${localFile.name}, target=${createdFile.file}")
@@ -184,6 +226,7 @@ class AfterEncodeRunner(
                 deleteLocalFile(inPath.toFile(), dryRun)
                 removeExecutedFile(executedFileId, dryRun)
                 programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.COMPLETED, dryRun)
+                if (!dryRun) processingJobCommand.findByExecutedFile(executedFileId)?.let { processingJobCommand.state(it, "COMPLETED") }
             } else {
                 logger.error("program invalid, programId=${program.id}")
                 slackClient.notify("program invalid. programId:${program.id}")
