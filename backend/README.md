@@ -64,3 +64,7 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 ./gradlew manager:console:bootRun --args="--version"
 ./gradlew processor:console:bootRun --args="--version"
 ```
+## Manager CLI structured output
+
+See [manager/console/README.md](manager/console/README.md) for JSON fields,
+ID-only output, stdout/stderr separation, and exit codes.
