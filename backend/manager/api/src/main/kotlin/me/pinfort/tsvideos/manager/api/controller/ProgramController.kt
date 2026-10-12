@@ -1,9 +1,8 @@
 package me.pinfort.tsvideos.manager.api.controller
 
-import jakarta.validation.constraints.Max
-import jakarta.validation.constraints.Positive
-import jakarta.validation.constraints.PositiveOrZero
 import me.pinfort.tsvideos.core.command.ProgramCommand
+import me.pinfort.tsvideos.core.domain.Program
+import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.manager.api.exception.ProgramNotFoundException
 import me.pinfort.tsvideos.manager.api.response.ProgramDetailResponse
 import me.pinfort.tsvideos.manager.api.response.SearchResponse
@@ -15,6 +14,9 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.server.ResponseStatusException
+import java.time.LocalDateTime
+import java.time.format.DateTimeParseException
 
 @RestController
 @Validated
@@ -23,20 +25,49 @@ class ProgramController(
 ) {
     @GetMapping("/api/v1/programs")
     fun index(
-        @RequestParam(name = "name", required = false, defaultValue = "") name: String,
-        @RequestParam(name = "limit", required = false, defaultValue = "100")
-        @Max(100)
-        @Positive
-        limit: Int,
-        @RequestParam(name = "offset", required = false, defaultValue = "0") @PositiveOrZero offset: Int,
-    ): SearchResponse =
-        SearchResponse(
-            programCommand.selectByName(
-                name,
-                limit,
-                offset,
-            ),
-        )
+        @RequestParam(name = "name", required = false) name: String?,
+        @RequestParam(name = "channel", required = false) channel: String?,
+        @RequestParam(name = "recordedFrom", required = false) recordedFrom: String?,
+        @RequestParam(name = "recordedTo", required = false) recordedTo: String?,
+        @RequestParam(name = "status", required = false) status: Program.Status?,
+        @RequestParam(name = "minDrops", required = false) minDrops: Int?,
+        @RequestParam(name = "maxDrops", required = false) maxDrops: Int?,
+        @RequestParam(name = "fileType", required = false) fileType: ProgramSearchQuery.FileType?,
+        @RequestParam(name = "sort", defaultValue = "RECORDED_AT") sort: ProgramSearchQuery.Sort,
+        @RequestParam(name = "direction", defaultValue = "DESC") direction: ProgramSearchQuery.Direction,
+        @RequestParam(name = "limit", defaultValue = "100") limit: Int,
+        @RequestParam(name = "offset", defaultValue = "0") offset: Int,
+    ): SearchResponse {
+        val query =
+            try {
+                ProgramSearchQuery(
+                    name,
+                    channel,
+                    recordedFrom
+                        ?.takeIf {
+                            it.isNotEmpty()
+                        }?.let(LocalDateTime::parse),
+                    recordedTo
+                        ?.takeIf {
+                            it.isNotEmpty()
+                        }?.let(LocalDateTime::parse),
+                    status,
+                    minDrops,
+                    maxDrops,
+                    fileType,
+                    sort,
+                    direction,
+                    limit,
+                    offset,
+                )
+            } catch (_: DateTimeParseException) {
+                throw ResponseStatusException(HttpStatus.BAD_REQUEST, "recording timestamps must be ISO local date-times")
+            } catch (error: IllegalArgumentException) {
+                throw ResponseStatusException(HttpStatus.BAD_REQUEST, error.message)
+            }
+        val page = programCommand.search(query)
+        return SearchResponse(page.items, page.total, page.limit, page.offset)
+    }
 
     @GetMapping("/api/v1/programs/{id}")
     fun get(

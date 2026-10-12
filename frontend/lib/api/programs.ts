@@ -1,19 +1,23 @@
 import { ApiError, fetchJson } from "./client";
-import type { ProgramDetailResponse, SearchProgramsResponse } from "./types";
+import type {
+  ProgramDetailResponse,
+  ProgramSearchQuery,
+  SearchProgramsResponse,
+} from "./types";
+import { programQueryParams } from "../program-query";
 
-export async function getPrograms(params: {
-  name?: string;
-  limit?: number;
-  offset?: number;
-}): Promise<SearchProgramsResponse> {
-  const search = new URLSearchParams();
-  if (params.name) search.set("name", params.name);
-  if (params.limit !== undefined) search.set("limit", String(params.limit));
-  if (params.offset !== undefined) search.set("offset", String(params.offset));
-  return fetchJson<SearchProgramsResponse>(`/api/v1/programs?${search.toString()}`);
+export async function getPrograms(
+  params: ProgramSearchQuery,
+): Promise<SearchProgramsResponse> {
+  const search = programQueryParams(params);
+  return fetchJson<SearchProgramsResponse>(
+    `/api/v1/programs?${search.toString()}`,
+  );
 }
 
-export async function getProgramDetail(id: number): Promise<ProgramDetailResponse | null> {
+export async function getProgramDetail(
+  id: number,
+): Promise<ProgramDetailResponse | null> {
   try {
     return await fetchJson<ProgramDetailResponse>(`/api/v1/programs/${id}`);
   } catch (err) {

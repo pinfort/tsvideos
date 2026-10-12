@@ -1,45 +1,51 @@
 import Link from "next/link";
-
-function buildHref(name: string, limit: number, offset: number): string {
-  const params = new URLSearchParams();
-  if (name) params.set("name", name);
-  params.set("limit", String(limit));
-  params.set("offset", String(offset));
-  return `/?${params.toString()}`;
-}
+import {
+  programQueryParams,
+  type ParsedProgramQuery,
+} from "@/lib/program-query";
 
 export function Pager({
-  name,
-  limit,
-  offset,
-  hasNextPage,
+  query,
+  total,
 }: {
-  name: string;
-  limit: number;
-  offset: number;
-  hasNextPage: boolean;
+  query: ParsedProgramQuery;
+  total: number;
 }) {
-  const currentPage = offset === 0 ? 1 : Math.ceil(offset / limit) + 1;
-  const backwardHref = buildHref(name, limit, Math.max(offset - limit, 0));
-  const forwardHref = buildHref(name, limit, offset + limit);
-
+  const { limit, offset } = query;
+  const href = (next: number) =>
+    `/?${programQueryParams({ ...query, offset: next })}`;
   return (
-    <div className="flex items-center justify-center gap-4 py-4 text-sm">
+    <nav
+      aria-label="検索結果のページ"
+      className="flex items-center justify-center gap-4 py-4 text-sm"
+    >
       {offset > 0 ? (
-        <Link href={backwardHref} className="text-blue-600 hover:underline dark:text-blue-400">
+        <Link
+          href={href(Math.max(offset - limit, 0))}
+          aria-label="前のページ"
+          className="text-blue-600 hover:underline"
+        >
           &lt;&lt;
         </Link>
       ) : (
-        <span className="text-zinc-400">&lt;&lt;</span>
+        <span aria-disabled="true" className="text-zinc-400">
+          &lt;&lt;
+        </span>
       )}
-      <span>{currentPage}</span>
-      {hasNextPage ? (
-        <Link href={forwardHref} className="text-blue-600 hover:underline dark:text-blue-400">
+      <span>{Math.floor(offset / limit) + 1}</span>
+      {offset + limit < total && offset + limit <= 2_147_483_647 ? (
+        <Link
+          href={href(offset + limit)}
+          aria-label="次のページ"
+          className="text-blue-600 hover:underline"
+        >
           &gt;&gt;
         </Link>
       ) : (
-        <span className="text-zinc-400">&gt;&gt;</span>
+        <span aria-disabled="true" className="text-zinc-400">
+          &gt;&gt;
+        </span>
       )}
-    </div>
+    </nav>
   );
 }

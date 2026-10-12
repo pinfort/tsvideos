@@ -1,40 +1,74 @@
-import { parseProgramQuery } from "@/lib/program-query";
+import {
+  parseProgramQuery,
+  type ProgramQueryParams,
+} from "@/lib/program-query";
 import { Pager } from "@/components/pager";
 import { ProgramsTable } from "@/components/programs-table";
 import { SearchForm } from "@/components/search-form";
 import { getPrograms } from "@/lib/api/programs";
+import { ApiError } from "@/lib/api/client";
 
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ name?: string; limit?: string; offset?: string }>;
+  searchParams: Promise<ProgramQueryParams>;
 }) {
-  const { name, limit: limitNum, offset: offsetNum } = parseProgramQuery(await searchParams);
-  // Fetch one extra row to detect whether a next page exists without relying
-  // on a total count from the API (SearchResponse doesn't provide one). Can't
-  // do this when limitNum is already at the backend's max, so fall back to
-  // the less precise length===limit heuristic in that one case.
-  const fetchLimit = Math.min(limitNum + 1, 100);
-  const { programs: fetched } = await getPrograms({
-    name,
-    limit: fetchLimit,
-    offset: offsetNum,
-  });
-  const hasNextPage =
-    fetchLimit > limitNum ? fetched.length > limitNum : fetched.length === limitNum;
-  const programs = fetched.length > limitNum ? fetched.slice(0, limitNum) : fetched;
-
+  const values = await searchParams;
+  let query;
+  let validationError: string | undefined;
+  try {
+    query = parseProgramQuery(values);
+  } catch (error) {
+    validationError =
+      error instanceof Error ? error.message : "検索条件を確認してください。";
+  }
+  let result;
+  let apiError: string | undefined;
+  if (query) {
+    try {
+      result = await getPrograms(query);
+    } catch (error) {
+      apiError =
+        error instanceof ApiError && error.status === 400
+          ? "検索条件が不正です。入力内容を確認してください。"
+          : "検索結果を取得できませんでした。時間をおいて再度検索してください。";
+    }
+  }
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10">
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-10">
       <header>
-        <SearchForm defaultValue={name} />
+        <SearchForm key={JSON.stringify(values)} values={values} />
       </header>
       <main>
-        <ProgramsTable programs={programs} />
+        {validationError || apiError ? (
+          <p
+            role="alert"
+            className="rounded border border-red-300 p-4 text-red-700 dark:text-red-300"
+          >
+            {validationError || apiError}
+          </p>
+        ) : null}
+        {result && (
+          <>
+            <p className="mb-3 text-sm text-zinc-500">
+              全{result.total}件（{result.offset}件スキップ・
+              {result.programs.length}件表示）
+            </p>
+            {result.programs.length ? (
+              <ProgramsTable programs={result.programs} />
+            ) : (
+              <p className="rounded border border-zinc-200 p-6">
+                条件に一致する録画がありません。検索条件やページを変更してください。
+              </p>
+            )}
+          </>
+        )}
       </main>
-      <footer>
-        <Pager name={name} limit={limitNum} offset={offsetNum} hasNextPage={hasNextPage} />
-      </footer>
+      {result && query && (
+        <footer>
+          <Pager query={query} total={result.total} />
+        </footer>
+      )}
     </div>
   );
 }

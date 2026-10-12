@@ -1,12 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Program } from "@/lib/api/types";
-
+import { ApiError } from "@/lib/api/client";
 const { getPrograms } = vi.hoisted(() => ({ getPrograms: vi.fn() }));
 vi.mock("@/lib/api/programs", () => ({ getPrograms }));
-
 import HomePage from "./page";
-
 function makeProgram(id: number): Program {
   return {
     id,
@@ -15,7 +13,7 @@ function makeProgram(id: number): Program {
     status: "COMPLETED",
     drops: 0,
     size: 0,
-    recordedAt: "2024-01-01T00:00:00Z",
+    recordedAt: "2024-01-01T00:00:00",
     channel: "1",
     title: `Program ${id}`,
     channelName: "Channel",
@@ -27,54 +25,69 @@ describe("HomePage", () => {
   beforeEach(() => {
     getPrograms.mockReset();
   });
-
-  it("defaults to limit 10 offset 0 and fetches one extra row to probe for a next page", async () => {
-    getPrograms.mockResolvedValue({ programs: [makeProgram(1), makeProgram(2)] });
-
-    const jsx = await HomePage({ searchParams: Promise.resolve({}) });
-    render(jsx);
-
-    expect(getPrograms).toHaveBeenCalledWith({ name: "", limit: 11, offset: 0 });
+  it("requests the exact page size and uses total rather than an extra-row heuristic", async () => {
+    getPrograms.mockResolvedValue({
+      programs: [makeProgram(1)],
+      total: 11,
+      limit: 10,
+      offset: 0,
+    });
+    render(await HomePage({ searchParams: Promise.resolve({}) }));
+    expect(getPrograms).toHaveBeenCalledWith(
+      expect.objectContaining({
+        limit: 10,
+        offset: 0,
+        sort: "RECORDED_AT",
+        direction: "DESC",
+      }),
+    );
     expect(screen.getByText("Program 1")).toBeInTheDocument();
-    expect(screen.getByText("Program 2")).toBeInTheDocument();
-    expect(screen.getByText(">>")).not.toHaveAttribute("href");
+    expect(
+      screen.getByRole("link", { name: "次のページ" }),
+    ).toBeInTheDocument();
   });
-
-  it("clamps an out-of-range limit to the backend's max of 100", async () => {
-    getPrograms.mockResolvedValue({ programs: [] });
-
-    const jsx = await HomePage({ searchParams: Promise.resolve({ limit: "500" }) });
-    render(jsx);
-
-    // 100 is already the max, so no +1 probe row is requested.
-    expect(getPrograms).toHaveBeenCalledWith({ name: "", limit: 100, offset: 0 });
+  it("supports the maximum page size and a clear empty result", async () => {
+    getPrograms.mockResolvedValue({
+      programs: [],
+      total: 0,
+      limit: 500,
+      offset: 0,
+    });
+    render(
+      await HomePage({
+        searchParams: Promise.resolve({
+          limit: "500",
+          channel: "BS1",
+          maxDrops: "0",
+        }),
+      }),
+    );
+    expect(getPrograms).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 500, channel: "BS1", maxDrops: 0 }),
+    );
+    expect(
+      screen.getByText(/条件に一致する録画がありません/),
+    ).toBeInTheDocument();
   });
-
-  it("clamps a non-numeric limit to the default of 10", async () => {
-    getPrograms.mockResolvedValue({ programs: [] });
-
-    const jsx = await HomePage({ searchParams: Promise.resolve({ limit: "not-a-number" }) });
-    render(jsx);
-
-    expect(getPrograms).toHaveBeenCalledWith({ name: "", limit: 11, offset: 0 });
+  it("keeps invalid input editable and does not call the API", async () => {
+    render(
+      await HomePage({
+        searchParams: Promise.resolve({ minDrops: "3", maxDrops: "2" }),
+      }),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "ドロップ数の下限は上限以下",
+    );
+    expect(screen.getByLabelText("ドロップ数（下限）")).toHaveValue(3);
+    expect(getPrograms).not.toHaveBeenCalled();
   });
-
-  it("clamps a negative offset to zero", async () => {
-    getPrograms.mockResolvedValue({ programs: [] });
-
-    const jsx = await HomePage({ searchParams: Promise.resolve({ offset: "-5" }) });
-    render(jsx);
-
-    expect(getPrograms).toHaveBeenCalledWith({ name: "", limit: 11, offset: 0 });
-  });
-
-  it("detects a next page when the extra probe row comes back and trims it from the rendered list", async () => {
-    getPrograms.mockResolvedValue({ programs: Array.from({ length: 11 }, (_, i) => makeProgram(i)) });
-
-    const jsx = await HomePage({ searchParams: Promise.resolve({ limit: "10" }) });
-    render(jsx);
-
-    expect(screen.getByText(">>")).toHaveAttribute("href", "/?limit=10&offset=10");
-    expect(screen.getAllByRole("row")).toHaveLength(11); // header + 10 trimmed rows, not 11
-  });
+  it.each([new ApiError(400, "private details"), new Error("secret")])(
+    "shows a safe actionable API error",
+    async (error) => {
+      getPrograms.mockRejectedValue(error);
+      render(await HomePage({ searchParams: Promise.resolve({}) }));
+      expect(screen.getByRole("alert")).toHaveTextContent(/検索/);
+      expect(screen.getByRole("alert")).not.toHaveTextContent(/secret|private/);
+    },
+  );
 });
