@@ -143,6 +143,8 @@ class FileProcessingPipelineTest :
 
                 fileProcessingPipeline.processFile(original, dryRun = true) shouldBe FileProcessingPipeline.Result.DRY_RUN
 
+                verify { logger.info(match<String> { it.contains("would register, split, compress, upload and submit encoding") }) }
+                verify { jobs wasNot Called }
                 original.parentFile.listFiles()!!.toList() shouldBe listOf(original)
                 verify(exactly = 1) { tsSelectClient.check(original, any()) }
                 verify(exactly = 1) { durationProbeClient.probe(original, any()) }

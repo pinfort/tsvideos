@@ -69,7 +69,7 @@ For CLAIMED with no possible encoder task, inspect all registrations and generat
 artifacts. With an executed_file row, transition the inspected CLAIMED job to REJECTED
 under stopped workers, then reset. If a crash occurred between registration and job linkage, first set the inspected job's executed_file_id to that verified row ID using a guarded UPDATE requiring state='CLAIMED' and executed_file_id IS NULL; never guess from a basename. Without a row, remove any owned partial artifacts
 only after checking provenance; when no effects remain, transition CLAIMED to RETRYABLE.
-Never reset active CLAIMED jobs. Failed RESETTING cleanup can be replayed; do not run
+Never reset active CLAIMED jobs. Failed RESETTING cleanup can be replayed while its program/executed_file rows still exist. If those rows were already deleted, reset exits without clearing the job: under stopped workers, inspect and finish removal of the owned remaining local split files, then delete only the inspected RESETTING job row with callback_claim IS NULL. Do not run
 callbacks concurrently with that cleanup.
 
 ## Existing in-flight encodes (legacy adoption)

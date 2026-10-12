@@ -69,7 +69,11 @@ class FileProcessingPipeline(
         if (!file.isFile) throw TsVideosException("file not found or not a regular file, file=$file")
         val identity = ProcessingIdentity.from(file)
         if (dryRun) {
-            inspect(file, onDropCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
+            val inspection = inspect(file, onDropCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
+            logger.info(
+                "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}; " +
+                    "would register, split, compress, upload and submit encoding",
+            )
             return Result.DRY_RUN
         }
         val existing = processingJobCommand.find(identity)
