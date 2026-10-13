@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ProgramsTable } from "./programs-table";
 import { applyBulk, previewBulk, type BulkPlan, type BulkOutcome } from "@/lib/api/bulk";
 import type { Program } from "@/lib/api/types";
 
-export function BulkPrograms({ programs }: { programs: Program[] }) {
+export function BulkPrograms({ programs, renderPrograms, deleteOnly = false }: { programs: Program[]; renderPrograms?: (selected: number[], onSelect: (id: number, checked: boolean) => void) => ReactNode; deleteOnly?: boolean }) {
   const router = useRouter();
   const [selected, setSelected] = useState<number[]>([]);
   const [action, setAction] = useState<"DELETE" | "MOVE">("DELETE");
@@ -37,9 +37,9 @@ export function BulkPrograms({ programs }: { programs: Program[] }) {
   return <section aria-label="録画の一括操作" className="space-y-4">
     <p>選択はこのページ内のみ（最大100件）。検索条件・ページを変更すると解除されます。完了済みの録画のみ操作できます。</p>
     <fieldset disabled={pending || plan !== null} className="space-y-3">
-      <ProgramsTable programs={programs} selected={currentSelected} onSelect={(id, checked) => setSelected(values => checked ? [...values, id].slice(0, 100) : values.filter(v => v !== id))} />
+      {renderPrograms ? renderPrograms(currentSelected, (id, checked) => setSelected(values => checked ? [...new Set([...values, id])].slice(0, 100) : values.filter(v => v !== id))) : <ProgramsTable programs={programs} selected={currentSelected} onSelect={(id, checked) => setSelected(values => checked ? [...values, id].slice(0, 100) : values.filter(v => v !== id))} />}
       <p>{currentSelected.length}件選択中</p>
-      <label>操作 <select value={action} onChange={e => setAction(e.target.value as "DELETE" | "MOVE")} className="border p-2"><option value="DELETE">削除</option><option value="MOVE">移動</option></select></label>
+      {!deleteOnly && <label>操作 <select value={action} onChange={e => setAction(e.target.value as "DELETE" | "MOVE")} className="border p-2"><option value="DELETE">削除</option><option value="MOVE">移動</option></select></label>}
       {action === "MOVE" && <label className="block">移動先の番組フォルダー名 <input className="border p-2" value={directory} onChange={e => setDirectory(e.target.value)} /></label>}
       <button type="button" className="rounded border p-2" disabled={!currentSelected.length || (action === "MOVE" && !directory.trim())} onClick={preview}>対象をプレビュー</button>
     </fieldset>

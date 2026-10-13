@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   parseProgramQuery,
   type ProgramQueryParams,
@@ -37,6 +38,7 @@ export default async function HomePage({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-10">
       <header>
+        <Link href="/duplicates" className="mb-4 inline-block underline">重複録画のレビュー</Link>
         <SearchForm key={JSON.stringify(values)} values={values} />
       </header>
       <main>

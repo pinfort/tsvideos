@@ -62,3 +62,5 @@ To learn more about Next.js, take a look at the following resources:
 
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+The `/duplicates` page compares the existing CLI duplicate groups and recommendation order. Selection starts empty; cleanup uses the same server actions and preview/confirmation UI as bulk library management. Saved failure results remain visible even when refreshing removes the last duplicate group. FILE_MOVED file listings are metadata, not a new NAS verification.

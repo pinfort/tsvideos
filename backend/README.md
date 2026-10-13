@@ -68,3 +68,11 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 
 See [manager/console/README.md](manager/console/README.md) for JSON fields,
 ID-only output, stdout/stderr separation, and exit codes.
+
+### Duplicate recording review
+
+`GET /api/v1/programs/duplicates` enriches the existing duplicate detector's groups in one repeatable-read snapshot. `/duplicates` compares channel, local recording time, duration, drops, status and `FILE_MOVED` files side by side. The GET performs no NAS calls; available-file labels describe registered status, not fresh physical verification.
+
+The same existing keep order is shown explicitly: fewer known drops (unknown is ranked last), COMPLETED/REGISTERED/ERROR, longer duration, larger original-recording size, then lower ID. The reason compares the recommendation with the next-ranked member; all winning values and the full ordered criteria are exposed. This is a recommendation, not forced retention. All checkboxes start empty, including the recommended member; selecting it manually makes it a deletion target.
+
+Cleanup reuses the bulk preview/apply commands and UI, including exact file/record preview, explicit confirmation, stale fingerprints, shared-path protection, per-target results and preservation of the original local recording. Results survive refresh even if a duplicate group disappears. No automatic cleanup occurs.
