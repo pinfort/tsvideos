@@ -70,6 +70,35 @@ class ShellClientTest :
                 directory.delete()
             }
         }
+        listOf(0, 7).forEach { code ->
+            expect("uncaptured parent exit $code survives an observed descendant retaining pipes") {
+                val directory =
+                    java.nio.file.Files
+                        .createTempDirectory("shell-drain")
+                        .toFile()
+                val pidFile = File(directory, "child.pid")
+                try {
+                    val start = System.nanoTime()
+                    shellClient.execute(
+                        directory,
+                        listOf("bash", "-c", "sleep 60 & echo $! > child.pid; sleep 0.2; exit $code"),
+                        10,
+                    ) shouldBe
+                        code
+                    (System.nanoTime() - start < 4_000_000_000L) shouldBe true
+                    val pid = pidFile.readText().trim().toLong()
+                    val stat = File("/proc/$pid/stat")
+                    val running =
+                        ProcessHandle.of(pid).map { it.isAlive }.orElse(false) &&
+                            (!stat.exists() || !stat.readText().substringAfterLast(") ").startsWith("Z"))
+                    running shouldBe false
+                } finally {
+                    if (pidFile.exists()) ProcessHandle.of(pidFile.readText().trim().toLong()).ifPresent { it.destroyForcibly() }
+                    pidFile.delete()
+                    directory.delete()
+                }
+            }
+        }
         expect("a descendant holding output pipes cannot hang stream draining") {
             val start = System.nanoTime()
             shouldThrow<ShellCommandTimeoutException> {
