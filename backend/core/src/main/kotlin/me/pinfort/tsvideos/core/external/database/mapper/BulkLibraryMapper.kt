@@ -6,6 +6,15 @@ import org.apache.ibatis.annotations.Select
 
 @Mapper
 interface BulkLibraryMapper {
+    @Select("SELECT id FROM program ORDER BY id FOR UPDATE")
+    fun lockAllPrograms(): List<Long>
+
+    @Select("SELECT id FROM executed_file ORDER BY id FOR UPDATE")
+    fun lockAllExecuted(): List<Long>
+
+    @Select("SELECT id FROM splitted_file ORDER BY id FOR UPDATE")
+    fun lockAllSplits(): List<Long>
+
     @Select("SELECT * FROM created_file ORDER BY id")
     fun allFiles(): List<CreatedFileDto>
 

@@ -1,0 +1,241 @@
+package me.pinfort.tsvideos.core.command
+
+import me.pinfort.tsvideos.core.domain.BulkAction
+import me.pinfort.tsvideos.core.domain.BulkApplyRequest
+import me.pinfort.tsvideos.core.domain.BulkOutcome
+import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
+import me.pinfort.tsvideos.core.domain.BulkRequest
+import me.pinfort.tsvideos.core.domain.BulkResult
+import me.pinfort.tsvideos.core.domain.CleanupCriteria
+import me.pinfort.tsvideos.core.domain.CleanupFile
+import me.pinfort.tsvideos.core.domain.CleanupGroup
+import me.pinfort.tsvideos.core.domain.CleanupMode
+import me.pinfort.tsvideos.core.domain.CleanupPlan
+import me.pinfort.tsvideos.core.domain.CleanupTarget
+import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
+import org.springframework.stereotype.Component
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
+import org.springframework.transaction.support.TransactionTemplate
+import java.time.Instant
+import java.time.LocalDateTime
+
+class CleanupResourceMissing : IllegalArgumentException("An explicitly selected recording is missing")
+
+@Component
+class CleanupPlanCommand(
+    private val duplicates: DuplicateReviewCommand,
+    private val programs: ProgramMapper,
+    private val bulk: BulkLibraryCommand,
+    transactionManager: PlatformTransactionManager,
+) {
+    private val read =
+        TransactionTemplate(transactionManager).apply {
+            isReadOnly = true
+            isolationLevel =
+                TransactionDefinition.ISOLATION_REPEATABLE_READ
+        }
+
+    fun plan(criteria: CleanupCriteria): CleanupPlan = read.execute { generate(criteria, Instant.now().toString()) }!!
+
+    fun apply(
+        plan: CleanupPlan,
+        dryRun: Boolean = false,
+    ): BulkResult {
+        validate(plan)
+        if (dryRun) {
+            return read.execute {
+                BulkResult(
+                    plan.targets.map {
+                        checkCurrent(plan, it.id, emptySet())
+                            ?: BulkOutcome(it.id, BulkOutcomeStatus.SUCCESS, "Validated only; no changes")
+                    },
+                )
+            }!!
+        }
+        if (plan.targets.isEmpty()) return BulkResult(emptyList())
+        return bulk.applyGuarded(
+            BulkApplyRequest(
+                BulkRequest(plan.targets.map { it.id }, BulkAction.DELETE),
+                plan.targets.associate {
+                    it.id to
+                        it.fingerprint
+                },
+            ),
+        ) { id, completed -> checkCurrent(plan, id, completed) }
+    }
+
+    private fun checkCurrent(
+        plan: CleanupPlan,
+        id: Long,
+        completed: Set<Long>,
+    ): BulkOutcome? {
+        val remainingTargets = plan.targets.filter { it.id !in completed }
+        val allIds = programs.selectAllIds().toSet()
+        if (id !in allIds) return BulkOutcome(id, BulkOutcomeStatus.NOT_FOUND, "Recording no longer exists")
+        if (plan.keptTargets.any {
+                it.id !in allIds
+            }
+        ) {
+            return BulkOutcome(id, BulkOutcomeStatus.STALE, "Selected kept recording changed; generate a new plan")
+        }
+        val expectedGroups =
+            plan.groups.map { it.copy(memberIds = it.memberIds.filter { member -> member !in completed }) }.filter {
+                it.memberIds.size >
+                    1
+            }
+        val currentCriteria =
+            if (plan.criteria.mode ==
+                CleanupMode.DUPLICATES
+            ) {
+                plan.criteria.copy(keepIds = expectedGroups.map { it.keepId })
+            } else {
+                plan.criteria
+            }
+        val fresh =
+            try {
+                generate(currentCriteria, plan.createdAt)
+            } catch (_: IllegalArgumentException) {
+                return BulkOutcome(id, BulkOutcomeStatus.STALE, "Cleanup criteria or group changed; generate a new plan")
+            }
+
+        val expectedKeeps = plan.keptTargets.filter { keep -> expectedGroups.any { it.keepId == keep.id } }
+        if (fresh.targets != remainingTargets || fresh.groups != expectedGroups || fresh.keptTargets != expectedKeeps) {
+            return BulkOutcome(id, BulkOutcomeStatus.STALE, "Cleanup candidates, kept copy or file snapshots changed; generate a new plan")
+        }
+        val target = fresh.targets.single { it.id == id }
+        return if (!target.eligible) BulkOutcome(id, BulkOutcomeStatus.FAILED, "Recording is not eligible for cleanup") else null
+    }
+
+    private fun generate(
+        criteria: CleanupCriteria,
+        createdAt: String,
+    ): CleanupPlan {
+        validateCriteria(criteria)
+        val groups: List<CleanupGroup>
+        val ids: List<Long>
+        when (criteria.mode) {
+            CleanupMode.DUPLICATES -> {
+                val review =
+                    duplicates.review().groups.filter {
+                        criteria.channel == null ||
+                            it.members
+                                .first()
+                                .program.channel == criteria.channel
+                    }
+                val known = programs.selectAllIds().toSet()
+                if (criteria.keepIds.any { it !in known }) throw CleanupResourceMissing()
+                require(
+                    criteria.keepIds.all { keep ->
+                        review.any { group ->
+                            group.members.any { it.program.id == keep }
+                        }
+                    },
+                ) { "Keep IDs must belong to duplicate groups" }
+                groups =
+                    review
+                        .map { group ->
+                            val members = group.members.map { it.program.id }.sorted()
+                            val overrides = criteria.keepIds.filter { it in members }
+                            require(overrides.size <= 1) { "Select one kept copy per group" }
+                            CleanupGroup(members, overrides.singleOrNull() ?: group.recommendedId)
+                        }.sortedBy { it.memberIds.first() }
+                ids = groups.flatMap { it.memberIds - it.keepId }.sorted()
+            }
+            CleanupMode.RETENTION -> {
+                groups = emptyList()
+                val before = LocalDateTime.parse(criteria.recordedBefore!!)
+                ids =
+                    programs
+                        .selectAll()
+                        .filter {
+                            it.recordedAt != null &&
+                                it.recordedAt < before &&
+                                (criteria.channel == null || it.channel == criteria.channel)
+                        }.map { it.id }
+                        .sorted()
+            }
+        }
+        require(
+            ids.size <= 100 && groups.size <= 100,
+        ) { "A cleanup plan supports at most 100 targets/groups; narrow the explicit criteria" }
+        val targets = snapshot(ids, "${criteria.mode.name} candidate")
+        val keeps = snapshot(groups.map { it.keepId }.sorted(), "Selected duplicate copy to preserve")
+        return CleanupPlan(createdAt = createdAt, criteria = criteria, groups = groups, targets = targets, keptTargets = keeps)
+    }
+
+    private fun snapshot(
+        ids: List<Long>,
+        reason: String,
+    ): List<CleanupTarget> =
+        if (ids.isEmpty()) {
+            emptyList()
+        } else {
+            bulk.preview(BulkRequest(ids, BulkAction.DELETE)).targets.map { target ->
+                CleanupTarget(
+                    target.id,
+                    target.fingerprint,
+                    if (target.eligible) reason else "$reason; ${target.reason}",
+                    target.eligible,
+                    target.estimatedMetadataBytes,
+                    target.snapshot?.executed?.file,
+                    target.snapshot?.splitFiles.orEmpty().map {
+                        it.file
+                    },
+                    target.snapshot
+                        ?.createdFiles
+                        .orEmpty()
+                        .map { CleanupFile(it.id, it.file, it.size, it.status.name) },
+                )
+            }
+        }
+
+    private fun validateCriteria(criteria: CleanupCriteria) {
+        require(criteria.channel == null || criteria.channel.isNotBlank()) { "Channel must be nonblank" }
+        require(
+            criteria.keepIds.size <= 100 &&
+                criteria.keepIds.all {
+                    it > 0
+                } &&
+                criteria.keepIds.distinct().size == criteria.keepIds.size,
+        ) { "Invalid keep IDs" }
+        when (criteria.mode) {
+            CleanupMode.DUPLICATES -> require(criteria.recordedBefore == null) { "Duplicate mode does not accept age criteria" }
+            CleanupMode.RETENTION -> {
+                require(
+                    criteria.keepIds.isEmpty() && criteria.recordedBefore != null,
+                ) { "Retention requires an explicit cutoff and no keep IDs" }
+                LocalDateTime.parse(criteria.recordedBefore)
+            }
+        }
+    }
+
+    private fun validate(plan: CleanupPlan) {
+        require(plan.schemaVersion == 1 && plan.action == "DELETE") { "Unsupported cleanup plan" }
+        Instant.parse(plan.createdAt)
+        validateCriteria(plan.criteria)
+        val ids = plan.targets.map { it.id }
+        val keeps = plan.keptTargets.map { it.id }
+        require(
+            ids.size <= 100 &&
+                keeps.size <= 100 &&
+                (ids + keeps).all { it > 0 } &&
+                ids.distinct().size == ids.size &&
+                keeps.distinct().size == keeps.size &&
+                ids.intersect(keeps.toSet()).isEmpty(),
+        ) { "Invalid plan IDs" }
+        require(
+            (plan.targets + plan.keptTargets).all {
+                it.fingerprint.matches(Regex("[a-f0-9]{64}")) && it.estimatedMetadataBytes >= 0
+            },
+        ) { "Invalid snapshots" }
+        require(
+            plan.groups.all {
+                it.memberIds.size > 1 &&
+                    it.memberIds.distinct().size == it.memberIds.size &&
+                    it.keepId in it.memberIds &&
+                    it.memberIds.all { member -> member in ids || member in keeps }
+            },
+        ) { "Invalid groups" }
+    }
+}

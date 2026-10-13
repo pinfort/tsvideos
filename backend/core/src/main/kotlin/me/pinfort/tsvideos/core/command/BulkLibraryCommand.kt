@@ -55,50 +55,65 @@ class BulkLibraryCommand(
         }!!
     }
 
-    fun apply(input: BulkApplyRequest): BulkResult {
+    fun apply(input: BulkApplyRequest): BulkResult = applyGuarded(input, null)
+
+    internal fun applyGuarded(
+        input: BulkApplyRequest,
+        guard: ((Long, Set<Long>) -> BulkOutcome?)?,
+    ): BulkResult {
         val request = validate(input.request)
         require(input.fingerprints.keys == request.ids.toSet()) { "Every target requires its preview fingerprint" }
         require(input.fingerprints.values.all { it.matches(Regex("[a-f0-9]{64}")) }) { "Invalid fingerprint" }
+        val successful = mutableSetOf<Long>()
         return BulkResult(
             request.ids.map { id ->
-                try {
-                    write.execute {
-                        // Same lock order for every bulk operation. Do not hold locks across targets.
-                        val all = bulk.lockFiles()
-                        if (bulk.lockProgram(id) ==
-                            null
-                        ) {
-                            return@execute BulkOutcome(id, BulkOutcomeStatus.NOT_FOUND, "Recording no longer exists")
-                        }
-                        val program = programs.find(id)!!
-                        bulk.lockExecuted(program.executedFileId)
-                        bulk.lockSplits(program.executedFileId)
-                        bulk.lockReferences(program.executedFileId)
-                        val current = target(id, request, all)
-                        when {
-                            current.fingerprint != input.fingerprints[id] ->
-                                BulkOutcome(
-                                    id,
-                                    BulkOutcomeStatus.STALE,
-                                    "Recording changed; preview again",
-                                )
-                            !current.eligible -> BulkOutcome(id, BulkOutcomeStatus.FAILED, current.reason!!)
-                            else -> {
-                                when (request.action) {
-                                    BulkAction.DELETE -> programs.delete(program)
-                                    BulkAction.MOVE -> programs.moveCreatedFiles(program, request.directory!!)
-                                }
-                                BulkOutcome(id, BulkOutcomeStatus.SUCCESS, "Completed; original recording preserved")
+                val outcome =
+                    try {
+                        write.execute {
+                            // Same lock order for every bulk operation. Do not hold locks across targets.
+                            val all = bulk.lockFiles()
+                            if (guard != null) {
+                                bulk.lockAllPrograms()
+                                bulk.lockAllExecuted()
+                                bulk.lockAllSplits()
+                                guard(id, successful.toSet())?.let { return@execute it }
                             }
-                        }
-                    }!!
-                } catch (_: Exception) {
-                    BulkOutcome(
-                        id,
-                        BulkOutcomeStatus.FAILED,
-                        "Operation failed. NAS files may be partially deleted or moved; inspect preview paths before retry. Original recording preserved.",
-                    )
-                }
+                            if (bulk.lockProgram(id) ==
+                                null
+                            ) {
+                                return@execute BulkOutcome(id, BulkOutcomeStatus.NOT_FOUND, "Recording no longer exists")
+                            }
+                            val program = programs.find(id)!!
+                            bulk.lockExecuted(program.executedFileId)
+                            bulk.lockSplits(program.executedFileId)
+                            bulk.lockReferences(program.executedFileId)
+                            val current = target(id, request, all)
+                            when {
+                                current.fingerprint != input.fingerprints[id] ->
+                                    BulkOutcome(
+                                        id,
+                                        BulkOutcomeStatus.STALE,
+                                        "Recording changed; preview again",
+                                    )
+                                !current.eligible -> BulkOutcome(id, BulkOutcomeStatus.FAILED, current.reason!!)
+                                else -> {
+                                    when (request.action) {
+                                        BulkAction.DELETE -> programs.delete(program)
+                                        BulkAction.MOVE -> programs.moveCreatedFiles(program, request.directory!!)
+                                    }
+                                    BulkOutcome(id, BulkOutcomeStatus.SUCCESS, "Completed; original recording preserved")
+                                }
+                            }
+                        }!!
+                    } catch (_: Exception) {
+                        BulkOutcome(
+                            id,
+                            BulkOutcomeStatus.FAILED,
+                            "Operation failed. NAS files may be partially deleted or moved; inspect preview paths before retry. Original recording preserved.",
+                        )
+                    }
+                if (outcome.status == BulkOutcomeStatus.SUCCESS) successful.add(id)
+                outcome
             },
         )
     }

@@ -63,7 +63,7 @@ class TsVideosManagerTest :
             delete = Delete(programCommand, userQuestionComponent, createdFileCommand)
             modify = Modify(programCommand, directoryNameComponent, userQuestionComponent)
             duplicates = Duplicates(duplicateProgramCommand, programCommand, terminalTextColorComponent)
-            tsVideosManager = TsVideosManager(search, get, delete, modify, duplicates)
+            tsVideosManager = TsVideosManager(search, get, delete, modify, duplicates, Cleanup(mockk()))
         }
 
         val dummyProgram =

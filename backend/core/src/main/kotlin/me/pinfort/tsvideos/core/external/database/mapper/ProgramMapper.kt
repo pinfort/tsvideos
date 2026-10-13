@@ -12,6 +12,9 @@ import org.apache.ibatis.annotations.Update
 
 @Mapper
 interface ProgramMapper {
+    @Select("SELECT id FROM program ORDER BY id")
+    fun selectAllIds(): List<Long>
+
     @SelectProvider(type = ProgramSearchSql::class, method = "search")
     fun search(query: ProgramSearchQuery): List<ProgramDto>
 

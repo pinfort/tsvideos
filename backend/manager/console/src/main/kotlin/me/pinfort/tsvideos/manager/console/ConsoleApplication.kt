@@ -28,7 +28,7 @@ class ConsoleApplication
 fun main(args: Array<String>) {
     // Java's native stdout encoding can still follow the Windows console code page.
     // Set this before Spring/Clikt capture the stream so redirected JSON is UTF-8.
-    if (args.any { it == "--json" || it == "--ids-only" }) {
+    if (args.any { it == "--json" || it == "--ids-only" || it == "cleanup" }) {
         System.setOut(PrintStream(FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8))
     }
     runApplication<ConsoleApplication>(*args)
