@@ -208,6 +208,18 @@ class FileProcessingPipelineTest :
                 originals.forEach { it.parentFile.deleteRecursively() }
             }
         }
+        expect("a queued watch version changed before pipeline entry is never claimed") {
+            val original = newOriginalFile()
+            val expected =
+                me.pinfort.tsvideos.core.domain.ProcessingIdentity
+                    .from(original)
+            original.appendText("changed")
+            shouldThrow<WatchedInputChanged> {
+                fileProcessingPipeline.processExpectedFile(original, expected, { _, _ -> }, { _, _ -> }, { _, _ -> })
+            }
+            verify(exactly = 0) { jobs.claim(any()) }
+            verify(exactly = 0) { history.begin(any(), any()) }
+        }
         context("processFile - dry run") {
             expect("checks the recording without creating files or invoking mutating dependencies") {
                 val original = newOriginalFile()

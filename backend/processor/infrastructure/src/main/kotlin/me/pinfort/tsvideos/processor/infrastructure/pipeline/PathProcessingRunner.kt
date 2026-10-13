@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
+import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
@@ -60,32 +61,9 @@ class PathProcessingRunner(
                             executor.execute {
                                 try {
                                     cancellation.runOwned {
-                                        val canonical = file.canonicalPath
-
-                                        fun listener(stage: String): (Long, Long) -> Unit =
-                                            { value, total ->
-                                                cancellation.check()
-                                                progress(Progress(canonical, stage, value, total))
-                                            }
-                                        try {
-                                            val result =
-                                                fileProcessingPipeline.processFile(
-                                                    file,
-                                                    dryRun,
-                                                    listener("INSPECT"),
-                                                    listener("COMPRESS"),
-                                                    listener("UPLOAD"),
-                                                )
-                                            completed.incrementAndGet()
-                                            complete(Completion(canonical, result.name))
-                                        } catch (failure: Exception) {
-                                            if (ProcessingCancellation.isInterrupted(failure)) throw failure
-                                            failed.incrementAndGet()
-                                            // Avoid expanding tool exception messages or stack traces into Slack.
-                                            logger.error("Recording failed: {} ({})", canonical, failure.javaClass.simpleName)
-                                            slackClient.notify("Recording failed: $canonical (${failure.javaClass.simpleName})")
-                                            complete(Completion(canonical, "FAILED"))
-                                        }
+                                        val result = processRecording(file, dryRun, progress)
+                                        if (result.outcome == "FAILED") failed.incrementAndGet() else completed.incrementAndGet()
+                                        complete(result)
                                     }
                                 } catch (failure: Exception) {
                                     if (ProcessingCancellation.isInterrupted(failure)) {
@@ -107,6 +85,42 @@ class PathProcessingRunner(
                 executor.shutdownNow()
             }
         }
+
+    /** One owned task, shared by finite batches and watch; scheduling remains at the caller. */
+    fun processRecording(
+        file: File,
+        dryRun: Boolean = false,
+        progress: (Progress) -> Unit = {},
+        expectedIdentity: ProcessingIdentity? = null,
+    ): Completion {
+        val canonical = file.canonicalPath
+
+        fun listener(stage: String): (Long, Long) -> Unit =
+            { value, total ->
+                cancellation.check()
+                progress(Progress(canonical, stage, value, total))
+            }
+        return try {
+            val result =
+                if (expectedIdentity == null) {
+                    fileProcessingPipeline.processFile(file, dryRun, listener("INSPECT"), listener("COMPRESS"), listener("UPLOAD"))
+                } else {
+                    fileProcessingPipeline.processExpectedFile(
+                        file,
+                        expectedIdentity,
+                        listener("INSPECT"),
+                        listener("COMPRESS"),
+                        listener("UPLOAD"),
+                    )
+                }
+            Completion(canonical, result.name)
+        } catch (failure: Exception) {
+            if (failure is WatchedInputChanged || ProcessingCancellation.isInterrupted(failure)) throw failure
+            logger.error("Recording failed: {} ({})", canonical, failure.javaClass.simpleName)
+            slackClient.notify("Recording failed: $canonical (${failure.javaClass.simpleName})")
+            Completion(canonical, "FAILED")
+        }
+    }
 
     /** Compatibility entry point; CLI submits all paths through one bounded batch. */
     fun processPath(

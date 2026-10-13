@@ -41,6 +41,7 @@ class TsVideosProcessorTest :
                     ResetCommand(resetRunner, userQuestionComponent),
                     StatusCommand(mockk(relaxed = true)),
                     HistoryCommand(mockk(relaxed = true)),
+                    WatchCommand(mockk(relaxed = true)),
                 )
         }
 

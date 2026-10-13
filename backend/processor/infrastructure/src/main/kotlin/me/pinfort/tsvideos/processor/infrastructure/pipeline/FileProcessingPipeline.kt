@@ -72,10 +72,28 @@ class FileProcessingPipeline(
         onDropCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
+    ): Result = processFileInternal(file, null, dryRun, onDropCheckProgress, onCompressProgress, onUploadProgress)
+
+    fun processExpectedFile(
+        file: File,
+        expectedIdentity: ProcessingIdentity,
+        onDropCheckProgress: (Long, Long) -> Unit,
+        onCompressProgress: (Long, Long) -> Unit,
+        onUploadProgress: (Long, Long) -> Unit,
+    ): Result = processFileInternal(file, expectedIdentity, false, onDropCheckProgress, onCompressProgress, onUploadProgress)
+
+    private fun processFileInternal(
+        file: File,
+        expectedIdentity: ProcessingIdentity?,
+        dryRun: Boolean = false,
+        onDropCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> },
+        onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
+        onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ): Result {
         cancellation.check()
         if (!file.isFile) throw TsVideosException("file not found or not a regular file, file=$file")
         val identity = ProcessingIdentity.from(file)
+        if (expectedIdentity != null && identity != expectedIdentity) throw WatchedInputChanged()
         if (dryRun) {
             val inspection = inspect(file, onDropCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
             logger.info(
