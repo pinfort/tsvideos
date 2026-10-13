@@ -74,6 +74,28 @@ class CleanupTest :
                 Files.deleteIfExists(file)
             }
         }
+        expect("interrupted cleanup exits 130 and preserves the interrupt flag") {
+            val core = mockk<CleanupPlanCommand>()
+            every { core.plan(any()) } throws InterruptedException("cancel")
+            val executor =
+                java.util.concurrent.Executors
+                    .newSingleThreadExecutor()
+            try {
+                val result =
+                    executor
+                        .submit<Pair<Int, Boolean>> {
+                            try {
+                                val result = Cleanup(core).testCleanup(listOf("plan", "--duplicates"))
+                                result.statusCode to Thread.currentThread().isInterrupted
+                            } finally {
+                                Thread.interrupted()
+                            }
+                        }.get(10, java.util.concurrent.TimeUnit.SECONDS)
+                result shouldBe (130 to true)
+            } finally {
+                executor.shutdownNow()
+            }
+        }
         expect("missing file and operational failures have stable exit codes without secrets") {
             val core = mockk<CleanupPlanCommand>()
             Cleanup(core).testCleanup(listOf("apply", "absent-cleanup-plan.json", "--dry-run")).statusCode shouldBe 3

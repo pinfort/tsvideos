@@ -67,6 +67,7 @@ class BulkLibraryCommand(
         val successful = mutableSetOf<Long>()
         return BulkResult(
             request.ids.map { id ->
+                if (Thread.currentThread().isInterrupted) throw InterruptedException("Bulk operation interrupted")
                 val outcome =
                     try {
                         write.execute {
@@ -97,15 +98,23 @@ class BulkLibraryCommand(
                                     )
                                 !current.eligible -> BulkOutcome(id, BulkOutcomeStatus.FAILED, current.reason!!)
                                 else -> {
+                                    if (Thread.currentThread().isInterrupted) throw InterruptedException("Bulk operation interrupted")
                                     when (request.action) {
                                         BulkAction.DELETE -> programs.delete(program)
                                         BulkAction.MOVE -> programs.moveCreatedFiles(program, request.directory!!)
                                     }
+                                    if (Thread.currentThread().isInterrupted) throw InterruptedException("Bulk operation interrupted")
                                     BulkOutcome(id, BulkOutcomeStatus.SUCCESS, "Completed; original recording preserved")
                                 }
                             }
                         }!!
-                    } catch (_: Exception) {
+                    } catch (error: Exception) {
+                        if (Thread.currentThread().isInterrupted ||
+                            generateSequence<Throwable>(error) { it.cause }.any { it is InterruptedException }
+                        ) {
+                            Thread.currentThread().interrupt()
+                            throw InterruptedException("Bulk operation interrupted").apply { initCause(error) }
+                        }
                         BulkOutcome(
                             id,
                             BulkOutcomeStatus.FAILED,

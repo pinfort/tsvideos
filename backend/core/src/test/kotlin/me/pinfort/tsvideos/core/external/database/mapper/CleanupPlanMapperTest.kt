@@ -293,6 +293,44 @@ class CleanupPlanMapperTest : ExpectSpec() {
                 executor.shutdownNow()
             }
         }
+        expect("interruption rolls back the current target and never starts a later deletion") {
+            seed(3)
+            val nas = nas()
+            every { nas.deleteResource("base/a/p2/file.mp4") } throws InterruptedException("cancel")
+            val command = commands(nas).first
+            val plan = command.plan(CleanupCriteria(CleanupMode.DUPLICATES))
+            val executor = Executors.newSingleThreadExecutor()
+            try {
+                executor
+                    .submit<Boolean> {
+                        try {
+                            command.apply(plan)
+                            false
+                        } catch (_: InterruptedException) {
+                            Thread.currentThread().isInterrupted
+                        } finally {
+                            Thread.interrupted()
+                        }
+                    }.get(20, TimeUnit.SECONDS) shouldBe true
+                programMapper.selectAllIds() shouldBe listOf(1L, 2L, 3L)
+                verify(exactly = 0) { nas.deleteResource("base/a/p3/file.mp4") }
+                executor
+                    .submit<Boolean> {
+                        Thread.currentThread().interrupt()
+                        try {
+                            command.apply(plan)
+                            false
+                        } catch (_: InterruptedException) {
+                            Thread.currentThread().isInterrupted
+                        } finally {
+                            Thread.interrupted()
+                        }
+                    }.get(20, TimeUnit.SECONDS) shouldBe true
+                verify(exactly = 1) { nas.deleteResource(any()) }
+            } finally {
+                executor.shutdownNow()
+            }
+        }
         expect("one NAS failure remains explicit while independent later target succeeds") {
             seed(3)
             val nas = nas()

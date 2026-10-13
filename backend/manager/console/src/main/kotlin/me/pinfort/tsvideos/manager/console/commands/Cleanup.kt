@@ -95,7 +95,11 @@ class CleanupApplyCli(
 
 private fun cleanupErrors(block: () -> Unit) {
     try {
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("Cleanup interrupted")
         block()
+    } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+        throw CliktError("Cleanup interrupted; inspect current state before retrying", statusCode = 130)
     } catch (error: CliktError) {
         throw error
     } catch (_: CleanupResourceMissing) {
@@ -104,7 +108,11 @@ private fun cleanupErrors(block: () -> Unit) {
         throw UsageError("Invalid cleanup date")
     } catch (_: IllegalArgumentException) {
         throw UsageError("Invalid cleanup criteria or plan")
-    } catch (_: Exception) {
+    } catch (error: Exception) {
+        if (Thread.currentThread().isInterrupted || generateSequence<Throwable>(error) { it.cause }.any { it is InterruptedException }) {
+            Thread.currentThread().interrupt()
+            throw CliktError("Cleanup interrupted; inspect current state before retrying", statusCode = 130)
+        }
         throw CliktError("Cleanup operation failed", statusCode = 1)
     }
 }
