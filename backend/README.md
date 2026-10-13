@@ -68,3 +68,13 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 
 See [manager/console/README.md](manager/console/README.md) for JSON fields,
 ID-only output, stdout/stderr separation, and exit codes.
+
+### Inventory export
+
+`tvmcli export` writes schema-version 1 JSON (`schemaVersion`, `export.generatedAt`, `export.recordingTimestampBasis`, `export.programs`). Each inventory entry contains program identity/state, nullable executed-file metadata, and split/created file arrays with relationship IDs, paths, bytes, statuses, MIME/encoding and duration seconds. Missing executed metadata is null; no synthetic recording timestamp is exported. `generatedAt` is UTC; recording timestamps retain the recording environment's local time without an offset. This is inventory, not a video backup or a complete restore format.
+
+Use repeated `--id 1 --id 2` (deduplicated, ascending ID order) or combine `--name`, `--channel`, `--recorded-from`, `--recorded-to`, `--status`, `--min-drops`, `--max-drops`, `--file-type`. Search semantics match `search`, including the exclusive date end. IDs cannot be combined with filters. No selection exports the entire library, with no 500-result cap. Search selections retain default recording-date descending/ID descending order. All DB reads share one repeatable-read snapshot; results are materialized before writing stdout, so very large inventories need proportional memory and a long-lived read snapshot.
+
+`--format csv` writes UTF-8 RFC4180-style quoted cells and CRLF records. Rows are CREATED (one created file), SPLIT (split without a created file), or PROGRAM (no split/created files); program and executed fields repeat to preserve relationships. Empty export produces headers. Missing fields are blank. Text cells beginning with spreadsheet formula markers (including after whitespace), tab or newline are prefixed with an apostrophe; JSON preserves original text exactly. Numeric cells remain numeric text. CSV includes `schemaVersion` and `generatedAt` columns.
+
+Export does not access NAS, modify rows, or include connection credentials. Missing requested IDs yield exit 3 with no stdout; invalid input is 2 and operational failure is 1. Successful empty export is 0. Output and diagnostics follow the machine-readable stdout/stderr contract; redirect stdout to save the inventory.
