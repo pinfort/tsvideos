@@ -20,10 +20,12 @@ import java.io.File
 import java.nio.file.Files
 import java.time.LocalDateTime
 
-private class ResetFixture {
+private class ResetFixture(
+    nested: Boolean = false,
+) {
     val root: File = Files.createTempDirectory("reset-test").toFile()
     val recordingDir = File(root, "myprogram").also { it.mkdirs() }
-    val tssplitterDir = File(recordingDir, "tssplitter").also { it.mkdirs() }
+    val tssplitterDir = File(recordingDir, if (nested) "tssplitter/job-1-attempt-2" else "tssplitter").also { it.mkdirs() }
     val succeededDir = File(tssplitterDir, "succeeded").also { it.mkdirs() }
     val executedFile = File(recordingDir, "rec.m2ts").also { it.writeBytes("executed".toByteArray()) }
     val splitFile = File(tssplitterDir, "rec_1.m2ts").also { it.writeBytes("splitted".toByteArray()) }
@@ -151,6 +153,27 @@ class ResetRunnerTest :
                 fixture.splitFile.exists() shouldBe false
                 fixture.succeededSplitFile.exists() shouldBe false
                 fixture.executedFile.exists() shouldBe true
+                verify { programCommand.delete(program, false) }
+            }
+
+            expect("reset uses registered nested attempt paths and keeps neighboring jobs") {
+                val fixture = ResetFixture(true)
+                val other =
+                    File(fixture.tssplitterDir.parentFile, "job-99-attempt-1/rec_1.m2ts").apply {
+                        parentFile.mkdirs()
+                        writeText("other")
+                    }
+                every { executedFileCommand.findByFile(fixture.executedFile.absolutePath) } returns executedFileOf(fixture)
+                every { programCommand.findByExecutedFileId(1) } returns program
+                every { splittedFileCommand.selectByExecutedFileId(1) } returns listOf(splittedFileOf(fixture))
+                every { programCommand.delete(any(), any()) } just Runs
+
+                resetRunner.run(fixture.executedFile.toPath(), dryRun = false)
+
+                fixture.splitFile.exists() shouldBe false
+                fixture.succeededSplitFile.exists() shouldBe false
+                fixture.executedFile.exists() shouldBe true
+                other.readText() shouldBe "other"
                 verify { programCommand.delete(program, false) }
             }
 

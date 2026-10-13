@@ -52,6 +52,7 @@ class FileProcessingPipeline(
     private val verifiedUploadCommand: VerifiedUploadCommand,
     private val history: ProcessingHistoryCommand,
     private val cancellation: ProcessingCancellation = ProcessingCancellation(),
+    private val concurrency: ProcessingConcurrency = ProcessingConcurrency(),
 ) {
     enum class Result {
         PROCESSED,
@@ -124,10 +125,13 @@ class FileProcessingPipeline(
                 }
             processingJobCommand.link(job, executedFile.id)
             var splitInvoked = false
+            val workspace = File(File(file.parentFile, "tssplitter"), "job-${job.id}-attempt-${attempt.attemptNumber}")
             val mainSplittedFile =
                 history.stage(attempt.id, ProcessingStage.SPLIT, { ProcessingArtifact("SPLITTED_FILE", it.id, it.file) }) {
-                    runner.stage({ if (splitInvoked) rollbackTsSplit(executedFile) }) {
-                        tsSplit(executedFile) { splitInvoked = true }
+                    concurrency.stage("SPLIT", cancellation) {
+                        runner.stage({ if (splitInvoked) rollbackTsSplit(executedFile, workspace) }) {
+                            tsSplit(executedFile, workspace) { splitInvoked = true }
+                        }
                     }
                 }
             uploadStarted = true
@@ -140,12 +144,14 @@ class FileProcessingPipeline(
             )
             // Once submission starts rollback would destroy input possibly already consumed by the encoder.
             history.stage(attempt.id, ProcessingStage.SUBMIT_ENCODER) {
-                cancellation.check()
-                processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
-                cancellation.check()
-                amatsukazeAddTask(mainSplittedFile)
-                cancellation.check()
-                processingJobCommand.acknowledgeSubmission(job)
+                concurrency.stage("ENCODER_SUBMIT", cancellation) {
+                    cancellation.check()
+                    processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
+                    cancellation.check()
+                    amatsukazeAddTask(mainSplittedFile)
+                    cancellation.check()
+                    processingJobCommand.acknowledgeSubmission(job)
+                }
             }
             history.finish(attempt.id, ProcessingOutcome.COMPLETED)
         } catch (e: Exception) {
@@ -217,6 +223,7 @@ class FileProcessingPipeline(
     // Stage 2: split into elementary streams, register splitted_file rows, pick the main file
     private fun tsSplit(
         executedFile: ExecutedFile,
+        outDir: File,
         beforeSplit: () -> Unit,
     ): SplittedFile {
         val originalFile = File(executedFile.file)
@@ -224,14 +231,11 @@ class FileProcessingPipeline(
             throw TsVideosException("file not found, file=$originalFile")
         }
 
-        val outDir = File(originalFile.parentFile, "tssplitter")
-        if (!outDir.exists()) {
-            outDir.mkdirs()
-        }
-
-        if (findSplitFiles(originalFile, outDir).isNotEmpty()) {
-            throw TsVideosException("splitted file already exists, originalFile=$originalFile")
-        }
+        java.nio.file.Files
+            .createDirectories(outDir.parentFile.toPath())
+        // An exclusive per-attempt directory owns every tool output within it.
+        java.nio.file.Files
+            .createDirectory(outDir.toPath())
 
         val timeoutSec = maxOf(ceil(executedFile.duration).toLong(), 600L)
         beforeSplit()
@@ -255,9 +259,11 @@ class FileProcessingPipeline(
         return mainSplittedFileFinderComponent.find(executedFile, insertedSplittedFiles)
     }
 
-    private fun rollbackTsSplit(executedFile: ExecutedFile) {
+    private fun rollbackTsSplit(
+        executedFile: ExecutedFile,
+        outDir: File,
+    ) {
         val originalFile = File(executedFile.file)
-        val outDir = File(originalFile.parentFile, "tssplitter")
         findSplitFiles(originalFile, outDir).forEach { it.delete() }
         splittedFileCommand.selectByExecutedFileId(executedFile.id).forEach { splittedFileCommand.delete(it) }
     }
@@ -284,37 +290,41 @@ class FileProcessingPipeline(
         val compressedFile = File(splitFile.parentFile, "${splitFile.name}.gz")
 
         history.stage(attemptId, ProcessingStage.COMPRESS) {
-            if (!compressComponent.compress(splitFile, compressedFile, false, onCompressProgress)) {
-                error("Compressed file already exists; reconcile before processing")
+            concurrency.stage("COMPRESS", cancellation) {
+                if (!compressComponent.compress(splitFile, compressedFile, false, onCompressProgress)) {
+                    error("Compressed file already exists; reconcile before processing")
+                }
             }
         }
 
+        val job = checkNotNull(processingJobCommand.findByExecutedFile(splittedFile.executedFileId))
         val targetFile =
             nasDestinationResolver.resolve(
-                splitFile.parentFile.parentFile.toPath(),
+                File(job.inputPath).parentFile.toPath(),
                 compressedFile.name,
                 SambaClient.NasType.ORIGINAL_STORE_NAS,
             )
 
-        val job = checkNotNull(processingJobCommand.findByExecutedFile(splittedFile.executedFileId))
         val receipt =
             history.stage(
                 attemptId,
                 ProcessingStage.UPLOAD_ORIGINAL,
                 { ProcessingArtifact("UPLOAD_MANIFEST", it.manifestId, targetFile) },
             ) {
-                val uploaded =
-                    verifiedUploadCommand.upload(
-                        job.id,
-                        "original",
-                        compressedFile,
-                        SambaClient.NasType.ORIGINAL_STORE_NAS,
-                        targetFile,
-                        onUploadProgress,
-                    )
-                verifiedUploadCommand.register(uploaded, splittedFile.id, "video/vnd.dlna.mpeg-tts", "gzip")
-                splittedFileCommand.updateStatus(splittedFile, SplittedFile.Status.COMPRESS_SAVED)
-                uploaded
+                concurrency.stage("UPLOAD", cancellation) {
+                    val uploaded =
+                        verifiedUploadCommand.upload(
+                            job.id,
+                            "original",
+                            compressedFile,
+                            SambaClient.NasType.ORIGINAL_STORE_NAS,
+                            targetFile,
+                            onUploadProgress,
+                        )
+                    verifiedUploadCommand.register(uploaded, splittedFile.id, "video/vnd.dlna.mpeg-tts", "gzip")
+                    splittedFileCommand.updateStatus(splittedFile, SplittedFile.Status.COMPRESS_SAVED)
+                    uploaded
+                }
             }
         history.stage(attemptId, ProcessingStage.FINALIZE) { verifiedUploadCommand.deleteLocal(receipt) }
     }

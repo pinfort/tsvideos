@@ -37,6 +37,44 @@ class ProcessingJobMapperTest : ExpectSpec() {
     @Autowired private lateinit var dataSource: javax.sql.DataSource
 
     init {
+        expect("parallel distinct recording jobs retain separate identities while duplicate inputs have one owner") {
+            val directory =
+                java.nio.file.Files
+                    .createTempDirectory("parallel-claims")
+                    .toFile()
+            val identities =
+                (1..4).map { index ->
+                    val file =
+                        java.io.File(directory, "$index/same.m2ts").apply {
+                            parentFile.mkdirs()
+                            writeText("recording-$index")
+                        }
+                    me.pinfort.tsvideos.core.domain.ProcessingIdentity
+                        .from(file)
+                }
+            val start = CountDownLatch(1)
+            val pool = Executors.newFixedThreadPool(8)
+            try {
+                val claims =
+                    (identities + identities).map { identity ->
+                        pool.submit(
+                            Callable {
+                                start.await()
+                                command.claim(identity)
+                            },
+                        )
+                    }
+                start.countDown()
+                val owned = claims.mapNotNull { it.get(20, TimeUnit.SECONDS) }
+                owned.size shouldBe 4
+                owned.map { it.id }.distinct().size shouldBe 4
+                owned.map { it.inputPath }.toSet() shouldBe identities.map { it.path }.toSet()
+                identities.forEach { command.find(it)?.state shouldBe "CLAIMED" }
+            } finally {
+                pool.shutdownNow()
+                directory.deleteRecursively()
+            }
+        }
         expect("stale transitions and repeated registration links cannot overwrite a job") {
             val key = UUID.randomUUID().toString()
             mapper.claim(key, "/guarded", 1, 2)

@@ -49,6 +49,7 @@ class AfterEncodeRunner(
     private val verifiedUploadCommand: VerifiedUploadCommand,
     private val history: ProcessingHistoryCommand,
     private val cancellation: ProcessingCancellation = ProcessingCancellation(),
+    private val concurrency: ProcessingConcurrency = ProcessingConcurrency(),
 ) {
     /**
      * Amatsukaze が実行後バッチに渡す環境変数のうち、この処理で使うもの。
@@ -120,24 +121,26 @@ class AfterEncodeRunner(
                     cancellation.check()
                     val mime = mimeTypeComponent.guess(path.fileName.toString())
                     val active = checkNotNull(attempt)
-                    val target = nasTargetFile(path)
+                    val target = nasTargetFile(path, checkNotNull(job).inputPath)
                     val receipt =
                         history.stage(
                             active.id,
                             ProcessingStage.UPLOAD_ENCODED,
                             { ProcessingArtifact("UPLOAD_MANIFEST", it.manifestId, target) },
                         ) {
-                            val uploaded =
-                                verifiedUploadCommand.upload(
-                                    checkNotNull(job).id,
-                                    "encoded:${path.toFile().canonicalPath}",
-                                    path.toFile(),
-                                    SambaClient.NasType.VIDEO_STORE_NAS,
-                                    target,
-                                    history.progress(active.id, onUploadProgress),
-                                )
-                            verifiedUploadCommand.register(uploaded, splittedFile.id, mime.mime, mime.encoding)
-                            uploaded
+                            concurrency.stage("UPLOAD", cancellation) {
+                                val uploaded =
+                                    verifiedUploadCommand.upload(
+                                        checkNotNull(job).id,
+                                        "encoded:${path.toFile().canonicalPath}",
+                                        path.toFile(),
+                                        SambaClient.NasType.VIDEO_STORE_NAS,
+                                        target,
+                                        history.progress(active.id, onUploadProgress),
+                                    )
+                                verifiedUploadCommand.register(uploaded, splittedFile.id, mime.mime, mime.encoding)
+                                uploaded
+                            }
                         }
                     history.stage(active.id, ProcessingStage.FINALIZE) { verifiedUploadCommand.deleteLocal(receipt) }
                 }
@@ -197,9 +200,12 @@ class AfterEncodeRunner(
         return splittedFileCommand.findByFile(originalFile.toFile().canonicalPath)
     }
 
-    private fun nasTargetFile(file: Path): String =
+    private fun nasTargetFile(
+        file: Path,
+        inputPath: String,
+    ): String =
         nasDestinationResolver.resolve(
-            file.parent.parent.parent,
+            File(inputPath).parentFile.toPath(),
             file.fileName.toString(),
             SambaClient.NasType.VIDEO_STORE_NAS,
         )

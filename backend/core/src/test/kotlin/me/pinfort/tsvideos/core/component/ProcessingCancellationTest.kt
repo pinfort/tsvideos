@@ -16,7 +16,7 @@ class ProcessingCancellationTest :
             ran shouldBe false
             cancellation.awaitStopped(1) shouldBe true
         }
-        expect("one owner only and bounded wait while uncooperative work remains") {
+        expect("multiple owners and bounded wait while uncooperative work remains") {
             val cancellation = ProcessingCancellation()
             val entered = CountDownLatch(1)
             val release = CountDownLatch(1)
@@ -36,7 +36,7 @@ class ProcessingCancellationTest :
             owner.start()
             try {
                 entered.await(5, TimeUnit.SECONDS) shouldBe true
-                shouldThrow<IllegalStateException> { cancellation.runOwned { } }
+                cancellation.runOwned { cancellation.runOwned { } }
                 cancellation.requestStop()
                 cancellation.awaitStopped(10) shouldBe false
             } finally {
