@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
+import me.pinfort.tsvideos.core.domain.EncodingProfileSelection
 import me.pinfort.tsvideos.core.domain.ProcessingAttempt
 import me.pinfort.tsvideos.core.domain.ProcessingHistoryIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingJob
@@ -22,6 +23,17 @@ private const val STAGE_COLUMNS =
 
 @Mapper
 interface ProcessingHistoryMapper {
+    @Insert(
+        "INSERT INTO processing_profile_selection(attempt_id,profile,rule_id,reason) VALUES(#{attemptId},#{selection.profile},#{selection.ruleId},#{selection.reason})",
+    )
+    fun insertProfile(
+        attemptId: Long,
+        selection: EncodingProfileSelection,
+    ): Int
+
+    @Select("SELECT profile,rule_id,reason FROM processing_profile_selection WHERE attempt_id=#{attemptId}")
+    fun profile(attemptId: Long): EncodingProfileSelection?
+
     @Insert(
         """
         INSERT INTO processing_history_identity(job_id,identity_key,input_path,input_size,modified_millis)

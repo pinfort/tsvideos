@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.domain.EncodingProfileSelection
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
 import me.pinfort.tsvideos.core.domain.ProcessingAttempt
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptHistory
@@ -157,13 +158,30 @@ class ProcessingHistoryCommand(
         finish(attemptId, outcome(failure), classify(failure))
     }
 
+    /** One immutable selection per process attempt, committed before encoder submission. */
+    fun recordProfile(
+        attemptId: Long,
+        selection: EncodingProfileSelection,
+    ) {
+        require(selection.reason in setOf("MATCHED_RULE", "FALLBACK", "LEGACY_ATX_DIV", "LEGACY_DEFAULT"))
+        require(selection.profile.isNotBlank() && selection.profile.length <= 255 && selection.profile.none(Char::isISOControl))
+        require(selection.ruleId.matches(Regex("[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")))
+        transaction.execute {
+            val attempt = checkNotNull(mapper.lockAttempt(attemptId))
+            check(attempt.outcome == ProcessingOutcome.ACTIVE && attempt.kind == ProcessingAttemptKind.PROCESS) {
+                "Profile selection requires an active process attempt"
+            }
+            check(mapper.insertProfile(attemptId, selection) == 1)
+        }
+    }
+
     fun history(jobId: Long? = null): List<ProcessingAttemptHistory> =
         checkNotNull(
             readTransaction.execute {
                 require(jobId == null || jobId > 0)
                 val identities = mapper.identities().associateBy { it.jobId }
                 mapper.attempts().filter { jobId == null || it.jobId == jobId }.map {
-                    ProcessingAttemptHistory(checkNotNull(identities[it.jobId]), it, mapper.stages(it.id))
+                    ProcessingAttemptHistory(checkNotNull(identities[it.jobId]), it, mapper.stages(it.id), mapper.profile(it.id))
                 }
             },
         )

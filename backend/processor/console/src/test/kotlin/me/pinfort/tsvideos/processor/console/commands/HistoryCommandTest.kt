@@ -55,6 +55,8 @@ class HistoryCommandTest :
                         ProcessingHistoryIdentity(3, "key", status.inputPath, 9007199254740993, 100, 2),
                         attempt,
                         emptyList(),
+                        me.pinfort.tsvideos.core.domain
+                            .EncodingProfileSelection("日本語 profile", "bs-title", "MATCHED_RULE"),
                     ),
                 )
             val result = HistoryCommand(history).readTest("--job-id 3 --json")
@@ -63,6 +65,8 @@ class HistoryCommandTest :
             record["identity"]["inputSize"].asLong() shouldBe 9007199254740993
             record["attempt"]["attemptNumber"].asInt() shouldBe 2
             record["stages"].size() shouldBe 0
+            record["encodingProfile"]["profile"].asString() shouldBe "日本語 profile"
+            HistoryCommand(history).readTest("--job-id 3").stdout.contains("rule bs-title") shouldBe true
         }
         expect("empty all lists and known legacy jobs without attempts succeed") {
             val history = mockk<ProcessingHistoryCommand>()

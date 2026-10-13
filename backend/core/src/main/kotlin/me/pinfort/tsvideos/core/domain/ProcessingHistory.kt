@@ -54,6 +54,7 @@ data class ProcessingAttemptHistory(
     val identity: ProcessingHistoryIdentity,
     val attempt: ProcessingAttempt,
     val stages: List<ProcessingStageEvent>,
+    val encodingProfile: EncodingProfileSelection? = null,
 )
 
 data class ProcessingStatus(

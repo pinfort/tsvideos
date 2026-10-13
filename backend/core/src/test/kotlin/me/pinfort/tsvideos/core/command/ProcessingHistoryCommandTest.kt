@@ -5,6 +5,7 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
+import me.pinfort.tsvideos.core.domain.EncodingProfileSelection
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.core.domain.ProcessingErrorCode
@@ -55,6 +56,28 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
         }
 
     init {
+        expect("encoding selection is immutable, process-only and retained after job removal") {
+            val job = job()
+            val attempt = command().begin(job, ProcessingAttemptKind.PROCESS)
+            val selection = EncodingProfileSelection("日本語 profile", "channel-rule", "MATCHED_RULE")
+            command().recordProfile(attempt.id, selection)
+            shouldThrow<Exception> { command().recordProfile(attempt.id, selection.copy(profile = "changed")) }
+            command().history(job.id).single().encodingProfile shouldBe selection
+            command().finish(attempt.id, ProcessingOutcome.COMPLETED)
+            shouldThrow<IllegalStateException> { command().recordProfile(attempt.id, selection) }
+            val callback = command().begin(job, ProcessingAttemptKind.CALLBACK)
+            shouldThrow<IllegalStateException> { command().recordProfile(callback.id, selection) }
+            command().finish(callback.id, ProcessingOutcome.COMPLETED)
+            dataSource.connection.use { connection ->
+                connection.autoCommit = true
+                connection.prepareStatement("DELETE FROM processing_job WHERE id=?").use {
+                    it.setLong(1, job.id)
+                    it.executeUpdate()
+                }
+            }
+            command().status(job.id).single().jobState shouldBe "RETIRED"
+            command().history(job.id).first().encodingProfile shouldBe selection
+        }
         expect("attempt numbers are monotonic across concurrent starts and new command instances") {
             val job = job()
             val pool = Executors.newFixedThreadPool(6)
@@ -167,6 +190,7 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
             jobs.transition(job.id, "CLAIMED", "RETRYABLE") shouldBe 1
             jobs.link(job.id, 999999) shouldBe 0
             dataSource.connection.use { connection ->
+                connection.autoCommit = true
                 connection.prepareStatement("DELETE FROM processing_job WHERE id=?").use { statement ->
                     statement.setLong(1, job.id)
                     statement.executeUpdate()

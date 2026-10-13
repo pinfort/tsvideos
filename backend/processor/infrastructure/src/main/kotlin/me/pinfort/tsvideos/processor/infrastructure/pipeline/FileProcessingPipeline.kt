@@ -7,9 +7,11 @@ import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
+import me.pinfort.tsvideos.core.component.EncodingProfileSelector
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
-import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
+import me.pinfort.tsvideos.core.domain.EncodingProfileInput
+import me.pinfort.tsvideos.core.domain.EncodingProfileSelection
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.FileName
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
@@ -45,7 +47,7 @@ class FileProcessingPipeline(
     private val mainSplittedFileFinderComponent: MainSplittedFileFinderComponent,
     private val compressComponent: CompressComponent,
     private val nasDestinationResolver: NasDestinationResolver,
-    private val processorToolConfigurationProperties: ProcessorToolConfigurationProperties,
+    private val profiles: EncodingProfileSelector,
     private val logger: Logger,
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
@@ -74,9 +76,10 @@ class FileProcessingPipeline(
         val identity = ProcessingIdentity.from(file)
         if (dryRun) {
             val inspection = inspect(file, onDropCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
+            val selected = selectProfile(inspection)
             logger.info(
                 "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}; " +
-                    "would register, split, compress, upload and submit encoding",
+                    "would register, split, compress, upload and submit encoding; profile=${selected.profile}, rule=${selected.ruleId}, reason=${selected.reason}",
             )
             return Result.DRY_RUN
         }
@@ -113,6 +116,8 @@ class FileProcessingPipeline(
                     check(ProcessingIdentity.from(file) == identity) { "Recording changed during inspection; retry when stable" }
                     inspected
                 }
+            val selected = selectProfile(inspection)
+            history.recordProfile(attempt.id, selected)
             val runner = RollbackRunner()
             var registered: ExecutedFile? = null
             val executedFile =
@@ -138,7 +143,7 @@ class FileProcessingPipeline(
             // Once submission starts rollback would destroy input possibly already consumed by the encoder.
             history.stage(attempt.id, ProcessingStage.SUBMIT_ENCODER) {
                 processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
-                amatsukazeAddTask(mainSplittedFile)
+                amatsukazeAddTask(mainSplittedFile, selected.profile)
                 processingJobCommand.acknowledgeSubmission(job)
             }
             history.finish(attempt.id, ProcessingOutcome.COMPLETED)
@@ -314,7 +319,10 @@ class FileProcessingPipeline(
     }
 
     // Stage 4: submit the main split file to the running Amatsukaze server
-    private fun amatsukazeAddTask(splittedFile: SplittedFile) {
+    private fun amatsukazeAddTask(
+        splittedFile: SplittedFile,
+        profile: String,
+    ) {
         val executedFile =
             executedFileCommand.find(splittedFile.executedFileId)
                 ?: throw TsVideosException("executed file not found, id=${splittedFile.executedFileId}")
@@ -325,7 +333,7 @@ class FileProcessingPipeline(
             outDir.mkdirs()
         }
 
-        check(amatsukazeAddTaskClient.addTask(splitFile, outDir, decideProfile(executedFile)) == 0) {
+        check(amatsukazeAddTaskClient.addTask(splitFile, outDir, profile) == 0) {
             "Encoder submission returned failure; outcome must be reconciled"
         }
     }
@@ -334,14 +342,13 @@ class FileProcessingPipeline(
         logger.info("Nothing to rollback for AmatsukazeAddTask, splittedFile=$splittedFile")
     }
 
-    private val atxDivTitleRegex = Regex("#[0-9]{1,3}-#[0-9]{1,3}")
-
-    private fun decideProfile(executedFile: ExecutedFile): String {
-        val amatsukaze = processorToolConfigurationProperties.amatsukaze
-        val isAtxDiv =
-            executedFile.channelName == "ＡＴ－Ｘ" &&
-                executedFile.duration > 10800 &&
-                atxDivTitleRegex.containsMatchIn(executedFile.title)
-        return if (isAtxDiv) amatsukaze.atxDivProfile else amatsukaze.defaultProfile
-    }
+    private fun selectProfile(inspection: RecordingInspection): EncodingProfileSelection =
+        profiles.select(
+            EncodingProfileInput(
+                inspection.fileName.channel,
+                inspection.fileName.channelName,
+                inspection.fileName.title,
+                inspection.duration,
+            ),
+        )
 }

@@ -57,6 +57,7 @@ class FileProcessingPipelineTest :
         lateinit var uploads: VerifiedUploadCommand
         lateinit var history: me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
         lateinit var logger: Logger
+        lateinit var profiles: me.pinfort.tsvideos.core.component.EncodingProfileSelector
         lateinit var fileProcessingPipeline: FileProcessingPipeline
 
         val properties =
@@ -98,6 +99,14 @@ class FileProcessingPipelineTest :
             every { createdFileCommand.selectBySplittedFileId(any()) } returns emptyList()
             every { nasComponent.matchesSize(any(), any(), any()) } returns true
             every { sambaClient.resolvePathUnderBaseDir(any(), any()) } answers { secondArg() }
+            profiles =
+                io.mockk.spyk(
+                    me.pinfort.tsvideos.core.component.EncodingProfileSelector(
+                        me.pinfort.tsvideos.core.config
+                            .EncodingProfileConfigurationProperties(),
+                        properties,
+                    ),
+                )
             fileProcessingPipeline =
                 FileProcessingPipeline(
                     executedFileCommand = executedFileCommand,
@@ -110,7 +119,7 @@ class FileProcessingPipelineTest :
                     mainSplittedFileFinderComponent = MainSplittedFileFinderComponent(),
                     compressComponent = CompressComponent(logger),
                     nasDestinationResolver = NasDestinationResolver(NormalizeComponent(), sambaClient),
-                    processorToolConfigurationProperties = properties,
+                    profiles = profiles,
                     logger = logger,
                     processingJobCommand = jobs,
                     verifiedUploadCommand = uploads,
@@ -206,7 +215,23 @@ class FileProcessingPipelineTest :
         }
 
         context("processFile - happy path") {
-            expect("processes all four stages and returns PROCESSED") {
+            expect("configured profile is saved before submission and sent through all four stages") {
+                val policy =
+                    me.pinfort.tsvideos.core.domain.EncodingProfilePolicy(
+                        listOf(
+                            me.pinfort.tsvideos.core.domain.EncodingProfileRule(
+                                "bs-title",
+                                "日本語 profile",
+                                channel = "BSBS13_1",
+                                titlePattern = "title",
+                                minDurationSeconds = 100.0,
+                            ),
+                        ),
+                        "fallback",
+                        "default",
+                        "atx",
+                    )
+                every { profiles.select(any()) } answers { policy.select(firstArg()) }
                 val original = newOriginalFile()
                 val outDir = File(original.parentFile, "tssplitter")
                 val executedFile = executedFileFixture(original)
@@ -269,6 +294,7 @@ class FileProcessingPipelineTest :
                 verifyOrder {
                     history.begin(any(), any())
                     history.stage<Any?>(44, ProcessingStage.INSPECT, any(), any())
+                    history.recordProfile(44, match { it.profile == "日本語 profile" && it.ruleId == "bs-title" })
                     history.stage<Any?>(44, ProcessingStage.SPLIT, any(), any())
                     history.stage<Any?>(44, ProcessingStage.COMPRESS, any(), any())
                     history.stage<Any?>(44, ProcessingStage.UPLOAD_ORIGINAL, any(), any())
@@ -276,7 +302,7 @@ class FileProcessingPipelineTest :
                     history.stage<Any?>(44, ProcessingStage.SUBMIT_ENCODER, any(), any())
                     history.finish(44, ProcessingOutcome.COMPLETED, null)
                 }
-                verify { amatsukazeAddTaskClient.addTask(any(), any(), "30fps_light") }
+                verify { amatsukazeAddTaskClient.addTask(any(), any(), "日本語 profile") }
                 verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
                 verify {
                     uploads.upload(

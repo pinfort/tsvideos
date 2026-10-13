@@ -90,6 +90,7 @@ class HistoryCommand(
                 val attempt = record.attempt
                 echo("Job ${attempt.jobId} attempt ${attempt.attemptNumber} ${attempt.kind} ${attempt.outcome}")
                 echo("  ${attempt.startedAt} -> ${attempt.endedAt ?: "active"}; error ${attempt.errorCode ?: "none"}")
+                record.encodingProfile?.let { echo("  Profile ${it.profile}; rule ${it.ruleId}; ${it.reason}") }
                 record.stages.forEach { stage ->
                     echo("  ${stage.stage}: ${stage.outcome} ${stage.startedAt} -> ${stage.endedAt ?: "active"}")
                     if (stage.artifactType != null) echo("    ${stage.artifactType} ${stage.artifactId ?: ""} ${stage.artifactPath ?: ""}")
