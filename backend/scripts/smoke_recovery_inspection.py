@@ -78,6 +78,10 @@ try:
   report=readonly('inspect',['--job-id','2','--json'],4)
   assert 'secret-owner' not in json.dumps(report)
   sql("INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) VALUES(2,'/missing-legacy.m2ts',0,11,'2026-01-01','1','legacy','channel',60,'SPLITTED'); INSERT INTO program(id,name,executed_file_id,status) VALUES(2,'legacy',2,'ERROR'); INSERT INTO splitted_file(id,executed_file_id,file,size,duration,status) VALUES(2,2,'/missing-legacy-split',11,60,'COMPRESS_SAVED'); INSERT INTO created_file(id,splitted_file_id,file,size,mime,status) VALUES(4,2,'x/show/legacy.mp4',11,'video/mp4','FILE_MOVED');")
+  sql(f"INSERT INTO processing_job(id,identity_key,input_path,input_size,modified_millis,state) VALUES(4,{q(sha(b'unlinked'))},'/missing-legacy.m2ts',11,1,'SUBMISSION_UNKNOWN')")
+  unlinked=readonly('inspect',['--job-id','4','--json'],4)
+  assert unlinked['status']=='INCONSISTENT' and any(r['type']=='EXECUTED' and r['id']==2 for r in unlinked['records'])
+  sql('DELETE FROM processing_job WHERE id=4')
   legacy=readonly('inspect',['--recording','/missing-legacy.m2ts','--json'],4)
   assert not legacy['resumePossible'] and legacy['records'] and legacy['nasArtifacts']
   sql('DELETE FROM program WHERE id=2')

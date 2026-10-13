@@ -57,7 +57,14 @@ class RecoveryInspectionCommand(
             )
         }
         val job = jobs.singleOrNull()
-        val rows = if (job != null) listOfNotNull(job.executedFileId?.let(executed::find)) else executed.selectByFile(checkNotNull(path))
+        val rows =
+            (
+                listOfNotNull(
+                    job?.executedFileId?.let(executed::find),
+                ) + executed.selectByFile(job?.inputPath ?: checkNotNull(path))
+            ).distinctBy {
+                it.id
+            }
         if (job == null && rows.isEmpty()) throw ResumeJobMissing()
         if (rows.size >
             1
@@ -75,7 +82,12 @@ class RecoveryInspectionCommand(
             )
         }
         val original = job?.inputPath ?: checkNotNull(path)
-        var registrationInconsistent = job?.executedFileId != null && rows.isEmpty()
+        var registrationInconsistent =
+            job != null &&
+                (
+                    (job.executedFileId != null && rows.isEmpty()) ||
+                        rows.any { it.id != job.executedFileId || it.file != job.inputPath || it.size != job.inputSize }
+                )
         val records = mutableListOf<InspectionRecord>()
         val localPaths = linkedMapOf<String, LocalCheckpointFile?>()
         localPaths[original] = null

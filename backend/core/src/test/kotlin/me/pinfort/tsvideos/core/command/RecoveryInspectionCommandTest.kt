@@ -72,7 +72,7 @@ class RecoveryInspectionCommandTest :
                         mockk(relaxed = true),
                         mockk(),
                         LocalArtifactInspector(recovery),
-                        mockk(),
+                        mockk(relaxed = true),
                         mockk(),
                         mockk(),
                         mockk(),
