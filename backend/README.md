@@ -94,3 +94,7 @@ java -jar manager/console/build/libs/console.jar verify --json > verification.js
 ./gradlew manager:console:bootRun --args="--version"
 ./gradlew processor:console:bootRun --args="--version"
 ```
+
+### Library health dashboard
+
+The web `/health` page shows failed recordings, dropped frames, and the last saved NAS verification results. See [library-health.md](docs/library-health.md) for the required migration, UTC timestamps, explicit scan behavior, and interrupted-run recovery. GET never triggers a NAS scan.

@@ -36,3 +36,5 @@ To learn more about Next.js, take a look at the following resources:
 
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+The `/health` dashboard shows failed recordings, dropped frames and saved file verification. Its explicit scan button invokes read-only NAS checks; page/state reload only reads saved results. Browser requests use `/api/library-health` on the same origin, which calls the backend through `lib/api/health`. `NEXT_PUBLIC_API_BASE_URL` must also be reachable by the Next server. Apply the backend library-health migration before use. Unknown, inaccessible and confirmed-missing states are displayed separately with UTC verification times; there is no automatic repair or deletion.
