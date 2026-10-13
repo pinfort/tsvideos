@@ -79,6 +79,9 @@ class CleanupPlanCommand(
         ) {
             return BulkOutcome(id, BulkOutcomeStatus.STALE, "Selected kept recording changed; generate a new plan")
         }
+        if (snapshot(plan.keptTargets.map { it.id }, "Selected duplicate copy to preserve") != plan.keptTargets) {
+            return BulkOutcome(id, BulkOutcomeStatus.STALE, "Selected kept recording changed; generate a new plan")
+        }
         val expectedGroups =
             plan.groups.map { it.copy(memberIds = it.memberIds.filter { member -> member !in completed }) }.filter {
                 it.memberIds.size >
@@ -159,7 +162,17 @@ class CleanupPlanCommand(
         require(
             ids.size <= 100 && groups.size <= 100,
         ) { "A cleanup plan supports at most 100 targets/groups; narrow the explicit criteria" }
-        val targets = snapshot(ids, "${criteria.mode.name} candidate")
+        val targets =
+            snapshot(ids, "${criteria.mode.name} candidate").map { target ->
+                val reason =
+                    when (criteria.mode) {
+                        CleanupMode.DUPLICATES -> "Duplicate broadcast candidate; preserve selected copy ${groups.single {
+                            target.id in it.memberIds
+                        }.keepId}"
+                        CleanupMode.RETENTION -> "Recorded before ${criteria.recordedBefore}; channel ${criteria.channel ?: "any"}"
+                    }
+                target.copy(reason = if (target.eligible) reason else "$reason; ${target.reason}")
+            }
         val keeps = snapshot(groups.map { it.keepId }.sorted(), "Selected duplicate copy to preserve")
         return CleanupPlan(createdAt = createdAt, criteria = criteria, groups = groups, targets = targets, keptTargets = keeps)
     }
@@ -229,6 +242,15 @@ class CleanupPlanCommand(
                 it.fingerprint.matches(Regex("[a-f0-9]{64}")) && it.estimatedMetadataBytes >= 0
             },
         ) { "Invalid snapshots" }
+        require(plan.groups.size <= 100) { "Invalid groups" }
+        when (plan.criteria.mode) {
+            CleanupMode.RETENTION -> require(plan.groups.isEmpty() && keeps.isEmpty()) { "Invalid retention keeps" }
+            CleanupMode.DUPLICATES -> {
+                require(plan.groups.map { it.keepId }.sorted() == keeps.sorted()) { "Invalid selected keeps" }
+                require(plan.criteria.keepIds.all { it in keeps }) { "Keep criteria and selected keeps differ" }
+                require(plan.groups.flatMap { it.memberIds }.sorted() == (ids + keeps).sorted()) { "Invalid group membership" }
+            }
+        }
         require(
             plan.groups.all {
                 it.memberIds.size > 1 &&
