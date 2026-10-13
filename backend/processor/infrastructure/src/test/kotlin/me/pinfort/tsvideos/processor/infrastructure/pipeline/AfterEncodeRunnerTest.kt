@@ -29,10 +29,12 @@ import java.time.LocalDateTime
 
 class AfterEncodeRunnerTest :
     ExpectSpec({
-        class Fixture {
+        class Fixture(
+            nested: Boolean = false,
+        ) {
             val root = Files.createTempDirectory("after-encode-").toFile()
             val recording = File(root, "myprogram").apply { mkdirs() }
-            val splitDirectory = File(recording, "tssplitter").apply { mkdirs() }
+            val splitDirectory = File(recording, if (nested) "tssplitter/job-1-attempt-1" else "tssplitter").apply { mkdirs() }
             val output = File(File(splitDirectory, "encoded").apply { mkdirs() }, "video.mp4").apply { writeText("video") }
             val original = File(recording, "raw.m2ts").apply { writeText("original") }
             val split = File(splitDirectory, "split.m2ts").apply { writeText("split") }
@@ -103,6 +105,18 @@ class AfterEncodeRunnerTest :
 
             fun cleanup() {
                 root.deleteRecursively()
+            }
+        }
+        expect("callback resolves registered nested attempt paths while preserving original NAS placement") {
+            val f = Fixture(true)
+            try {
+                f.run()
+                verify { f.uploads.upload(1, any(), f.output, SambaClient.NasType.VIDEO_STORE_NAS, "base/m/myprogram/video.mp4", any()) }
+                f.original.exists() shouldBe false
+                f.split.exists() shouldBe false
+                f.input.exists() shouldBe false
+            } finally {
+                f.cleanup()
             }
         }
         expect("callback interruption propagates, preserves originals and releases ownership") {

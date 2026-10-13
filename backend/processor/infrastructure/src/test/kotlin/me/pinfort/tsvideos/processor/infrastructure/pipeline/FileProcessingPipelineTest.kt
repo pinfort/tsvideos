@@ -114,6 +114,7 @@ class FileProcessingPipelineTest :
                     logger = logger,
                     processingJobCommand = jobs,
                     verifiedUploadCommand = uploads,
+                    concurrency = ProcessingConcurrency(split = 2),
                     history = history,
                 )
         }
@@ -122,6 +123,8 @@ class FileProcessingPipelineTest :
             val recordingDir = Files.createTempDirectory("process-file-test").toFile()
             val original = File(recordingDir, "[210708-0030][BSBS13_1][channel]title.m2ts")
             original.writeBytes("original ts content".toByteArray())
+            every { jobs.findByExecutedFile(any()) } returns
+                ProcessingJob(1, "key", original.canonicalPath, original.length(), original.lastModified(), "CLAIMED", 100, null)
             return original
         }
 
@@ -141,6 +144,70 @@ class FileProcessingPipelineTest :
             status = ExecutedFile.Status.DROPCHECKED,
         )
 
+        expect("same basename recordings in different directories use disjoint owned workspaces concurrently") {
+            val originals = listOf(newOriginalFile(), newOriginalFile())
+            val recordings = originals.mapIndexed { index, file -> executedFileFixture(file, index.toLong() + 1) }
+            val byPath = recordings.associateBy { File(it.file).canonicalPath }
+            val byId = recordings.associateBy { it.id }
+
+            fun job(recording: ExecutedFile) =
+                ProcessingJob(
+                    recording.id,
+                    "key-${recording.id}",
+                    recording.file,
+                    recording.size,
+                    File(recording.file).lastModified(),
+                    "CLAIMED",
+                    recording.id,
+                    null,
+                )
+            every { jobs.claim(any()) } answers
+                { job(byPath.getValue(firstArg<me.pinfort.tsvideos.core.domain.ProcessingIdentity>().path)) }
+            every { jobs.findByExecutedFile(any()) } answers { job(byId.getValue(firstArg())) }
+            every { programCommand.findByName(any()) } returns null
+            every { tsSelectClient.check(any(), any()) } returns 0
+            every { durationProbeClient.probe(any(), any()) } returns 100.0
+            every { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) } answers
+                { byPath.getValue(File(firstArg<String>()).canonicalPath) }
+            every { programCommand.insert(any(), any(), any()) } returns mockk()
+            every { executedFileCommand.find(any()) } answers { byId[firstArg()] }
+            every { executedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
+            every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
+            every { splittedFileCommand.insert(any(), any(), any(), any(), any()) } answers {
+                SplittedFile(firstArg<Long>() * 100, firstArg(), secondArg(), thirdArg(), arg(3), SplittedFile.Status.REGISTERED)
+            }
+            val entered = java.util.concurrent.CountDownLatch(2)
+            val outputs = java.util.concurrent.ConcurrentLinkedQueue<File>()
+            every { tsSplitterClient.split(any(), any(), any()) } answers {
+                val output = File(secondArg<File>(), firstArg<File>().nameWithoutExtension + "_1.m2ts")
+                output.writeText(firstArg<File>().canonicalPath)
+                outputs.add(output)
+                entered.countDown()
+                check(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                0
+            }
+            every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } returns 0
+            val pool =
+                java.util.concurrent.Executors
+                    .newFixedThreadPool(2)
+            try {
+                val results =
+                    originals.map { file ->
+                        pool.submit(java.util.concurrent.Callable { fileProcessingPipeline.processFile(file) })
+                    }
+                results.forEach { it.get(10, java.util.concurrent.TimeUnit.SECONDS) shouldBe FileProcessingPipeline.Result.PROCESSED }
+                outputs.map { it.parentFile.canonicalPath }.toSet() shouldBe
+                    originals
+                        .mapIndexed { index, file ->
+                            File(file.parentFile, "tssplitter/job-${index + 1}-attempt-1").canonicalPath
+                        }.toSet()
+                outputs.forEach { it.exists() shouldBe true }
+                originals.forEach { it.readText() shouldBe "original ts content" }
+            } finally {
+                pool.shutdownNow()
+                originals.forEach { it.parentFile.deleteRecursively() }
+            }
+        }
         context("processFile - dry run") {
             expect("checks the recording without creating files or invoking mutating dependencies") {
                 val original = newOriginalFile()
@@ -208,7 +275,7 @@ class FileProcessingPipelineTest :
         context("processFile - happy path") {
             expect("processes all four stages and returns PROCESSED") {
                 val original = newOriginalFile()
-                val outDir = File(original.parentFile, "tssplitter")
+                val outDir = File(original.parentFile, "tssplitter/job-1-attempt-1")
                 val executedFile = executedFileFixture(original)
                 lateinit var splitFile: File
 
@@ -296,7 +363,7 @@ class FileProcessingPipelineTest :
         context("acknowledgement failure") {
             expect("does not resubmit after encoder success followed by DB acknowledgement failure") {
                 val original = newOriginalFile()
-                val outDir = File(original.parentFile, "tssplitter")
+                val outDir = File(original.parentFile, "tssplitter/job-1-attempt-1")
                 val executedFile = executedFileFixture(original)
                 lateinit var splitFile: File
 
@@ -386,7 +453,7 @@ class FileProcessingPipelineTest :
         expect("pre-existing split artifacts are not deleted by rejected processing") {
             val original = newOriginalFile()
             val executed = executedFileFixture(original)
-            val outDir = File(original.parentFile, "tssplitter").apply { mkdirs() }
+            val outDir = File(original.parentFile, "tssplitter/job-1-attempt-1").apply { mkdirs() }
             val existing = File(outDir, "${original.nameWithoutExtension}_1.m2ts").apply { writeText("unowned") }
             every { programCommand.findByName(original.name) } returns null
             every { tsSelectClient.check(any(), any()) } returns 0
@@ -395,7 +462,7 @@ class FileProcessingPipelineTest :
             every { programCommand.insert(any(), any(), any()) } returns mockk()
             every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
             every { executedFileCommand.delete(any(), any()) } just Runs
-            shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+            shouldThrow<java.nio.file.FileAlreadyExistsException> { fileProcessingPipeline.processFile(original) }
             existing.readText() shouldBe "unowned"
             verify(exactly = 0) { tsSplitterClient.split(any(), any(), any()) }
             verify(exactly = 0) { splittedFileCommand.delete(any(), any()) }
@@ -488,7 +555,7 @@ class FileProcessingPipelineTest :
         context("processFile - compress skipped") {
             expect("rejects stale compressed file without encoder submission or rollback deletion") {
                 val original = newOriginalFile()
-                val outDir = File(original.parentFile, "tssplitter")
+                val outDir = File(original.parentFile, "tssplitter/job-1-attempt-1")
                 val executedFile = executedFileFixture(original)
                 lateinit var splitFile: File
 
@@ -538,7 +605,7 @@ class FileProcessingPipelineTest :
             listOf(RuntimeException("unreachable"), InterruptedException("interrupted submission")).forEach { failure ->
                 expect("preserves encoder input and ambiguous submission on ${failure.javaClass.simpleName}") {
                     val original = newOriginalFile()
-                    val outDir = File(original.parentFile, "tssplitter")
+                    val outDir = File(original.parentFile, "tssplitter/job-1-attempt-1")
                     val executedFile = executedFileFixture(original)
                     lateinit var splitFile: File
                     lateinit var mainSplittedFile: SplittedFile

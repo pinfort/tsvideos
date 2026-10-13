@@ -1,20 +1,24 @@
 package me.pinfort.tsvideos.core.component
 
 import org.springframework.stereotype.Component
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/** One CLI invocation, one owner. This is not a worker scheduler. */
+/** One invocation with a producer and any registered workers; admission closes atomically on stop. */
 @Component
 class ProcessingCancellation {
     @Volatile private var stopping = false
-    private var owner: Thread? = null
-    private val stopped = CountDownLatch(1)
+    private val owners = mutableMapOf<Thread, Int>()
+    private var completed = false
+    private val monitor = Object()
 
-    @Synchronized
     fun requestStop() {
-        stopping = true
-        owner?.interrupt()
+        synchronized(monitor) {
+            if (stopping) return
+            stopping = true
+            if (owners.isEmpty()) completed = true
+            monitor.notifyAll()
+            owners.keys.forEach { it.interrupt() }
+        }
     }
 
     fun check() {
@@ -22,20 +26,36 @@ class ProcessingCancellation {
     }
 
     fun <T> runOwned(operation: () -> T): T {
-        synchronized(this) {
-            check(owner == null && stopped.count > 0) { "Only one invocation owner is supported" }
-            owner = Thread.currentThread()
+        val thread = Thread.currentThread()
+        synchronized(monitor) {
+            if (stopping) throw InterruptedException("Processing admission stopped")
+            check(!completed) { "Invocation already completed" }
+            owners[thread] = (owners[thread] ?: 0) + 1
         }
         try {
             check()
             return operation().also { check() }
         } finally {
-            synchronized(this) { owner = null }
-            stopped.countDown()
+            synchronized(monitor) {
+                val remaining = checkNotNull(owners[thread]) - 1
+                if (remaining == 0) owners.remove(thread) else owners[thread] = remaining
+                if (owners.isEmpty()) completed = true
+                monitor.notifyAll()
+            }
         }
     }
 
-    fun awaitStopped(milliseconds: Long): Boolean = stopped.await(milliseconds, TimeUnit.MILLISECONDS)
+    fun awaitStopped(milliseconds: Long): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(milliseconds)
+        synchronized(monitor) {
+            while (!completed) {
+                val remaining = deadline - System.nanoTime()
+                if (remaining <= 0) return false
+                TimeUnit.NANOSECONDS.timedWait(monitor, remaining)
+            }
+            return true
+        }
+    }
 
     companion object {
         fun isInterrupted(failure: Throwable): Boolean =
