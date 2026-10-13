@@ -1,0 +1,255 @@
+package me.pinfort.tsvideos.core.command
+
+import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.shouldBe
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import me.pinfort.tsvideos.core.component.DirectoryNameComponent
+import me.pinfort.tsvideos.core.component.NormalizeComponent
+import me.pinfort.tsvideos.core.domain.BulkAction
+import me.pinfort.tsvideos.core.domain.BulkApplyRequest
+import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
+import me.pinfort.tsvideos.core.domain.BulkRequest
+import me.pinfort.tsvideos.core.domain.Program
+import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
+import me.pinfort.tsvideos.core.external.database.dto.ExecutedFileDto
+import me.pinfort.tsvideos.core.external.database.dto.SplittedFileDto
+import me.pinfort.tsvideos.core.external.database.mapper.BulkLibraryMapper
+import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
+import me.pinfort.tsvideos.core.external.database.mapper.ExecutedFileMapper
+import me.pinfort.tsvideos.core.external.database.mapper.SplittedFileMapper
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.SimpleTransactionStatus
+import java.time.LocalDateTime
+
+class BulkLibraryCommandTest :
+    ExpectSpec({
+        val programs = mockk<ProgramCommand>(relaxed = true)
+        val executed = mockk<ExecutedFileMapper>()
+        val splits = mockk<SplittedFileMapper>()
+        val created = mockk<CreatedFileMapper>()
+        val mapper = mockk<BulkLibraryMapper>(relaxed = true)
+        val tx = mockk<PlatformTransactionManager>(relaxed = true)
+        val command =
+            BulkLibraryCommand(
+                programs,
+                executed,
+                splits,
+                created,
+                mapper,
+                DirectoryNameComponent(NormalizeComponent()),
+                NormalizeComponent(),
+                tx,
+            )
+        val program =
+            Program(1, "first", 10, Program.Status.COMPLETED, 0, 12, LocalDateTime.of(2026, 1, 1, 0, 0), "1", "title", "channel", 12.0)
+        val source =
+            ExecutedFileDto(
+                10,
+                "C:\\original.m2ts",
+                0,
+                12,
+                program.recordedAt,
+                "1",
+                "title",
+                "channel",
+                12.0,
+                ExecutedFileDto.Status.SPLITTED,
+            )
+        val split = SplittedFileDto(20, 10, "C:\\split.m2ts", 12, 12.0, SplittedFileDto.Status.ENCODE_TASK_ADDED)
+        val file = CreatedFileDto(30, 20, "base/a/alpha/video.mp4", 12, "video/mp4", null, CreatedFileDto.Status.FILE_MOVED)
+        val request = BulkRequest(listOf(1), BulkAction.DELETE)
+        beforeTest {
+            io.mockk.clearMocks(programs, executed, splits, created, mapper, tx)
+            every { tx.getTransaction(any()) } returns SimpleTransactionStatus()
+            every { programs.find(any()) } returns program
+            every { executed.find(10) } returns source
+            every { splits.selectByExecutedFileId(10) } returns listOf(split)
+            every { created.selectByExecutedFileId(10) } returns listOf(file)
+            every { mapper.references(10) } returns listOf(1)
+            every { mapper.allFiles() } returns listOf(file)
+            every { mapper.lockFiles() } answers { mapper.allFiles() }
+            every { mapper.lockProgram(any()) } answers { firstArg() }
+        }
+        expect("preview is read only and includes all records and original preservation") {
+            val plan = command.preview(request)
+            plan.targets.single().eligible shouldBe true
+            plan.targets
+                .single()
+                .snapshot!!
+                .executed shouldBe source
+            plan.targets.single().estimatedMetadataBytes shouldBe 12
+            plan.originalSourcePreserved shouldBe true
+            verify(exactly = 0) {
+                programs.delete(any(), any())
+                programs.moveCreatedFiles(any(), any(), any())
+                mapper.lockFiles()
+            }
+        }
+        expect("added removed or modified files and program status make the plan stale") {
+            val plan = command.preview(request)
+            for (files in listOf(
+                emptyList(),
+                listOf(file, file.copy(id = 31, file = "base/a/alpha/new.mp4")),
+                listOf(file.copy(size = 99)),
+                listOf(file.copy(file = "base/b/beta/video.mp4")),
+                listOf(file.copy(status = CreatedFileDto.Status.REGISTERED)),
+            )) {
+                every { created.selectByExecutedFileId(10) } returns files
+                command
+                    .apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+                    .outcomes
+                    .single()
+                    .status shouldBe
+                    BulkOutcomeStatus.STALE
+            }
+            every { created.selectByExecutedFileId(10) } returns listOf(file)
+            every { programs.find(any()) } returns program.copy(status = Program.Status.ERROR)
+            command
+                .apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+                .outcomes
+                .single()
+                .status shouldBe
+                BulkOutcomeStatus.STALE
+            verify(exactly = 0) { programs.delete(any(), any()) }
+        }
+        expect("executed and split changes invalidate snapshots") {
+            val plan = command.preview(request)
+            every { executed.find(10) } returns source.copy(file = "changed")
+            command
+                .apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+                .outcomes
+                .single()
+                .status shouldBe
+                BulkOutcomeStatus.STALE
+            every { executed.find(10) } returns source
+            every { splits.selectByExecutedFileId(10) } returns listOf(split.copy(status = SplittedFileDto.Status.REGISTERED))
+            command
+                .apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+                .outcomes
+                .single()
+                .status shouldBe
+                BulkOutcomeStatus.STALE
+        }
+        expect("shared normalized paths and shared executed records are refused and excluded from estimates") {
+            every { mapper.allFiles() } returns listOf(file, file.copy(id = 99, file = "BASE\\A\\ALPHA\\VIDEO.MP4"))
+            command
+                .preview(request)
+                .targets
+                .single()
+                .eligible shouldBe false
+            command
+                .preview(request)
+                .targets
+                .single()
+                .estimatedMetadataBytes shouldBe 0
+            every { mapper.allFiles() } returns listOf(file)
+            every { mapper.references(10) } returns listOf(1, 2)
+            command
+                .preview(request)
+                .targets
+                .single()
+                .eligible shouldBe false
+        }
+        expect("move normalizes directory, shows exact path, rejects collisions and same destination") {
+            val move = BulkRequest(listOf(1), BulkAction.MOVE, "Ｂeta")
+            command
+                .preview(move)
+                .targets
+                .single()
+                .destinations shouldBe mapOf(30L to "base\\B\\Beta\\video.mp4")
+            command
+                .preview(BulkRequest(listOf(1), BulkAction.MOVE, "alpha"))
+                .targets
+                .single()
+                .eligible shouldBe false
+            every { mapper.allFiles() } returns listOf(file, file.copy(id = 99, file = "base/B/Beta/video.mp4"))
+            command
+                .preview(move)
+                .targets
+                .single()
+                .eligible shouldBe false
+        }
+        expect("unsafe source path and invalid directories never execute") {
+            for (directory in listOf("", " ", ".", "..", "../x", "a\\b", "a\nb", "x.", "%2e%2e", "name#fragment")) {
+                shouldThrow<IllegalArgumentException> { command.preview(BulkRequest(listOf(1), BulkAction.MOVE, directory)) }
+            }
+            every { created.selectByExecutedFileId(10) } returns listOf(file.copy(file = "../x"))
+            command
+                .preview(BulkRequest(listOf(1), BulkAction.MOVE, "valid"))
+                .targets
+                .single()
+                .eligible shouldBe false
+        }
+        expect("URL interpretation and trailing aliases cannot escape shared-path protection") {
+            for (path in listOf(
+                "base/a/alpha/%2e%2e%2fother",
+                "base/a/alpha/file#fragment",
+                "base/a/alpha/file?query",
+                "base/a/alpha/file.",
+            )) {
+                every { created.selectByExecutedFileId(10) } returns listOf(file.copy(file = path))
+                command
+                    .preview(request)
+                    .targets
+                    .single()
+                    .eligible shouldBe false
+            }
+            every { created.selectByExecutedFileId(10) } returns listOf(file)
+            every { mapper.allFiles() } returns listOf(file, file.copy(id = 99, file = file.file + "."))
+            command
+                .preview(request)
+                .targets
+                .single()
+                .eligible shouldBe false
+        }
+        expect("only completed recordings and available files are eligible") {
+            every { programs.find(any()) } returns program.copy(status = Program.Status.ERROR)
+            command
+                .preview(request)
+                .targets
+                .single()
+                .eligible shouldBe false
+            every { programs.find(any()) } returns program
+            every { created.selectByExecutedFileId(10) } returns listOf(file.copy(status = CreatedFileDto.Status.ENCODE_SUCCESS))
+            command
+                .preview(request)
+                .targets
+                .single()
+                .eligible shouldBe false
+        }
+        expect("partial failure is returned per target and subsequent targets run") {
+            val batch = BulkRequest(listOf(1, 2), BulkAction.DELETE)
+            every { programs.find(2) } returns program.copy(id = 2)
+            every { mapper.references(10) } returns emptyList()
+            every { programs.delete(program, false) } throws IllegalStateException("credential secret")
+            val plan = command.preview(batch)
+            val result = command.apply(BulkApplyRequest(batch, plan.targets.associate { it.id to it.fingerprint }))
+            result.outcomes.map { it.status } shouldBe listOf(BulkOutcomeStatus.FAILED, BulkOutcomeStatus.SUCCESS)
+            result.outcomes
+                .first()
+                .message
+                .contains("secret") shouldBe false
+            verify(exactly = 1) { programs.delete(program.copy(id = 2), false) }
+        }
+        expect("missing target is a per-target result") {
+            val plan = command.preview(request)
+            every { mapper.lockProgram(1) } returns null
+            command
+                .apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+                .outcomes
+                .single()
+                .status shouldBe
+                BulkOutcomeStatus.NOT_FOUND
+        }
+        expect("invalid batch sizes duplicate IDs and missing fingerprints are rejected") {
+            for (ids in listOf(emptyList(), listOf(0L), listOf(1L, 1L), (1L..101L).toList())) {
+                shouldThrow<IllegalArgumentException> {
+                    command.preview(request.copy(ids = ids))
+                }
+            }
+            shouldThrow<IllegalArgumentException> { command.apply(BulkApplyRequest(request, emptyMap())) }
+        }
+    })

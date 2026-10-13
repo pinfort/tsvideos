@@ -56,23 +56,63 @@ class NasComponent(
         oldFile: String,
         newFile: String,
     ): SambaClient.NasType {
-        val resource = videoStoreNas.resolve(oldFile.replace('\\', '/'))
-        if (resource.exists()) {
-            createDirectories(newFile, SambaClient.NasType.VIDEO_STORE_NAS)
-            resource.copyTo(videoStoreNas.resolve(newFile.replace('\\', '/')))
-            resource.delete()
-            logger.info("Move file, oldFile=$oldFile, newFile=$newFile")
-            return SambaClient.NasType.VIDEO_STORE_NAS
+        for (file in listOf(oldFile, newFile)) {
+            require(
+                file.replace('\\', '/').split('/').all {
+                    it.isNotBlank() &&
+                        it != "." &&
+                        it != ".." &&
+                        !it.endsWith('.') &&
+                        !it.endsWith(' ') &&
+                        it.none { c -> c in ":?#%" || c.isISOControl() }
+                },
+            ) { "Unsafe NAS path" }
         }
-        val originalResource = originalStoreNas.resolve(oldFile.replace('\\', '/'))
-        if (originalResource.exists()) {
-            createDirectories(newFile, SambaClient.NasType.ORIGINAL_STORE_NAS)
-            originalResource.copyTo(originalStoreNas.resolve(newFile.replace('\\', '/')))
-            originalResource.delete()
-            logger.info("Move file, oldFile=$oldFile, newFile=$newFile")
-            return SambaClient.NasType.ORIGINAL_STORE_NAS
+        require(oldFile.replace('\\', '/').lowercase() != newFile.replace('\\', '/').lowercase())
+        val candidates =
+            listOf(
+                videoStoreNas to SambaClient.NasType.VIDEO_STORE_NAS,
+                originalStoreNas to SambaClient.NasType.ORIGINAL_STORE_NAS,
+            )
+        for ((nas, type) in candidates) {
+            nas.resolve(oldFile.replace('\\', '/')).use { source ->
+                if (!source.exists()) return@use
+                val size = source.length()
+                val modified = source.lastModified()
+                createDirectories(newFile, type)
+                nas.resolve(newFile.replace('\\', '/')).use { target ->
+                    // Exclusive creation closes the existence-check race; copyTo may overwrite.
+                    // On copy/readback failure retain source and partial destination for inspection.
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    target
+                        .openOutputStream(
+                            true,
+                            jcifs.SmbConstants.O_WRONLY or jcifs.SmbConstants.O_CREAT or jcifs.SmbConstants.O_EXCL,
+                            jcifs.SmbConstants.FILE_WRITE_DATA,
+                            jcifs.SmbConstants.FILE_NO_SHARE,
+                        ).use { output ->
+                            source.openInputStream().use { input ->
+                                java.security.DigestInputStream(input, digest).copyTo(output)
+                            }
+                        }
+                    check(target.length() == size) { "Copied size mismatch" }
+                    val expected = digest.digest()
+                    val actual = java.security.MessageDigest.getInstance("SHA-256")
+                    target.openInputStream().use { input ->
+                        java.security.DigestInputStream(input, actual).transferTo(java.io.OutputStream.nullOutputStream())
+                    }
+                    check(expected.contentEquals(actual.digest())) { "Copied checksum mismatch" }
+                    // Resolve a fresh handle: jcifs caches attributes on an existing resource.
+                    nas.resolve(oldFile.replace('\\', '/')).use { fresh ->
+                        check(fresh.length() == size && fresh.lastModified() == modified) { "Source changed during copy" }
+                    }
+                    source.delete()
+                }
+                logger.info("Move file, oldFile=$oldFile, newFile=$newFile")
+                return type
+            }
         }
-        throw Exception("File not found, path=$oldFile")
+        throw IllegalStateException("Source file not found")
     }
 
     fun uploadResource(
