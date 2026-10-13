@@ -49,7 +49,7 @@ class VerifiedUploadCommand(
     ): VerifiedUploadReceipt =
         retry.execute("UPLOAD", {
             retryEligible(
-                manifests.find(jobId, ProcessingIdentity.hash(artifact)),
+                transaction.execute { manifests.find(jobId, ProcessingIdentity.hash(artifact)) },
                 setOf("NEW", "TRANSFERRING", "TEMP_VERIFIED", "FINALIZED", "REGISTERED"),
             )
         }) {
@@ -77,7 +77,7 @@ class VerifiedUploadCommand(
                 target.none { it.isISOControl() },
         )
         val key = ProcessingIdentity.hash(artifact)
-        var manifest = manifests.find(jobId, key)
+        var manifest = transaction.execute { manifests.find(jobId, key) }
         if (manifest == null) {
             val identity = ProcessingIdentity.from(source)
             val digest = digest(source)
@@ -107,7 +107,7 @@ class VerifiedUploadCommand(
             ) {
                 // Read winning ownership below.
             }
-            manifest = manifests.find(jobId, key)
+            manifest = transaction.execute { manifests.find(jobId, key) }
                 ?: error("Destination belongs to another upload; reconciliation required")
         }
         check(manifest.nasType == type.name && manifest.finalPath == target && manifest.sourcePath == source.canonicalPath) {
@@ -118,7 +118,7 @@ class VerifiedUploadCommand(
             var current = initial
 
             fun transition(next: String) {
-                check(manifests.transition(id, token, current.state, next) == 1) { "Upload state changed" }
+                check(transaction.execute { manifests.transition(id, token, current.state, next) } == 1) { "Upload state changed" }
                 current = current.copy(state = next)
             }
             try {
@@ -179,7 +179,7 @@ class VerifiedUploadCommand(
         encoding: String?,
     ): CreatedFile =
         retry.execute("REGISTER_UPLOAD", {
-            retryEligible(manifests.get(receipt.manifestId), setOf("FINALIZED", "REGISTERED"))
+            retryEligible(transaction.execute { manifests.get(receipt.manifestId) }, setOf("FINALIZED", "REGISTERED"))
         }) {
             registerOnce(receipt, splittedFileId, mime, encoding)
         }
@@ -195,7 +195,7 @@ class VerifiedUploadCommand(
             verifyRemote(manifest, manifest.finalPath)
             if (manifest.state == "REGISTERED") {
                 val file =
-                    createdMapper.find(checkNotNull(manifest.createdFileId))?.toDomain()
+                    transaction.execute { createdMapper.find(checkNotNull(manifest.createdFileId)) }?.toDomain()
                         ?: error("Registered artifact record missing")
                 check(
                     file.splittedFileId == splittedFileId &&
@@ -234,14 +234,15 @@ class VerifiedUploadCommand(
         artifact: String,
     ): VerifiedUploadReceipt =
         retry.execute("VERIFY_UPLOAD", {
-            retryEligible(manifests.find(jobId, ProcessingIdentity.hash(artifact)), setOf("REGISTERED"))
+            retryEligible(transaction.execute { manifests.find(jobId, ProcessingIdentity.hash(artifact)) }, setOf("REGISTERED"))
         }) { verifyRegisteredOnce(jobId, artifact) }
 
     private fun verifyRegisteredOnce(
         jobId: Long,
         artifact: String,
     ): VerifiedUploadReceipt {
-        val manifest = manifests.find(jobId, ProcessingIdentity.hash(artifact)) ?: error("Verified archive receipt missing")
+        val manifest =
+            transaction.execute { manifests.find(jobId, ProcessingIdentity.hash(artifact)) } ?: error("Verified archive receipt missing")
         withClaim(manifest.id) { current, _ -> requireRegistered(current) }
         return VerifiedUploadReceipt(manifest.id)
     }
@@ -249,7 +250,7 @@ class VerifiedUploadCommand(
     private fun requireRegistered(manifest: UploadManifest) {
         check(manifest.state == "REGISTERED") { "Remote artifact has not been registered" }
         val file =
-            createdMapper.find(checkNotNull(manifest.createdFileId))?.toDomain()
+            transaction.execute { createdMapper.find(checkNotNull(manifest.createdFileId)) }?.toDomain()
                 ?: error("Registered artifact record missing")
         check(file.file == manifest.finalPath && file.size == manifest.sourceSize && file.status == CreatedFile.Status.FILE_MOVED)
         verifyRemote(manifest, manifest.finalPath)
@@ -257,7 +258,7 @@ class VerifiedUploadCommand(
 
     /** Call after the processing job has entered RESETTING, before destructive program removal. */
     fun validateReset(jobId: Long) {
-        manifests.forJob(jobId).forEach { manifest ->
+        checkNotNull(transaction.execute { manifests.forJob(jobId) }).forEach { manifest ->
             check(manifest.claimToken == null && manifest.state !in setOf("CREATING", "FINALIZING")) {
                 "Active or ambiguous upload must be reconciled before reset"
             }
@@ -273,28 +274,28 @@ class VerifiedUploadCommand(
         jobId: Long,
         artifact: String,
     ) {
-        val manifest = manifests.find(jobId, ProcessingIdentity.hash(artifact)) ?: return
+        val manifest = transaction.execute { manifests.find(jobId, ProcessingIdentity.hash(artifact)) } ?: return
         withClaim(manifest.id) { current, token ->
             check(current.state in setOf("NEW", "TRANSFERRING", "TEMP_VERIFIED")) { "Upload cannot safely clean temporary path" }
             if (current.state != "NEW") {
                 nas.delete(SambaClient.NasType.valueOf(current.nasType), current.temporaryPath)
-                check(manifests.transition(current.id, token, current.state, "NEW") == 1)
+                check(transaction.execute { manifests.transition(current.id, token, current.state, "NEW") } == 1)
             }
         }
     }
 
     /** Explicit reset only: no glob/age sweep and no unproven temporary ownership. */
     fun retireAfterReset(jobId: Long) {
-        manifests.forJob(jobId).forEach { entry ->
+        checkNotNull(transaction.execute { manifests.forJob(jobId) }).forEach { entry ->
             withClaim(entry.id, releaseAfterSuccess = false) { current, token ->
                 check(current.state !in setOf("CREATING", "FINALIZING")) { "Ambiguous upload must be reconciled before reset" }
-                check(current.createdFileId == null || createdMapper.find(current.createdFileId) == null) {
+                check(current.createdFileId == null || transaction.execute { createdMapper.find(current.createdFileId) } == null) {
                     "Registered file row remains; preserve upload ownership"
                 }
                 val type = SambaClient.NasType.valueOf(current.nasType)
                 check(!nas.exists(type, current.finalPath)) { "Final artifact remains; preserve upload ownership" }
                 if (current.state in setOf("TRANSFERRING", "TEMP_VERIFIED")) nas.delete(type, current.temporaryPath)
-                check(manifests.remove(current.id, token) == 1)
+                check(transaction.execute { manifests.remove(current.id, token) } == 1)
             }
         }
     }
@@ -348,11 +349,15 @@ class VerifiedUploadCommand(
         action: (UploadManifest, String) -> T,
     ): T {
         val token = UUID.randomUUID().toString()
-        check(manifests.claim(id, token) == 1) { "Upload already claimed; interrupted owner requires manual reconciliation" }
+        check(
+            transaction.execute {
+                manifests.claim(id, token)
+            } == 1,
+        ) { "Upload already claimed; interrupted owner requires manual reconciliation" }
         var primary: Throwable? = null
         var completed = false
         try {
-            return action(checkNotNull(manifests.get(id)), token).also { completed = true }
+            return action(checkNotNull(transaction.execute { manifests.get(id) }), token).also { completed = true }
         } catch (failure: Throwable) {
             primary = failure
             throw failure
@@ -361,7 +366,7 @@ class VerifiedUploadCommand(
             if (releaseAfterSuccess || !completed) {
                 try {
                     ProcessingCancellation.recovery {
-                        check(manifests.release(id, token) == 1) { "Upload claim release lost ownership" }
+                        check(transaction.execute { manifests.release(id, token) } == 1) { "Upload claim release lost ownership" }
                     }
                 } catch (releaseFailure: Exception) {
                     if (primary != null) {
