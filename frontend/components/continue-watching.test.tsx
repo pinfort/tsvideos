@@ -2,8 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ContinueWatching } from "./continue-watching";
 import { readPlayback, savePlayback } from "@/lib/playback";
-import { getProgramDetail } from "@/lib/api/programs";
-vi.mock("@/lib/api/programs", () => ({ getProgramDetail: vi.fn() }));
+import { getPlaybackProgramDetail } from "@/lib/api/playback";
+vi.mock("@/lib/api/playback", () => ({ getPlaybackProgramDetail: vi.fn() }));
 beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
@@ -20,10 +20,10 @@ describe("ContinueWatching", () => {
   it("renders no empty section", () => {
     render(<ContinueWatching />);
     expect(screen.queryByRole("region")).not.toBeInTheDocument();
-    expect(getProgramDetail).not.toHaveBeenCalled();
+    expect(getPlaybackProgramDetail).not.toHaveBeenCalled();
   });
   it("marks deleted recordings and removes history", async () => {
-    vi.mocked(getProgramDetail).mockResolvedValue(null);
+    vi.mocked(getPlaybackProgramDetail).mockResolvedValue(null);
     savePlayback(entry);
     render(<ContinueWatching />);
     expect(
@@ -34,7 +34,7 @@ describe("ContinueWatching", () => {
     expect(readPlayback()).toEqual([]);
   });
   it("distinguishes offline checks from deletion", async () => {
-    vi.mocked(getProgramDetail).mockRejectedValue(new Error("offline"));
+    vi.mocked(getPlaybackProgramDetail).mockRejectedValue(new Error("offline"));
     savePlayback(entry);
     render(<ContinueWatching />);
     expect(await screen.findByText("利用可否未確認")).toBeInTheDocument();
@@ -47,7 +47,7 @@ describe("ContinueWatching", () => {
     savePlayback({ ...entry, programId: undefined });
     render(<ContinueWatching />);
     expect(await screen.findByRole("link")).toHaveTextContent("番組");
-    expect(getProgramDetail).not.toHaveBeenCalled();
+    expect(getPlaybackProgramDetail).not.toHaveBeenCalled();
     localStorage.clear();
     fireEvent(window, new StorageEvent("storage", { key: null }));
     await waitFor(() =>

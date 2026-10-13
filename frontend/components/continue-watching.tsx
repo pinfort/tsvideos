@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getProgramDetail } from "@/lib/api/programs";
+import { getPlaybackProgramDetail } from "@/lib/api/playback";
 import {
   hasPlayableFile,
   PLAYBACK_EVENT,
@@ -39,7 +39,7 @@ export function ContinueWatching() {
     Promise.all(
       ids.map(async (id) => {
         try {
-          return { id, detail: await getProgramDetail(id) };
+          return { id, detail: await getPlaybackProgramDetail(id) };
         } catch {
           return { id, detail: undefined };
         }
