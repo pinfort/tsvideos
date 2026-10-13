@@ -40,18 +40,18 @@ class ShellClient {
         val stdout =
             drains.submit<String> {
                 if (capture) {
-                    process.inputStream.bufferedReader().readText()
+                    process.inputStream.bufferedReader().use { it.readText() }
                 } else {
-                    process.inputStream.copyTo(System.err)
+                    process.inputStream.use { it.copyTo(System.err) }
                     ""
                 }
             }
         val stderr =
             drains.submit<String> {
                 if (capture) {
-                    process.errorStream.bufferedReader().readText()
+                    process.errorStream.bufferedReader().use { it.readText() }
                 } else {
-                    process.errorStream.copyTo(System.err)
+                    process.errorStream.use { it.copyTo(System.err) }
                     ""
                 }
             }
@@ -63,9 +63,16 @@ class ShellClient {
                 if (System.nanoTime() >= deadline) throw TimeoutException()
             }
             // Descendants may retain inherited pipes after the direct process exits.
-            val out = stdout.get(1, TimeUnit.SECONDS)
-            val err = stderr.get(1, TimeUnit.SECONDS)
-            return ShellResult(process.exitValue(), out, err)
+            return try {
+                val out = stdout.get(1, TimeUnit.SECONDS)
+                val err = stderr.get(1, TimeUnit.SECONDS)
+                ShellResult(process.exitValue(), out, err)
+            } catch (drainTimeout: TimeoutException) {
+                if (capture) throw drainTimeout
+                // Diagnostics are best effort: an inherited pipe cannot change the parent's exit code.
+                // The finally block terminates observed owners so daemon drains can reach EOF and close.
+                ShellResult(process.exitValue(), "", "")
+            }
         } catch (failure: TimeoutException) {
             throw ShellCommandTimeoutException("Command or output drain timed out after ${timeoutSec}s")
         } finally {
@@ -78,6 +85,7 @@ class ShellClient {
                 stdout.cancel(true)
                 stderr.cancel(true)
                 drains.shutdownNow()
+                runCatching { process.outputStream.close() }
                 if (interrupted) Thread.currentThread().interrupt()
             }
         }
