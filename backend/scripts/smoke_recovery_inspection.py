@@ -53,6 +53,10 @@ try:
   assert report['resumePossible'] and any(a['status']=='MISSING' for a in report['localArtifacts'])
   assert any(a['verification']=='SHA256_RECEIPT' for a in report['uploads'])
   assert report['callback']['outputs'][0]['file']['path']==str(one)
+  sql(f"INSERT INTO upload_manifest(id,job_id,artifact_key,destination_key,nas_type,final_path,temporary_path,source_path,source_size,source_modified,source_sha256,checksum_required,state,created_file_id) SELECT 9,job_id,{q(sha(b'unknown-artifact'))},{q(sha(b'unknown-target'))},nas_type,'x/unknown','x/unknown-temp',source_path,source_size,source_modified,source_sha256,checksum_required,state,created_file_id FROM upload_manifest WHERE id=2")
+  unknown=readonly('inspect',['--job-id','1','--json'])
+  assert next(m for m in unknown['uploads'] if m['id']==9)['verification']=='UNCHECKED'
+  sql('DELETE FROM upload_manifest WHERE id=9')
   readonly('recover',['--job-id','1','--dry-run','--json'])
   readonly('recover',['--job-id','1','--json'],2)
   # Explicit fixture transition using previously verified #63; #75 calls remain read-only.
@@ -73,7 +77,7 @@ try:
   sql("UPDATE processing_job SET processing_claim='secret-owner' WHERE id=2")
   report=readonly('inspect',['--job-id','2','--json'],4)
   assert 'secret-owner' not in json.dumps(report)
-  sql("INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) VALUES(2,'/missing-legacy.m2ts',0,11,'2026-01-01','1','legacy','channel',60,'SPLITTED'); INSERT INTO program(id,name,executed_file_id,status) VALUES(2,'legacy',2,'ERROR'); INSERT INTO splitted_file(id,executed_file_id,file,size,duration,status) VALUES(2,2,'/missing-legacy-split',11,60,'COMPRESS_SAVED'); INSERT INTO created_file(id,splitted_file_id,file,size,mime,status) VALUES(4,2,'x/show/one.mp4',11,'video/mp4','FILE_MOVED');")
+  sql("INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) VALUES(2,'/missing-legacy.m2ts',0,11,'2026-01-01','1','legacy','channel',60,'SPLITTED'); INSERT INTO program(id,name,executed_file_id,status) VALUES(2,'legacy',2,'ERROR'); INSERT INTO splitted_file(id,executed_file_id,file,size,duration,status) VALUES(2,2,'/missing-legacy-split',11,60,'COMPRESS_SAVED'); INSERT INTO created_file(id,splitted_file_id,file,size,mime,status) VALUES(4,2,'x/show/legacy.mp4',11,'video/mp4','FILE_MOVED');")
   legacy=readonly('inspect',['--recording','/missing-legacy.m2ts','--json'],4)
   assert not legacy['resumePossible'] and legacy['records'] and legacy['nasArtifacts']
   sql('DELETE FROM program WHERE id=2')

@@ -224,8 +224,13 @@ class RecoveryInspectionCommand(
                                             .hash("original")
                                     ) {
                                         "UPLOAD_ORIGINAL"
-                                    } else {
+                                    } else if (it.artifactKey ==
+                                        me.pinfort.tsvideos.core.domain.ProcessingIdentity
+                                            .hash("encoded:${it.sourcePath}")
+                                    ) {
                                         "UPLOAD_ENCODED:${it.sourcePath}"
+                                    } else {
+                                        "UNRECOGNIZED_ARTIFACT"
                                     }
                                 )
                         } == true
