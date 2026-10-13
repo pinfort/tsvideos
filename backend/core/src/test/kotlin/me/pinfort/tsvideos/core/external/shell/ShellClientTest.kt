@@ -10,6 +10,23 @@ class ShellClientTest :
     ExpectSpec({
         val shellClient = ShellClient()
         val workingDir = File(".")
+        expect("uncaptured child stdout and stderr are diagnostics on parent stderr") {
+            val originalOut = System.out
+            val originalErr = System.err
+            val out = java.io.ByteArrayOutputStream()
+            val err = java.io.ByteArrayOutputStream()
+            try {
+                System.setOut(java.io.PrintStream(out))
+                System.setErr(java.io.PrintStream(err))
+                shellClient.execute(workingDir, listOf("bash", "-c", "echo child-out-marker; echo child-err-marker >&2")) shouldBe 0
+                out.toString().contains("child-out-marker") shouldBe false
+                err.toString().contains("child-out-marker") shouldBe true
+                err.toString().contains("child-err-marker") shouldBe true
+            } finally {
+                System.setOut(originalOut)
+                System.setErr(originalErr)
+            }
+        }
 
         expect("interruption tears down the actual owned process tree within a bound") {
             val directory =
