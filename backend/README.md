@@ -66,3 +66,5 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 ```
 
 Processor deployment and recovery: [processing identity and reconciliation](docs/processing-idempotency.md). Apply migration 064 before upgrading.
+
+Processor upload ownership, verification, migration and recovery: [verified-uploads.md](docs/verified-uploads.md).

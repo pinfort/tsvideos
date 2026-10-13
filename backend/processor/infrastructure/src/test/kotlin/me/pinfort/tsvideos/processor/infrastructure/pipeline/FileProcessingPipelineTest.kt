@@ -16,6 +16,7 @@ import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
+import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
@@ -51,6 +52,7 @@ class FileProcessingPipelineTest :
         lateinit var nasComponent: NasComponent
         lateinit var sambaClient: SambaClient
         lateinit var jobs: ProcessingJobCommand
+        lateinit var uploads: VerifiedUploadCommand
         lateinit var logger: Logger
         lateinit var fileProcessingPipeline: FileProcessingPipeline
 
@@ -82,6 +84,7 @@ class FileProcessingPipelineTest :
             sambaClient = mockk()
             logger = mockk(relaxed = true)
             jobs = mockk(relaxed = true)
+            uploads = mockk(relaxed = true)
             every { jobs.find(any()) } returns null
             every { jobs.findByPath(any()) } returns null
             every { jobs.claim(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "CLAIMED", null, null)
@@ -95,7 +98,6 @@ class FileProcessingPipelineTest :
                 FileProcessingPipeline(
                     executedFileCommand = executedFileCommand,
                     splittedFileCommand = splittedFileCommand,
-                    createdFileCommand = createdFileCommand,
                     programCommand = programCommand,
                     tsSelectClient = tsSelectClient,
                     tsSplitterClient = tsSplitterClient,
@@ -103,11 +105,11 @@ class FileProcessingPipelineTest :
                     durationProbeClient = durationProbeClient,
                     mainSplittedFileFinderComponent = MainSplittedFileFinderComponent(),
                     compressComponent = CompressComponent(logger),
-                    nasComponent = nasComponent,
                     nasDestinationResolver = NasDestinationResolver(NormalizeComponent(), sambaClient),
                     processorToolConfigurationProperties = properties,
                     logger = logger,
                     processingJobCommand = jobs,
+                    verifiedUploadCommand = uploads,
                 )
         }
 
@@ -255,17 +257,17 @@ class FileProcessingPipelineTest :
                 result shouldBe FileProcessingPipeline.Result.PROCESSED
                 verify { amatsukazeAddTaskClient.addTask(any(), any(), "30fps_light") }
                 verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
-                // the file stored in created_file must include the NAS baseDir, matching the physical upload location
                 verify {
-                    nasComponent.uploadResource(
+                    uploads.upload(
+                        1,
+                        "original",
                         any(),
-                        match { it.startsWith("nas-base-dir/") },
                         SambaClient.NasType.ORIGINAL_STORE_NAS,
+                        match { it.startsWith("nas-base-dir/") },
                         any(),
                     )
-                }
-                verify {
-                    createdFileCommand.insert(200, match { it.startsWith("nas-base-dir/") }, any(), any(), any(), any(), any())
+                    uploads.register(any(), 200, "video/vnd.dlna.mpeg-tts", "gzip")
+                    uploads.deleteLocal(any())
                 }
             }
         }
@@ -346,17 +348,17 @@ class FileProcessingPipelineTest :
                 verify(exactly = 1) { amatsukazeAddTaskClient.addTask(any(), any(), any()) }
                 verify { amatsukazeAddTaskClient.addTask(any(), any(), "30fps_light") }
                 verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
-                // the file stored in created_file must include the NAS baseDir, matching the physical upload location
                 verify {
-                    nasComponent.uploadResource(
+                    uploads.upload(
+                        1,
+                        "original",
                         any(),
-                        match { it.startsWith("nas-base-dir/") },
                         SambaClient.NasType.ORIGINAL_STORE_NAS,
+                        match { it.startsWith("nas-base-dir/") },
                         any(),
                     )
-                }
-                verify {
-                    createdFileCommand.insert(200, match { it.startsWith("nas-base-dir/") }, any(), any(), any(), any(), any())
+                    uploads.register(any(), 200, "video/vnd.dlna.mpeg-tts", "gzip")
+                    uploads.deleteLocal(any())
                 }
             }
         }
@@ -463,7 +465,7 @@ class FileProcessingPipelineTest :
         }
 
         context("processFile - compress skipped") {
-            expect("proceeds to stage 4 without a created_file row when the compressed file already exists") {
+            expect("rejects stale compressed file without encoder submission or rollback deletion") {
                 val original = newOriginalFile()
                 val outDir = File(original.parentFile, "tssplitter")
                 val executedFile = executedFileFixture(original)
@@ -502,12 +504,12 @@ class FileProcessingPipelineTest :
                 every { executedFileCommand.find(executedFile.id) } returns executedFile
                 every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } returns 0
 
-                val result = fileProcessingPipeline.processFile(original)
-
-                result shouldBe FileProcessingPipeline.Result.PROCESSED
+                shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
+                original.exists() shouldBe true
+                splitFile.exists() shouldBe true
                 verify(exactly = 0) { createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any()) }
                 verify(exactly = 0) { nasComponent.uploadResource(any(), any(), any(), any()) }
-                verify { amatsukazeAddTaskClient.addTask(any(), any(), any()) }
+                verify(exactly = 0) { amatsukazeAddTaskClient.addTask(any(), any(), any()) }
             }
         }
 
