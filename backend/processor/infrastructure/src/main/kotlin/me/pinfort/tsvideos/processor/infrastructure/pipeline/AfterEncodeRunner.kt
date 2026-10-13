@@ -74,26 +74,31 @@ class AfterEncodeRunner(
     ) {
         cancellation.check()
         if (!input.success) {
-            if (!dryRun) {
-                val failedSplit = findOriginalSplittedFile(input.inPath)
-                val failedJob = failedSplit?.let { processingJobCommand.findByExecutedFile(it.executedFileId) }
-                if (failedJob != null) {
-                    val failedAttempt = history.begin(failedJob, ProcessingAttemptKind.CALLBACK)
-                    val event = history.startStage(failedAttempt.id, ProcessingStage.FINALIZE)
-                    history.finishStage(event, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
-                    history.finish(failedAttempt.id, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
+            val failure = IllegalStateException("Encoder reported failure")
+            reportSafely(failure, {
+                if (!dryRun) {
+                    val failedSplit = findOriginalSplittedFile(input.inPath)
+                    val failedJob = failedSplit?.let { processingJobCommand.findByExecutedFile(it.executedFileId) }
+                    if (failedJob != null) {
+                        val failedAttempt = history.begin(failedJob, ProcessingAttemptKind.CALLBACK)
+                        val event = history.startStage(failedAttempt.id, ProcessingStage.FINALIZE)
+                        history.finishStage(event, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
+                        history.finish(failedAttempt.id, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
+                    }
                 }
-            }
-            notifyError(input)
-            return
+            }, { logger.error("Encoder reported failure, itemId=${input.itemId}") }, {
+                if (!dryRun) notifyError(input)
+            })
+            throw failure
         }
 
         val splittedFile = findOriginalSplittedFile(input.inPath)
         if (splittedFile == null) {
-            // executedFileId が取れないと後続の完了処理ができないため、何も登録せずに中断する
-            logger.error("original splitted file not found, inPath=${input.inPath}")
-            slackClient.notify("original splitted file not found. in_path:${input.inPath}")
-            return
+            val failure = IllegalStateException("Original split record missing")
+            reportSafely(failure, { logger.error("Original split record missing") }, {
+                if (!dryRun) slackClient.notify("original splitted file not found. in_path:${input.inPath}")
+            })
+            throw failure
         }
 
         val job = processingJobCommand.findByExecutedFile(splittedFile.executedFileId)
@@ -158,6 +163,7 @@ class AfterEncodeRunner(
                     history.failed(attempt.id, e)
                 } catch (historyFailure: Exception) {
                     e.addSuppressed(historyFailure)
+                    if (ProcessingCancellation.isInterrupted(historyFailure)) Thread.currentThread().interrupt()
                 }
             }
             if (ProcessingCancellation.isInterrupted(e)) throw e
@@ -180,6 +186,7 @@ class AfterEncodeRunner(
                 } catch (releaseFailure: Exception) {
                     if (primaryFailure == null) throw releaseFailure
                     primaryFailure.addSuppressed(releaseFailure)
+                    if (ProcessingCancellation.isInterrupted(releaseFailure)) Thread.currentThread().interrupt()
                 }
             }
         }
@@ -238,15 +245,24 @@ class AfterEncodeRunner(
         e: Exception,
         dryRun: Boolean,
     ) {
-        listOf<() -> Unit>(
+        reportSafely(
+            e,
             { logger.error(message, e) },
-            { slackClient.notify("$message, e:${e.message}\nstackTrace:\n```\n${e.stackTraceToString()}\n```") },
+            { if (!dryRun) slackClient.notify("$message, e:${e.message}\nstackTrace:\n```\n${e.stackTraceToString()}\n```") },
             { programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.ERROR, dryRun) },
-        ).forEach { report ->
+        )
+    }
+
+    private fun reportSafely(
+        failure: Exception,
+        vararg reports: () -> Unit,
+    ) {
+        reports.forEach { report ->
             try {
-                report()
+                ProcessingCancellation.recovery(report)
             } catch (reportFailure: Exception) {
-                e.addSuppressed(reportFailure)
+                failure.addSuppressed(reportFailure)
+                if (ProcessingCancellation.isInterrupted(reportFailure)) Thread.currentThread().interrupt()
             }
         }
     }

@@ -125,6 +125,42 @@ class AfterEncodeRunnerTest :
                 f.cleanup()
             }
         }
+        expect("all rejected dry-run callbacks avoid Slack and database mutation") {
+            val f = Fixture()
+            try {
+                shouldThrow<IllegalStateException> { f.run(success = false, dryRun = true) }
+                every { f.validation.validate(1) } returns false
+                shouldThrow<IllegalStateException> { f.run(dryRun = true) }
+                every { f.splits.findByFile(any()) } returns null
+                shouldThrow<IllegalStateException> { f.run(dryRun = true) }
+                verify(exactly = 0) { f.slack.notify(any()) }
+                verify(exactly = 0) { f.history.begin(any(), any()) }
+                verify(exactly = 0) { f.jobs.claimCallback(any()) }
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, true) }
+                f.original.exists() shouldBe true
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("interrupted failure reporting retains primary and restores cancellation flag") {
+            val f = Fixture()
+            val primary = IllegalStateException("permanent failure")
+            val interrupted = InterruptedException("notification interrupted")
+            every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws primary
+            every { f.slack.notify(any()) } throws interrupted
+            try {
+                shouldThrow<IllegalStateException> { f.run() } shouldBe primary
+                primary.suppressed.single() shouldBe interrupted
+                Thread.currentThread().isInterrupted shouldBe true
+                me.pinfort.tsvideos.core.component.ProcessingCancellation
+                    .isInterrupted(primary) shouldBe true
+                verify(exactly = 1) { f.slack.notify(any()) }
+                f.original.exists() shouldBe true
+            } finally {
+                Thread.interrupted()
+                f.cleanup()
+            }
+        }
         expect("callback interruption propagates, preserves originals and releases ownership") {
             val f = Fixture()
             every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws InterruptedException()
@@ -242,7 +278,7 @@ class AfterEncodeRunnerTest :
         expect("failed encoder callback touches no uploads") {
             val f = Fixture()
             try {
-                f.run(success = false)
+                shouldThrow<IllegalStateException> { f.run(success = false) }
                 f.output.exists() shouldBe true
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
                 verify { f.slack.notify(match { it.contains("encode failed") }) }
@@ -254,7 +290,7 @@ class AfterEncodeRunnerTest :
             val f = Fixture()
             try {
                 every { f.splits.findByFile(any()) } returns null
-                f.run()
+                shouldThrow<IllegalStateException> { f.run() }
                 verify(exactly = 0) { f.jobs.claimCallback(any()) }
                 verify(exactly = 0) { f.history.begin(any(), any()) }
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
