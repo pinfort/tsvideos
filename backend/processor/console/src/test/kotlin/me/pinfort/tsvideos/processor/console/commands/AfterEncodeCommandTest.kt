@@ -2,13 +2,16 @@ package me.pinfort.tsvideos.processor.console.commands
 
 import com.github.ajalt.clikt.core.context
 import com.github.ajalt.clikt.core.main
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.shouldBe
 import io.mockk.Runs
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
+import me.pinfort.tsvideos.processor.console.parseProcessor
 import me.pinfort.tsvideos.processor.infrastructure.pipeline.AfterEncodeRunner
 import java.nio.file.Path
 
@@ -29,6 +32,16 @@ class AfterEncodeCommandTest :
         }
 
         context("run") {
+            expect("callback failure reaches the application exit boundary unchanged") {
+                val failure = java.net.SocketTimeoutException("retry exhausted")
+                every { afterEncodeRunner.run(any(), any(), any()) } throws failure
+                withEnv(mapOf("ITEM_ID" to "42", "IN_PATH" to "/rec/a.m2ts", "SUCCESS" to "1"))
+                shouldThrow<java.net.SocketTimeoutException> {
+                    afterEncodeCommand.parseProcessor(emptyList())
+                } shouldBe failure
+                verify(exactly = 1) { afterEncodeRunner.run(any(), any(), any()) }
+            }
+
             expect("reads every value from the amatsukaze environment variables") {
                 withEnv(
                     mapOf(

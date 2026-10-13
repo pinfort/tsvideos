@@ -70,3 +70,7 @@ Processor deployment and recovery: [processing identity and reconciliation](docs
 Processor upload ownership, verification, migration and recovery: [verified-uploads.md](docs/verified-uploads.md).
 
 Processor status/history, migration, activity semantics and explicit retention: [processing-history.md](docs/processing-history.md).
+
+## Transient upload retries
+
+See [bounded verified-upload retries](docs/processing-retries.md) for configuration, eligible failures and ownership safeguards.
