@@ -7,6 +7,10 @@ import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
+import me.pinfort.tsvideos.core.component.ProcessingRetry
+import me.pinfort.tsvideos.core.component.ProcessingRetryRuntime
+import me.pinfort.tsvideos.core.config.ProcessingRetryConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
@@ -22,8 +26,10 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import java.io.File
+import java.net.SocketTimeoutException
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.sql.SQLTransientConnectionException
 import java.util.UUID
 
 @ImportTestcontainers
@@ -50,7 +56,10 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             val target: String,
         )
 
-        fun fixture(checksum: Boolean = true): Fixture {
+        fun fixture(
+            checksum: Boolean = true,
+            mapper: UploadManifestMapper = manifests,
+        ): Fixture {
             val nas = mockk<VerifiedUploadNas>()
             val remote = mutableMapOf<String, ByteArray>()
             every { nas.exists(any(), any()) } answers { remote.containsKey(secondArg()) }
@@ -76,7 +85,21 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             val source = Files.createTempFile("verified-upload-", ".mp4").toFile().apply { writeText("complete video") }
             val job = UUID.randomUUID().mostSignificantBits.and(Long.MAX_VALUE)
             return Fixture(
-                VerifiedUploadCommand(manifests, nas, created, files, transactions, checksum),
+                VerifiedUploadCommand(
+                    mapper,
+                    nas,
+                    created,
+                    files,
+                    transactions,
+                    checksum,
+                    ProcessingRetry(
+                        ProcessingRetryConfigurationProperties(3, 1, 1),
+                        mockk<ProcessingRetryRuntime> {
+                            every { random() } returns 0.0
+                            every { pause(any()) } returns Unit
+                        },
+                    ),
+                ),
                 nas,
                 source,
                 remote,
@@ -88,6 +111,187 @@ class VerifiedUploadCommandTest : ExpectSpec() {
         fun Fixture.upload() = command.upload(job, "output", source, SambaClient.NasType.VIDEO_STORE_NAS, target)
 
         fun Fixture.manifest() = checkNotNull(manifests.find(job, ProcessingIdentity.hash("output")))
+
+        expect("transient partial transfer retries owned temp and converges real receipt") {
+            val f = fixture()
+            var transfers = 0
+            every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
+                arg<() -> Unit>(3)()
+                if (++transfers == 1) {
+                    f.remote[secondArg()] = byteArrayOf(1)
+                    throw SocketTimeoutException()
+                }
+                f.remote[secondArg()] = f.source.readBytes()
+            }
+            try {
+                val receipt = f.upload()
+                transfers shouldBe 2
+                f.manifest().state shouldBe "FINALIZED"
+                f.manifest().claimToken shouldBe null
+                f.remote.keys shouldBe setOf(f.target)
+                f.command.register(receipt, 876544, "video/mp4", null)
+                f.command.verifyRegistered(f.job, "output") shouldBe receipt
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("transient DB registration rolls back then converges one created row") {
+            var registrations = 0
+            val wrapped =
+                object : UploadManifestMapper by manifests {
+                    override fun register(
+                        id: Long,
+                        token: String,
+                        createdFileId: Long,
+                    ): Int {
+                        if (++registrations == 1) throw SQLTransientConnectionException()
+                        return manifests.register(id, token, createdFileId)
+                    }
+                }
+            val f = fixture(mapper = wrapped)
+            try {
+                val receipt = f.upload()
+                val registered = f.command.register(receipt, 876545, "video/mp4", null)
+                registrations shouldBe 2
+                f.command.register(receipt, 876545, "video/mp4", null).id shouldBe registered.id
+                files.selectBySplittedFileId(876545).count { it.file == f.target } shouldBe 1
+                f.manifest().claimToken shouldBe null
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("registered read timeout retries without another row or source removal") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                val registered = f.command.register(receipt, 876546, "video/mp4", null)
+                var reads = 0
+                every { f.nas.size(any(), f.target) } answers {
+                    if (++reads == 1) throw SocketTimeoutException()
+                    f.source.length()
+                }
+                f.command.verifyRegistered(f.job, "output") shouldBe receipt
+                reads shouldBe 2
+                files.find(registered.id)?.id shouldBe registered.id
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("ambiguous create or rename timeout never retries") {
+            listOf(false, true).forEach { rename ->
+                val f = fixture()
+                val failure = SocketTimeoutException()
+                if (rename) {
+                    every { f.nas.finalize(any(), any(), any()) } throws failure
+                } else {
+                    every { f.nas.transfer(any(), any(), any(), any(), any()) } throws failure
+                }
+                try {
+                    shouldThrow<SocketTimeoutException> { f.upload() } shouldBe failure
+                    f.manifest().state shouldBe if (rename) "FINALIZING" else "CREATING"
+                    f.manifest().claimToken shouldBe null
+                    verify(exactly = 1) { f.nas.transfer(any(), any(), any(), any(), any()) }
+                    f.source.exists() shouldBe true
+                } finally {
+                    f.source.delete()
+                }
+            }
+        }
+        expect("cleanup failure blocks further attempts and retains primary cleanup error") {
+            val f = fixture()
+            val cleanup = SocketTimeoutException("cleanup")
+            every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
+                arg<() -> Unit>(3)()
+                f.remote[secondArg()] = byteArrayOf(1)
+                throw SocketTimeoutException("transfer")
+            }
+            every { f.nas.delete(any(), any()) } throws cleanup
+            try {
+                shouldThrow<SocketTimeoutException> { f.upload() } shouldBe cleanup
+                cleanup.suppressed.size shouldBe 1
+                verify(exactly = 1) {
+                    f.nas.transfer(any(), any(), any(), any(), any())
+                    f.nas.delete(any(), any())
+                }
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("failed claim release preserves transfer exception and forbids retry") {
+            val release = SQLTransientConnectionException("release")
+            val wrapped =
+                object : UploadManifestMapper by manifests {
+                    override fun release(
+                        id: Long,
+                        token: String,
+                    ): Int = throw release
+                }
+            val f = fixture(mapper = wrapped)
+            val primary = SocketTimeoutException("transfer")
+            every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
+                arg<() -> Unit>(3)()
+                throw primary
+            }
+            try {
+                shouldThrow<SocketTimeoutException> { f.upload() } shouldBe primary
+                primary.suppressed.single() shouldBe release
+                verify(exactly = 1) { f.nas.transfer(any(), any(), any(), any(), any()) }
+                (f.manifest().claimToken != null) shouldBe true
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("zero row claim release after success fails without retry") {
+            val wrapped =
+                object : UploadManifestMapper by manifests {
+                    override fun release(
+                        id: Long,
+                        token: String,
+                    ): Int = 0
+                }
+            val f = fixture(mapper = wrapped)
+            try {
+                shouldThrow<IllegalStateException> { f.upload() }.suppressed.size shouldBe 1
+                verify(exactly = 1) { f.nas.transfer(any(), any(), any(), any(), any()) }
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("retire removes owned row without release but failed removal still releases") {
+            val f = fixture()
+            try {
+                f.upload()
+                f.remote.clear()
+                f.command.retireAfterReset(f.job)
+                manifests.find(f.job, ProcessingIdentity.hash("output")) shouldBe null
+            } finally {
+                f.source.delete()
+            }
+            val failure = SQLTransientConnectionException()
+            val wrapped =
+                object : UploadManifestMapper by manifests {
+                    override fun remove(
+                        id: Long,
+                        token: String,
+                    ): Int = throw failure
+                }
+            val g = fixture(mapper = wrapped)
+            try {
+                g.upload()
+                g.remote.clear()
+                shouldThrow<SQLTransientConnectionException> { g.command.retireAfterReset(g.job) } shouldBe failure
+                g.manifest().claimToken shouldBe null
+                g.source.exists() shouldBe true
+            } finally {
+                g.source.delete()
+            }
+        }
 
         expect("interruption cleans only an owned partial upload and releases its claim") {
             val f = fixture()
@@ -103,6 +307,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.manifest().state shouldBe "NEW"
                 f.manifest().claimToken shouldBe null
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -118,6 +323,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.manifest().state shouldBe "FINALIZING"
                 f.source.exists() shouldBe true
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -135,6 +341,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.command.register(receipt, 876543, "video/mp4", null).id shouldBe first.id
                 f.remote.keys shouldBe setOf(f.target)
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -156,6 +363,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.upload()
                 f.manifest().state shouldBe "FINALIZED"
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -168,6 +376,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.remote.keys shouldBe setOf(f.target)
                 f.source.exists() shouldBe true
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -201,6 +410,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 shouldThrow<IllegalStateException> { f.upload() }
                 f.source.exists() shouldBe true
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -227,6 +437,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.command.deleteLocal(receipt)
                 f.source.exists() shouldBe false
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -242,6 +453,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 shouldThrow<Exception> { f.command.deleteLocal(receipt) }
                 f.source.exists() shouldBe true
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -259,6 +471,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.manifest().state shouldBe "TRANSFERRING"
                 f.source.exists() shouldBe true
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -272,6 +485,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 shouldThrow<IllegalStateException> { f.upload() }
                 f.source.exists() shouldBe true
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -359,6 +573,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 manifests.get(receipt.manifestId) shouldBe null
                 f.source.exists() shouldBe true
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -377,6 +592,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.remote.keys shouldBe setOf("unrelated.upload-file")
                 f.source.exists() shouldBe true
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -399,6 +615,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.command.register(receipt, splitId, "video/mp4", null)
                 files.selectBySplittedFileId(splitId).size shouldBe 1
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -412,6 +629,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                     manifests.find(f.job, ProcessingIdentity.hash("output")) shouldBe null
                 }
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }

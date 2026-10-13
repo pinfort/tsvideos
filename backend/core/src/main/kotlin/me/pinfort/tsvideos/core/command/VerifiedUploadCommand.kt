@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.core.command
 
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
+import me.pinfort.tsvideos.core.component.ProcessingRetry
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest
@@ -31,6 +32,7 @@ class VerifiedUploadCommand(
     private val createdMapper: CreatedFileMapper,
     transactionManager: PlatformTransactionManager,
     @Value("\${processor.upload.verify-sha256:false}") private val checksumRequired: Boolean = false,
+    private val retry: ProcessingRetry = ProcessingRetry(),
 ) {
     private val transaction =
         TransactionTemplate(transactionManager).apply {
@@ -44,6 +46,23 @@ class VerifiedUploadCommand(
         type: SambaClient.NasType,
         target: String,
         progress: (Long, Long) -> Unit = { _, _ -> },
+    ): VerifiedUploadReceipt =
+        retry.execute("UPLOAD", {
+            retryEligible(
+                manifests.find(jobId, ProcessingIdentity.hash(artifact)),
+                setOf("NEW", "TRANSFERRING", "TEMP_VERIFIED", "FINALIZED", "REGISTERED"),
+            )
+        }) {
+            uploadOnce(jobId, artifact, source, type, target, progress)
+        }
+
+    private fun uploadOnce(
+        jobId: Long,
+        artifact: String,
+        source: File,
+        type: SambaClient.NasType,
+        target: String,
+        progress: (Long, Long) -> Unit,
     ): VerifiedUploadReceipt {
         require(jobId > 0 && artifact.isNotBlank())
         require(
@@ -113,8 +132,13 @@ class VerifiedUploadCommand(
                 if (current.state == "CREATING") error("Ambiguous temporary creation; manual reconciliation required")
                 if (current.state == "TRANSFERRING") {
                     // Only this state proves exclusive open succeeded. Never delete a merely reserved path.
-                    nas.delete(type, current.temporaryPath)
-                    transition("NEW")
+                    try {
+                        nas.delete(type, current.temporaryPath)
+                        transition("NEW")
+                    } catch (cleanup: Exception) {
+                        cleanup.addSuppressed(IllegalStateException("Owned temporary cleanup failed; retry refused"))
+                        throw cleanup
+                    }
                 }
                 if (current.state == "NEW") {
                     check(!nas.exists(type, target)) { "Unowned final destination exists" }
@@ -149,6 +173,18 @@ class VerifiedUploadCommand(
     }
 
     fun register(
+        receipt: VerifiedUploadReceipt,
+        splittedFileId: Long,
+        mime: String?,
+        encoding: String?,
+    ): CreatedFile =
+        retry.execute("REGISTER_UPLOAD", {
+            retryEligible(manifests.get(receipt.manifestId), setOf("FINALIZED", "REGISTERED"))
+        }) {
+            registerOnce(receipt, splittedFileId, mime, encoding)
+        }
+
+    private fun registerOnce(
         receipt: VerifiedUploadReceipt,
         splittedFileId: Long,
         mime: String?,
@@ -194,6 +230,14 @@ class VerifiedUploadCommand(
 
     /** Used before deleting the raw recording: no metadata-only legacy receipt is accepted. */
     fun verifyRegistered(
+        jobId: Long,
+        artifact: String,
+    ): VerifiedUploadReceipt =
+        retry.execute("VERIFY_UPLOAD", {
+            retryEligible(manifests.find(jobId, ProcessingIdentity.hash(artifact)), setOf("REGISTERED"))
+        }) { verifyRegisteredOnce(jobId, artifact) }
+
+    private fun verifyRegisteredOnce(
         jobId: Long,
         artifact: String,
     ): VerifiedUploadReceipt {
@@ -242,7 +286,7 @@ class VerifiedUploadCommand(
     /** Explicit reset only: no glob/age sweep and no unproven temporary ownership. */
     fun retireAfterReset(jobId: Long) {
         manifests.forJob(jobId).forEach { entry ->
-            withClaim(entry.id) { current, token ->
+            withClaim(entry.id, releaseAfterSuccess = false) { current, token ->
                 check(current.state !in setOf("CREATING", "FINALIZING")) { "Ambiguous upload must be reconciled before reset" }
                 check(current.createdFileId == null || createdMapper.find(current.createdFileId) == null) {
                     "Registered file row remains; preserve upload ownership"
@@ -293,16 +337,41 @@ class VerifiedUploadCommand(
             digest.digest().joinToString("") { "%02x".format(it) }
         }
 
+    private fun retryEligible(
+        manifest: UploadManifest?,
+        states: Set<String>,
+    ): Boolean = manifest != null && manifest.claimToken == null && manifest.state in states
+
     private fun <T> withClaim(
         id: Long,
+        releaseAfterSuccess: Boolean = true,
         action: (UploadManifest, String) -> T,
     ): T {
         val token = UUID.randomUUID().toString()
         check(manifests.claim(id, token) == 1) { "Upload already claimed; interrupted owner requires manual reconciliation" }
+        var primary: Throwable? = null
+        var completed = false
         try {
-            return action(checkNotNull(manifests.get(id)), token)
+            return action(checkNotNull(manifests.get(id)), token).also { completed = true }
+        } catch (failure: Throwable) {
+            primary = failure
+            throw failure
         } finally {
-            ProcessingCancellation.recovery { manifests.release(id, token) }
+            // Successful retire removes the row under this token; all other paths must prove release.
+            if (releaseAfterSuccess || !completed) {
+                try {
+                    ProcessingCancellation.recovery {
+                        check(manifests.release(id, token) == 1) { "Upload claim release lost ownership" }
+                    }
+                } catch (releaseFailure: Exception) {
+                    if (primary != null) {
+                        primary.addSuppressed(releaseFailure)
+                    } else {
+                        releaseFailure.addSuppressed(IllegalStateException("Upload claim release unconfirmed; retry refused"))
+                        throw releaseFailure
+                    }
+                }
+            }
         }
     }
 }
