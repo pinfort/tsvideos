@@ -50,6 +50,7 @@ class NasMoveIntegrationTest :
                         root.resolve(old).use { it.openOutputStream().use { out -> out.write(byteArrayOf(1, 2, 3, 4)) } }
                         root.resolve(destination).use { it.openOutputStream().use { out -> out.write(byteArrayOf(9, 8)) } }
                         shouldThrowAny { nas.moveResource(old, destination) }
+                        shouldThrowAny { nas.deleteResource("base/a/alpha") }
                         root.resolve(old).use {
                             it.openInputStream().use { input ->
                                 input.readBytes().toList() shouldBe

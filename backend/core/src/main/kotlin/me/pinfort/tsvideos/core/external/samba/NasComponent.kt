@@ -39,13 +39,16 @@ class NasComponent(
     }
 
     fun deleteResource(file: String): SambaClient.NasType {
+        validateFilePath(file)
         val resource = videoStoreNas.resolve(file.replace('\\', '/'))
         if (resource.exists()) {
+            check(resource.isFile) { "Refusing to delete a directory" }
             resource.delete()
             return SambaClient.NasType.VIDEO_STORE_NAS
         }
         val originalResource = originalStoreNas.resolve(file.replace('\\', '/'))
         if (originalResource.exists()) {
+            check(originalResource.isFile) { "Refusing to delete a directory" }
             originalResource.delete()
             return SambaClient.NasType.ORIGINAL_STORE_NAS
         }
@@ -56,18 +59,8 @@ class NasComponent(
         oldFile: String,
         newFile: String,
     ): SambaClient.NasType {
-        for (file in listOf(oldFile, newFile)) {
-            require(
-                file.replace('\\', '/').split('/').all {
-                    it.isNotBlank() &&
-                        it != "." &&
-                        it != ".." &&
-                        !it.endsWith('.') &&
-                        !it.endsWith(' ') &&
-                        it.none { c -> c in ":?#%" || c.isISOControl() }
-                },
-            ) { "Unsafe NAS path" }
-        }
+        validateFilePath(oldFile)
+        validateFilePath(newFile)
         require(oldFile.replace('\\', '/').lowercase() != newFile.replace('\\', '/').lowercase())
         val candidates =
             listOf(
@@ -77,6 +70,7 @@ class NasComponent(
         for ((nas, type) in candidates) {
             nas.resolve(oldFile.replace('\\', '/')).use { source ->
                 if (!source.exists()) return@use
+                check(source.isFile) { "Refusing to move a directory" }
                 val size = source.length()
                 val modified = source.lastModified()
                 createDirectories(newFile, type)
@@ -113,6 +107,19 @@ class NasComponent(
             }
         }
         throw IllegalStateException("Source file not found")
+    }
+
+    private fun validateFilePath(file: String) {
+        require(
+            file.replace('\\', '/').split('/').all {
+                it.isNotBlank() &&
+                    it != "." &&
+                    it != ".." &&
+                    !it.endsWith('.') &&
+                    !it.endsWith(' ') &&
+                    it.none { c -> c in ":?#%" || c.isISOControl() }
+            },
+        ) { "Unsafe NAS path" }
     }
 
     fun uploadResource(

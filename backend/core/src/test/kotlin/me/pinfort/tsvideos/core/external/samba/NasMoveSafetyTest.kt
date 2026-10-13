@@ -30,6 +30,7 @@ class NasMoveSafetyTest :
             every { video.resolve(old) } returns source
             every { video.resolve(new) } returns target
             every { source.exists() } returns true
+            every { source.isFile } returns true
             every { source.length() } returns 3
             every { source.lastModified() } returns 10
             every { source.openInputStream() } returns ByteArrayInputStream(byteArrayOf(1, 2, 3))
@@ -76,11 +77,21 @@ class NasMoveSafetyTest :
         expect("NAS boundary rejects URI delimiters and encoded traversal before opening anything") {
             for (unsafe in listOf("base/a/alpha/%2e%2e%2fother", "base/a/alpha/file#fragment", "base/a/alpha/file?query", "../file")) {
                 shouldThrow<IllegalArgumentException> { nas.moveResource(unsafe, new) }
+                shouldThrow<IllegalArgumentException> { nas.deleteResource(unsafe) }
                 shouldThrow<IllegalArgumentException> { nas.moveResource(old, unsafe) }
             }
             verify(exactly = 0) {
                 video.resolve(any())
                 source.delete()
+            }
+        }
+        expect("directory deletion and movement are refused without recursive effects") {
+            every { source.isFile } returns false
+            shouldThrow<IllegalStateException> { nas.deleteResource(old) }
+            shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
+            verify(exactly = 0) {
+                source.delete()
+                source.openInputStream()
             }
         }
         expect("read failure retains source and does not delete an uncertain destination") {
