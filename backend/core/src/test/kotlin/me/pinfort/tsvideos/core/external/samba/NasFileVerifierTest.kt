@@ -31,6 +31,11 @@ class NasFileVerifierTest :
             every { originalFile.isFile } returns true
             verifier = NasFileVerifier(client)
         }
+        expect("interruptions are propagated without becoming inaccessible") {
+            every { videoFile.exists() } throws InterruptedException()
+            io.kotest.assertions.throwables
+                .shouldThrow<InterruptedException> { verifier.verify("base/path/file.mp4", 12) }
+        }
         expect("verifies size and normalizes separators without repeating base directory") {
             every { videoFile.exists() } returns true
             every { videoFile.length() } returns 12

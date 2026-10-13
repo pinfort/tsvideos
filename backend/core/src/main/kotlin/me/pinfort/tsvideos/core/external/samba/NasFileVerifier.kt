@@ -44,7 +44,12 @@ class NasFileVerifier(
                 }
             }
             Result(VerificationStatus.MISSING, reason = "Absent from both NAS stores")
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
+            if (me.pinfort.tsvideos.core.component.ProcessingCancellation
+                    .isInterrupted(failure)
+            ) {
+                throw failure
+            }
             // Exception messages can contain server URLs and credentials.
             Result(VerificationStatus.INACCESSIBLE, reason = "NAS metadata could not be read")
         }

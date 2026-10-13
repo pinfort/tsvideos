@@ -42,6 +42,8 @@ class TsVideosProcessorTest :
                     StatusCommand(mockk(relaxed = true)),
                     HistoryCommand(mockk(relaxed = true)),
                     ResumeCommand(mockk(relaxed = true)),
+                    InspectCommand(mockk(relaxed = true)),
+                    RecoverCommand(mockk(relaxed = true)),
                 )
         }
 
