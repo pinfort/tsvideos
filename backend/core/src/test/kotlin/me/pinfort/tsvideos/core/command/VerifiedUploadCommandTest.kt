@@ -30,6 +30,7 @@ import java.util.UUID
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @MybatisTest
+@org.springframework.context.annotation.Import(VerifiedUploadSpringConfiguration::class)
 @SpringJUnitConfig
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
@@ -39,6 +40,12 @@ class VerifiedUploadCommandTest : ExpectSpec() {
     @Autowired private lateinit var files: CreatedFileMapper
 
     @Autowired private lateinit var transactions: PlatformTransactionManager
+
+    @Autowired private lateinit var springCommand: VerifiedUploadCommand
+
+    @Autowired private lateinit var springNas: VerifiedUploadNas
+
+    @Autowired private lateinit var dataSource: javax.sql.DataSource
 
     init {
         data class Fixture(
@@ -50,8 +57,11 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             val target: String,
         )
 
-        fun fixture(checksum: Boolean = true): Fixture {
-            val nas = mockk<VerifiedUploadNas>()
+        fun fixture(
+            checksum: Boolean = true,
+            spring: Boolean = false,
+        ): Fixture {
+            val nas = if (spring) springNas else mockk<VerifiedUploadNas>()
             val remote = mutableMapOf<String, ByteArray>()
             every { nas.exists(any(), any()) } answers { remote.containsKey(secondArg()) }
             every { nas.size(any(), any()) } answers { remote.getValue(secondArg()).size.toLong() }
@@ -76,7 +86,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             val source = Files.createTempFile("verified-upload-", ".mp4").toFile().apply { writeText("complete video") }
             val job = UUID.randomUUID().mostSignificantBits.and(Long.MAX_VALUE)
             return Fixture(
-                VerifiedUploadCommand(manifests, nas, created, files, transactions, checksum),
+                if (spring) springCommand else VerifiedUploadCommand(manifests, nas, created, files, transactions, checksum),
                 nas,
                 source,
                 remote,
@@ -89,6 +99,110 @@ class VerifiedUploadCommandTest : ExpectSpec() {
 
         fun Fixture.manifest() = checkNotNull(manifests.find(job, ProcessingIdentity.hash("output")))
 
+        expect("Spring upload commits ownership before real SMB effects") {
+            val container =
+                org.testcontainers.containers
+                    .GenericContainer("ghcr.io/servercontainers/samba:latest")
+                    .withExposedPorts(445)
+                    .withEnv("AVAHI_DISABLE", "1")
+                    .withEnv("WSDD2_DISABLE", "1")
+                    .withEnv("NETBIOS_DISABLE", "1")
+                    .withEnv("ACCOUNT_uploadtest", "uploadtest")
+                    .withEnv("UID_uploadtest", "1000")
+                    .withEnv(
+                        "SAMBA_VOLUME_CONFIG_upload",
+                        "[upload]; path=/shares; valid users = uploadtest; guest ok = no; read only = no",
+                    ).withTmpFs(mapOf("/shares" to "rw"))
+                    .waitingFor(
+                        org.testcontainers.containers.wait.strategy.Wait
+                            .forListeningPort(),
+                    )
+            container.start()
+            val f = fixture(spring = true)
+            try {
+                container.execInContainer("sh", "-c", "chown 1000:1000 /shares && chmod 770 /shares").exitCode shouldBe 0
+                val server =
+                    me.pinfort.tsvideos.core.config.SambaConfigurationProperties.Server(
+                        "smb://${container.host}:${container.getMappedPort(445)}/upload",
+                        "uploadtest",
+                        "uploadtest",
+                        "",
+                    )
+                val samba =
+                    SambaClient(
+                        me.pinfort.tsvideos.core.config
+                            .SambaConfigurationProperties(server, server),
+                    )
+                val real =
+                    VerifiedUploadNas(
+                        samba,
+                        me.pinfort.tsvideos.core.external.samba
+                            .NasComponent(samba, mockk(relaxed = true)),
+                    )
+
+                fun committed(
+                    state: String,
+                    claimed: Boolean,
+                ) {
+                    org.springframework.transaction.support.TransactionSynchronizationManager
+                        .isActualTransactionActive() shouldBe false
+                    dataSource.connection.use { connection ->
+                        connection.autoCommit = true
+                        connection.prepareStatement("SELECT state,claim_token FROM upload_manifest WHERE job_id=?").use { statement ->
+                            statement.setLong(1, f.job)
+                            statement.executeQuery().use { rows ->
+                                rows.next() shouldBe true
+                                rows.getString(1) shouldBe state
+                                (rows.getString(2) != null) shouldBe claimed
+                            }
+                        }
+                    }
+                }
+                every { springNas.exists(any(), any()) } answers { real.exists(firstArg(), secondArg()) }
+                every { springNas.size(any(), any()) } answers { real.size(firstArg(), secondArg()) }
+                every { springNas.sha256(any(), any()) } answers { real.sha256(firstArg(), secondArg()) }
+                every { springNas.transfer(any(), any(), any(), any(), any()) } answers {
+                    committed("CREATING", true)
+                    real.transfer(firstArg(), secondArg(), thirdArg(), {
+                        arg<() -> Unit>(3)()
+                        committed("TRANSFERRING", true)
+                    }, arg(4))
+                }
+                every { springNas.finalize(any(), any(), any()) } answers {
+                    committed("FINALIZING", true)
+                    real.finalize(firstArg(), secondArg(), thirdArg())
+                }
+                val receipt = f.upload()
+                committed("FINALIZED", false)
+                f.command.register(receipt, 876543, "video/mp4", null)
+                committed("REGISTERED", false)
+                f.command.deleteLocal(receipt)
+                f.source.exists() shouldBe false
+                f.upload() shouldBe receipt
+                real.exists(SambaClient.NasType.VIDEO_STORE_NAS, f.target) shouldBe true
+            } finally {
+                f.source.delete()
+                container.stop()
+            }
+        }
+        expect("Spring transactional upload observes committed manifest insert and registration") {
+            org.springframework.aop.support.AopUtils
+                .isAopProxy(springCommand) shouldBe true
+            val f = fixture(spring = true)
+            try {
+                val receipt = f.upload()
+                f.manifest().state shouldBe "FINALIZED"
+                val registered = f.command.register(receipt, 876543, "video/mp4", null)
+                manifests.get(receipt.manifestId)?.createdFileId shouldBe registered.id
+                f.command.deleteLocal(receipt)
+                f.source.exists() shouldBe false
+                f.upload() shouldBe receipt
+                f.command.register(receipt, 876543, "video/mp4", null).id shouldBe registered.id
+                f.remote.keys shouldBe setOf(f.target)
+            } finally {
+                f.source.delete()
+            }
+        }
         expect("successful upload is registered exactly once and repeated callback survives local deletion") {
             val f = fixture()
             try {
@@ -384,4 +498,26 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             }
         }
     }
+}
+
+@org.springframework.boot.test.context.TestConfiguration
+class VerifiedUploadSpringConfiguration {
+    @org.springframework.context.annotation.Bean
+    fun uploadNas(): VerifiedUploadNas = mockk()
+
+    @org.springframework.context.annotation.Bean
+    fun uploadCommand(
+        manifests: UploadManifestMapper,
+        nas: VerifiedUploadNas,
+        files: CreatedFileMapper,
+        transactions: PlatformTransactionManager,
+    ): VerifiedUploadCommand =
+        VerifiedUploadCommand(
+            manifests,
+            nas,
+            CreatedFileCommand(files, mockk(), mockk(), mockk(relaxed = true)),
+            files,
+            transactions,
+            true,
+        )
 }
