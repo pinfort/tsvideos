@@ -2,20 +2,34 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoPlayer } from "./video-player";
 import { readPlayback, savePlayback } from "@/lib/playback";
-beforeEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
+beforeEach(() => {
+  localStorage.clear();
+  vi.restoreAllMocks();
+});
 function setup(duration = 200) {
   const view = render(<VideoPlayer videoId={1} programId={4} title="番組" />);
   const video = view.container.querySelector("video")!;
-  Object.defineProperty(video, "duration", { configurable: true, value: duration });
+  Object.defineProperty(video, "duration", {
+    configurable: true,
+    value: duration,
+  });
   fireEvent.loadedMetadata(video);
   return video;
 }
 describe("VideoPlayer", () => {
   it("restores position and supports speed/restart", () => {
-    savePlayback({ videoId: 1, title: "番組", position: 40, duration: 200, updatedAt: 1 });
+    savePlayback({
+      videoId: 1,
+      title: "番組",
+      position: 40,
+      duration: 200,
+      updatedAt: 1,
+    });
     const video = setup();
     expect(video.currentTime).toBe(40);
-    fireEvent.change(screen.getByLabelText("再生速度"), { target: { value: "1.5" } });
+    fireEvent.change(screen.getByLabelText("再生速度"), {
+      target: { value: "1.5" },
+    });
     expect(video.playbackRate).toBe(1.5);
     fireEvent.click(screen.getByText("最初から再生"));
     expect(video.currentTime).toBe(0);
@@ -34,7 +48,13 @@ describe("VideoPlayer", () => {
     expect(readPlayback()).toEqual([]);
   });
   it("rejects saved position beyond shortened duration", () => {
-    savePlayback({ videoId: 1, title: "番組", position: 150, duration: 200, updatedAt: 1 });
+    savePlayback({
+      videoId: 1,
+      title: "番組",
+      position: 150,
+      duration: 200,
+      updatedAt: 1,
+    });
     expect(setup(100).currentTime).toBe(0);
     expect(readPlayback()).toEqual([]);
   });
@@ -48,14 +68,30 @@ describe("VideoPlayer", () => {
     expect(readPlayback()).toEqual([]);
   });
   it("handles metadata and errors already present before hydration", () => {
-    Object.defineProperty(HTMLMediaElement.prototype, "error", { configurable: true, get: () => ({ code: 4 }) });
-    const first = render(<VideoPlayer videoId={1} title="番組" />);
-    expect(screen.getByRole("alert")).toBeInTheDocument();
-    first.unmount();
-    Reflect.deleteProperty(HTMLMediaElement.prototype, "error");
-    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(1);
-    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(200);
-    savePlayback({ videoId: 1, title: "番組", position: 40, duration: 200, updatedAt: 1 });
+    Object.defineProperty(HTMLMediaElement.prototype, "error", {
+      configurable: true,
+      get: () => ({ code: 4 }),
+    });
+    try {
+      const first = render(<VideoPlayer videoId={1} title="番組" />);
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      first.unmount();
+    } finally {
+      Reflect.deleteProperty(HTMLMediaElement.prototype, "error");
+    }
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(
+      1,
+    );
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(
+      200,
+    );
+    savePlayback({
+      videoId: 1,
+      title: "番組",
+      position: 40,
+      duration: 200,
+      updatedAt: 1,
+    });
     const second = render(<VideoPlayer videoId={1} title="番組" />);
     expect(second.container.querySelector("video")!.currentTime).toBe(40);
   });
@@ -75,4 +111,5 @@ describe("VideoPlayer", () => {
     video.currentTime = 30;
     fireEvent(window, new Event("pagehide"));
     expect(readPlayback()[0].position).toBe(30);
-  });});
+  });
+});
