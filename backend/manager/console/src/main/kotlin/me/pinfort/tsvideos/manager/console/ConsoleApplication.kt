@@ -4,6 +4,10 @@ import org.mybatis.spring.annotation.MapperScan
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
 import org.springframework.boot.runApplication
+import java.io.FileDescriptor
+import java.io.FileOutputStream
+import java.io.PrintStream
+import java.nio.charset.StandardCharsets
 
 @MapperScan("me.pinfort.tsvideos.core.external.database.mapper")
 @SpringBootApplication(
@@ -22,5 +26,10 @@ import org.springframework.boot.runApplication
 class ConsoleApplication
 
 fun main(args: Array<String>) {
+    // Java's native stdout encoding can still follow the Windows console code page.
+    // Set this before Spring/Clikt capture the stream so redirected JSON is UTF-8.
+    if (args.any { it == "--json" || it == "--ids-only" }) {
+        System.setOut(PrintStream(FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8))
+    }
     runApplication<ConsoleApplication>(*args)
 }
