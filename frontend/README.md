@@ -36,3 +36,5 @@ To learn more about Next.js, take a look at the following resources:
 
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+The `/storage` page shows registered original TS/encoded/other storage, the largest recordings and duplicate cleanup candidates. It uses the read-only `/api/v1/storage` endpoint and links to recording details; no deletion action is offered. Physical usage and actual reclaimable capacity remain unknown until verified. Pending metadata and excluded shared paths are labeled explicitly.
