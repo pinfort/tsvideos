@@ -61,6 +61,26 @@ class ShellClientTest :
             (System.nanoTime() - start < 4_000_000_000L) shouldBe true
         }
 
+        expect("immediate parent exit remains bounded even when ancestry observation races") {
+            val directory =
+                java.nio.file.Files
+                    .createTempDirectory("shell-fast-exit")
+                    .toFile()
+            val pidFile = File(directory, "child.pid")
+            try {
+                val start = System.nanoTime()
+                try {
+                    shellClient.executeCapturingOutput(directory, listOf("bash", "-c", "sleep 60 & echo $! > child.pid; exit 0"), 10)
+                } catch (_: ShellCommandTimeoutException) {
+                }
+                (System.nanoTime() - start < 4_000_000_000L) shouldBe true
+            } finally {
+                // Sampling cannot guarantee observation before reparenting; this test owns the recorded PID.
+                if (pidFile.exists()) ProcessHandle.of(pidFile.readText().trim().toLong()).ifPresent { it.destroyForcibly() }
+                pidFile.delete()
+                directory.delete()
+            }
+        }
         context("execute") {
             expect("success with an argument containing spaces") {
                 val exitCode =

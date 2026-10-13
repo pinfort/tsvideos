@@ -69,12 +69,26 @@ class ShellClient {
     }
 
     private fun terminate(handles: List<ProcessHandle>) {
-        handles.filter { it.isAlive }.forEach { it.destroy() }
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(500)
-        while (handles.any { it.isAlive } && System.nanoTime() < deadline) {
-            java.util.concurrent.locks.LockSupport
-                .parkNanos(TimeUnit.MILLISECONDS.toNanos(10))
+        val children = handles.dropLast(1)
+        val parent = handles.last()
+
+        fun waitBriefly(
+            targets: List<ProcessHandle>,
+            millis: Long,
+        ) {
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(millis)
+            while (targets.any { it.isAlive } && System.nanoTime() < deadline) {
+                java.util.concurrent.locks.LockSupport
+                    .parkNanos(TimeUnit.MILLISECONDS.toNanos(10))
+            }
         }
-        handles.filter { it.isAlive }.forEach { it.destroyForcibly() }
+        children.filter { it.isAlive }.forEach { it.destroy() }
+        waitBriefly(children, 200)
+        children.filter { it.isAlive }.forEach { it.destroyForcibly() }
+        // Give the direct parent a chance to reap its children before terminating it.
+        waitBriefly(handles, 200)
+        if (parent.isAlive) parent.destroy()
+        waitBriefly(listOf(parent), 100)
+        if (parent.isAlive) parent.destroyForcibly()
     }
 }

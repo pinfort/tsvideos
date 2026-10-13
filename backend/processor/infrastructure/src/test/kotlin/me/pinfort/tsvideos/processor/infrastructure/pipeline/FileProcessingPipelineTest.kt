@@ -535,63 +535,49 @@ class FileProcessingPipelineTest :
         }
 
         context("processFile - amatsukaze failure") {
-            expect("preserves encoder input and records ambiguous submission on failure") {
-                val original = newOriginalFile()
-                val outDir = File(original.parentFile, "tssplitter")
-                val executedFile = executedFileFixture(original)
-                lateinit var splitFile: File
-                lateinit var mainSplittedFile: SplittedFile
+            listOf(RuntimeException("unreachable"), InterruptedException("interrupted submission")).forEach { failure ->
+                expect("preserves encoder input and ambiguous submission on ${failure.javaClass.simpleName}") {
+                    val original = newOriginalFile()
+                    val outDir = File(original.parentFile, "tssplitter")
+                    val executedFile = executedFileFixture(original)
+                    lateinit var splitFile: File
+                    lateinit var mainSplittedFile: SplittedFile
 
-                every { programCommand.findByName(original.name) } returns null
-                every { tsSelectClient.check(any(), any()) } returns 0
-                every { durationProbeClient.probe(any(), any()) } returns 100.0
-                every {
-                    executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
-                } returns executedFile
-                every { programCommand.insert(any(), any(), any()) } returns mockk()
+                    every { programCommand.findByName(original.name) } returns null
+                    every { tsSelectClient.check(any(), any()) } returns 0
+                    every { durationProbeClient.probe(any(), any()) } returns 100.0
+                    every {
+                        executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
+                    } returns executedFile
+                    every { programCommand.insert(any(), any(), any()) } returns mockk()
 
-                every { tsSplitterClient.split(any(), any(), any()) } answers {
-                    outDir.mkdirs()
-                    splitFile = File(outDir, "${original.nameWithoutExtension}_1.m2ts")
-                    splitFile.writeBytes("split content".toByteArray())
-                    0
-                }
-                every {
-                    splittedFileCommand.insert(any(), any(), any(), any(), any())
-                } answers {
-                    mainSplittedFile =
-                        SplittedFile(
-                            id = 200,
-                            executedFileId = executedFile.id,
-                            file = splitFile.absolutePath,
-                            size = splitFile.length(),
-                            duration = 100.0,
-                            status = SplittedFile.Status.REGISTERED,
-                        )
-                    mainSplittedFile
-                }
-                every { executedFileCommand.updateStatus(any(), any(), any()) } returns executedFile
-                every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
+                    every { tsSplitterClient.split(any(), any(), any()) } answers {
+                        outDir.mkdirs()
+                        splitFile = File(outDir, "${original.nameWithoutExtension}_1.m2ts")
+                        splitFile.writeBytes("split content".toByteArray())
+                        0
+                    }
+                    every {
+                        splittedFileCommand.insert(any(), any(), any(), any(), any())
+                    } answers {
+                        mainSplittedFile =
+                            SplittedFile(
+                                id = 200,
+                                executedFileId = executedFile.id,
+                                file = splitFile.absolutePath,
+                                size = splitFile.length(),
+                                duration = 100.0,
+                                status = SplittedFile.Status.REGISTERED,
+                            )
+                        mainSplittedFile
+                    }
+                    every { executedFileCommand.updateStatus(any(), any(), any()) } returns executedFile
+                    every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
 
-                every { nasComponent.uploadResource(any(), any(), any(), any()) } returns true
-                every {
-                    createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any())
-                } returns
-                    CreatedFile(
-                        id = 300,
-                        splittedFileId = 200,
-                        file = "target",
-                        size = 1,
-                        mime = "video/vnd.dlna.mpeg-tts",
-                        encoding = "gzip",
-                        status = CreatedFile.Status.FILE_MOVED,
-                    )
-
-                every { executedFileCommand.find(executedFile.id) } returns executedFile
-                every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } throws RuntimeException("amatsukaze unreachable")
-
-                every { createdFileCommand.selectBySplittedFileId(200) } returns
-                    listOf(
+                    every { nasComponent.uploadResource(any(), any(), any(), any()) } returns true
+                    every {
+                        createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any())
+                    } returns
                         CreatedFile(
                             id = 300,
                             splittedFileId = 200,
@@ -600,22 +586,39 @@ class FileProcessingPipelineTest :
                             mime = "video/vnd.dlna.mpeg-tts",
                             encoding = "gzip",
                             status = CreatedFile.Status.FILE_MOVED,
-                        ),
-                    )
-                every { createdFileCommand.delete(any(), any()) } returns SambaClient.NasType.ORIGINAL_STORE_NAS
-                every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
-                every { executedFileCommand.findByFile(original.absolutePath) } returns null
-                every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
-                every { executedFileCommand.delete(any(), any()) } just Runs
+                        )
 
-                shouldThrow<RuntimeException> {
-                    fileProcessingPipeline.processFile(original)
+                    every { executedFileCommand.find(executedFile.id) } returns executedFile
+                    every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } throws failure
+
+                    every { createdFileCommand.selectBySplittedFileId(200) } returns
+                        listOf(
+                            CreatedFile(
+                                id = 300,
+                                splittedFileId = 200,
+                                file = "target",
+                                size = 1,
+                                mime = "video/vnd.dlna.mpeg-tts",
+                                encoding = "gzip",
+                                status = CreatedFile.Status.FILE_MOVED,
+                            ),
+                        )
+                    every { createdFileCommand.delete(any(), any()) } returns SambaClient.NasType.ORIGINAL_STORE_NAS
+                    every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
+                    every { executedFileCommand.findByFile(original.absolutePath) } returns null
+                    every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+                    every { executedFileCommand.delete(any(), any()) } just Runs
+
+                    shouldThrow<Exception> {
+                        fileProcessingPipeline.processFile(original)
+                    }
+
+                    verify(exactly = 0) { jobs.acknowledgeSubmission(any()) }
+                    verify { jobs.transition(any(), "CLAIMED", "SUBMISSION_UNKNOWN") }
+                    verify(exactly = 0) { createdFileCommand.delete(any(), any()) }
+                    verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
+                    splitFile.exists() shouldBe true
                 }
-
-                verify { jobs.transition(any(), "CLAIMED", "SUBMISSION_UNKNOWN") }
-                verify(exactly = 0) { createdFileCommand.delete(any(), any()) }
-                verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
-                splitFile.exists() shouldBe true
             }
         }
     })

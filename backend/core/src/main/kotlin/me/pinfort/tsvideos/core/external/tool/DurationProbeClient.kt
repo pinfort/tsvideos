@@ -14,7 +14,7 @@ class DurationProbeClient(
     private val processorToolConfigurationProperties: ProcessorToolConfigurationProperties,
     private val logger: Logger,
 ) {
-    // never throws; any failure (non-zero exit, malformed output, timeout, missing binary) is swallowed to 0.0
+    // Ordinary probe failures return 0.0; interruption must propagate to stop the invocation.
     fun probe(
         file: File,
         timeoutSec: Long = 60,

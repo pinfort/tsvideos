@@ -30,6 +30,9 @@ class ConsoleRunner(
         } catch (error: CliktError) {
             processor.echoFormattedHelp(error)
             exitProcess(error.statusCode)
+        } catch (error: Exception) {
+            if (ProcessingCancellation.isInterrupted(error)) exitProcess(130)
+            throw error
         }
     }
 }
