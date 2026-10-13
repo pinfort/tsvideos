@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
+import me.pinfort.tsvideos.core.command.ProcessingRecoveryCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
@@ -11,13 +12,16 @@ import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
+import me.pinfort.tsvideos.core.domain.CheckpointEvidence
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.FileName
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
+import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.ProcessingStage
+import me.pinfort.tsvideos.core.domain.ResumeBlocked
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import me.pinfort.tsvideos.core.external.samba.SambaClient
@@ -51,6 +55,7 @@ class FileProcessingPipeline(
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
     private val history: ProcessingHistoryCommand,
+    private val recovery: ProcessingRecoveryCommand,
     private val cancellation: ProcessingCancellation = ProcessingCancellation(),
 ) {
     enum class Result {
@@ -101,11 +106,62 @@ class FileProcessingPipeline(
         val job =
             processingJobCommand.claim(identity)
                 ?: error("Recording already claimed by another invocation")
-        val attempt = history.begin(job, ProcessingAttemptKind.PROCESS)
+        val token = recovery.acquire(job.id, false)
+        return processClaimed(file, identity, job, token, false, onDropCheckProgress, onCompressProgress, onUploadProgress)
+    }
+
+    fun resume(jobId: Long): Result {
+        val token = recovery.acquire(jobId, true)
+        try {
+            val plan = recovery.plan(jobId, token)
+            if (plan.blocked || plan.mode != "PROCESS") throw ResumeBlocked("PREREQUISITES_CHANGED")
+            val job = recovery.job(jobId)
+            return processClaimed(
+                File(job.inputPath),
+                ProcessingIdentity.from(File(job.inputPath)),
+                job,
+                token,
+                true,
+                { _, _ -> },
+                { _, _ -> },
+                { _, _ -> },
+            )
+        } finally {
+            ProcessingCancellation.recovery { recovery.release(jobId, token) }
+        }
+    }
+
+    private fun processClaimed(
+        file: File,
+        identity: ProcessingIdentity,
+        job: ProcessingJob,
+        token: String,
+        resume: Boolean,
+        onDropCheckProgress: (Long, Long) -> Unit,
+        onCompressProgress: (Long, Long) -> Unit,
+        onUploadProgress: (Long, Long) -> Unit,
+    ): Result {
+        val attempt =
+            try {
+                history.begin(job, if (resume) ProcessingAttemptKind.RESUME else ProcessingAttemptKind.PROCESS)
+            } catch (
+                e: Exception,
+            ) {
+                ProcessingCancellation.recovery { recovery.release(job.id, token) }
+                throw e
+            }
+        val checkpoints = if (resume) recovery.evidence(job.id) else emptyMap()
+
+        fun save(
+            stage: String,
+            evidence: CheckpointEvidence,
+        ) = recovery.save(job.id, attempt.id, token, stage, evidence)
         var uploadStarted = false
         try {
             val inspection =
-                history.stage(
+                checkpoints["INSPECT"]?.let {
+                    RecordingInspection(FileName.fromFileNameString(file.name), checkNotNull(it.drops), checkNotNull(it.duration))
+                } ?: history.stage(
                     attempt.id,
                     ProcessingStage.INSPECT,
                     { ProcessingArtifact("INPUT", job.id, identity.path) },
@@ -114,38 +170,70 @@ class FileProcessingPipeline(
                         inspect(file, history.progress(attempt.id, onDropCheckProgress))
                             ?: error("Recording name already registered; reconcile or reset before processing")
                     check(ProcessingIdentity.from(file) == identity) { "Recording changed during inspection; retry when stable" }
+                    save("INSPECT", CheckpointEvidence(drops = inspected.drops, duration = inspected.duration))
                     inspected
                 }
             val runner = RollbackRunner()
             var registered: ExecutedFile? = null
             val executedFile =
-                runner.stage({ registered?.let { rollbackRegistration(it) } }) {
-                    registerRecording(File(identity.path), inspection).also { registered = it }
-                }
-            processingJobCommand.link(job, executedFile.id)
+                checkpoints["REGISTER"]?.referenceId?.let { checkNotNull(executedFileCommand.find(it)) }
+                    ?: history.stage(attempt.id, ProcessingStage.REGISTER) {
+                        runner
+                            .stage({
+                                registered?.let {
+                                    rollbackRegistration(it)
+                                    recovery.invalidate(job.id, token)
+                                }
+                            }) {
+                                registerRecording(File(identity.path), inspection).also {
+                                    registered = it
+                                    processingJobCommand.link(job, it.id)
+                                    save("REGISTER", CheckpointEvidence(referenceId = it.id))
+                                }
+                            }
+                    }
             var splitInvoked = false
             val mainSplittedFile =
-                history.stage(attempt.id, ProcessingStage.SPLIT, { ProcessingArtifact("SPLITTED_FILE", it.id, it.file) }) {
-                    runner.stage({ if (splitInvoked) rollbackTsSplit(executedFile) }) {
-                        tsSplit(executedFile) { splitInvoked = true }
-                    }
+                checkpoints["SPLIT"]?.let { checkpoint ->
+                    checkpoint.files.forEach(recovery::verify)
+                    splittedFileCommand.selectByExecutedFileId(executedFile.id).single { it.id == checkpoint.referenceId }
+                } ?: history.stage(attempt.id, ProcessingStage.SPLIT, { ProcessingArtifact("SPLITTED_FILE", it.id, it.file) }) {
+                    runner
+                        .stage({ if (splitInvoked) rollbackTsSplit(executedFile) }) {
+                            tsSplit(executedFile) { splitInvoked = true }.also { main ->
+                                save(
+                                    "SPLIT",
+                                    CheckpointEvidence(
+                                        splittedFileCommand.selectByExecutedFileId(executedFile.id).map {
+                                            recovery.capture(File(it.file), it.id)
+                                        },
+                                        main.id,
+                                    ),
+                                )
+                            }
+                        }
                 }
             uploadStarted = true
             // Preserve registration, split and upload evidence after any external upload starts.
             compressAndSave(
                 mainSplittedFile,
                 attempt.id,
+                job.id,
+                token,
+                checkpoints,
                 history.progress(attempt.id, onCompressProgress),
                 history.progress(attempt.id, onUploadProgress),
             )
             // Once submission starts rollback would destroy input possibly already consumed by the encoder.
             history.stage(attempt.id, ProcessingStage.SUBMIT_ENCODER) {
                 cancellation.check()
+                recovery.evidence(job.id)["SPLIT"]?.files?.forEach(recovery::verify)
                 processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
                 cancellation.check()
                 amatsukazeAddTask(mainSplittedFile)
                 cancellation.check()
                 processingJobCommand.acknowledgeSubmission(job)
+                save("SUBMIT_ENCODER", CheckpointEvidence(referenceId = mainSplittedFile.id))
             }
             history.finish(attempt.id, ProcessingOutcome.COMPLETED)
         } catch (e: Exception) {
@@ -160,6 +248,8 @@ class FileProcessingPipeline(
             // Keep durable evidence even after an external effect succeeded but its DB update failed.
             logger.error("Processing job ${job.id} requires reconciliation", e)
             throw e
+        } finally {
+            ProcessingCancellation.recovery { recovery.release(job.id, token) }
         }
         return Result.PROCESSED
     }
@@ -277,15 +367,29 @@ class FileProcessingPipeline(
     private fun compressAndSave(
         splittedFile: SplittedFile,
         attemptId: Long,
+        jobId: Long,
+        token: String,
+        checkpoints: Map<String, CheckpointEvidence>,
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
     ) {
         val splitFile = File(splittedFile.file)
         val compressedFile = File(splitFile.parentFile, "${splitFile.name}.gz")
 
-        history.stage(attemptId, ProcessingStage.COMPRESS) {
-            if (!compressComponent.compress(splitFile, compressedFile, false, onCompressProgress)) {
-                error("Compressed file already exists; reconcile before processing")
+        recovery.evidence(jobId)["SPLIT"]?.files?.forEach(recovery::verify)
+        val retainedUpload = if (checkpoints.isNotEmpty()) verifiedUploadCommand.inspectRecovery(jobId, "original") else null
+        if (retainedUpload?.state !in setOf("FINALIZED", "REGISTERED")) {
+            val compressed = checkpoints["COMPRESS"]
+            if (compressed != null) {
+                compressed.files.forEach(recovery::verify)
+            } else {
+                history.stage(attemptId, ProcessingStage.COMPRESS) {
+                    if (!compressComponent.compress(splitFile, compressedFile, false, onCompressProgress)) {
+                        error("Compressed file already exists; reconcile before processing")
+                    }
+                    recovery.evidence(jobId)["SPLIT"]?.files?.forEach(recovery::verify)
+                    recovery.save(jobId, attemptId, token, "COMPRESS", CheckpointEvidence(listOf(recovery.capture(compressedFile))))
+                }
             }
         }
 
@@ -314,6 +418,7 @@ class FileProcessingPipeline(
                     )
                 verifiedUploadCommand.register(uploaded, splittedFile.id, "video/vnd.dlna.mpeg-tts", "gzip")
                 splittedFileCommand.updateStatus(splittedFile, SplittedFile.Status.COMPRESS_SAVED)
+                recovery.save(jobId, attemptId, token, "UPLOAD_ORIGINAL", CheckpointEvidence(referenceId = uploaded.manifestId))
                 uploaded
             }
         history.stage(attemptId, ProcessingStage.FINALIZE) { verifiedUploadCommand.deleteLocal(receipt) }

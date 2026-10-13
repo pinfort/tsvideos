@@ -1,10 +1,10 @@
 package me.pinfort.tsvideos.core.domain
 
-enum class ProcessingAttemptKind { PROCESS, CALLBACK }
+enum class ProcessingAttemptKind { PROCESS, CALLBACK, RESUME }
 
 enum class ProcessingOutcome { ACTIVE, COMPLETED, FAILED, INTERRUPTED }
 
-enum class ProcessingStage { INSPECT, SPLIT, COMPRESS, UPLOAD_ORIGINAL, SUBMIT_ENCODER, UPLOAD_ENCODED, FINALIZE }
+enum class ProcessingStage { INSPECT, REGISTER, SPLIT, COMPRESS, UPLOAD_ORIGINAL, SUBMIT_ENCODER, UPLOAD_ENCODED, FINALIZE }
 
 /** Only these static classifications may enter history; exception messages and stack traces are excluded. */
 enum class ProcessingErrorCode { INVALID_INPUT, IO_FAILURE, DATABASE_FAILURE, INTERRUPTED, OPERATION_FAILED, ENCODER_FAILURE }

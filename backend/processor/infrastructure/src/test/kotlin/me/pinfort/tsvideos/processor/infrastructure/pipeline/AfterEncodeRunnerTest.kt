@@ -43,6 +43,7 @@ class AfterEncodeRunnerTest :
             val jobs = mockk<ProcessingJobCommand>(relaxed = true)
             val uploads = mockk<VerifiedUploadCommand>(relaxed = true)
             val history = historyFixture()
+            val recovery = mockk<me.pinfort.tsvideos.core.command.ProcessingRecoveryCommand>(relaxed = true)
             val validation = mockk<ValidateCompletedComponent>()
             val slack = mockk<SlackClient>(relaxed = true)
             val samba = mockk<SambaClient>()
@@ -54,6 +55,17 @@ class AfterEncodeRunnerTest :
             val runner: AfterEncodeRunner
 
             init {
+                every { recovery.present(any()) } answers { firstArg<File>().exists() }
+                every { recovery.callback(any()) } returns null
+                every { recovery.validateOriginalRegistration(any()) } returns original
+                every { recovery.capture(any(), any()) } answers
+                    {
+                        val f = firstArg<File>()
+                        me.pinfort.tsvideos.core.domain
+                            .LocalCheckpointFile(f.canonicalPath, f.length(), f.lastModified(), "a".repeat(64))
+                    }
+                every { recovery.freezeCallback(any(), any()) } answers { firstArg() }
+                every { uploads.inspectRecovery(any(), any()) } returns null
                 every { splits.findByFile(split.canonicalPath) } returns splitRow
                 every { splits.selectByExecutedFileId(10) } returns listOf(splitRow)
                 every { executed.find(10) } returns
@@ -92,6 +104,7 @@ class AfterEncodeRunnerTest :
                         jobs,
                         uploads,
                         history,
+                        recovery,
                     )
             }
 
@@ -114,7 +127,7 @@ class AfterEncodeRunnerTest :
                 f.original.exists() shouldBe true
                 f.output.exists() shouldBe true
                 verify { f.history.failed(any(), any()) }
-                verify { f.jobs.releaseCallback(f.job, "token") }
+                verify { f.recovery.releaseCallback(f.job.id, "token") }
                 verify(exactly = 0) { f.uploads.deleteLocal(any()) }
                 verify(exactly = 0) { f.slack.notify(any()) }
             } finally {
@@ -164,7 +177,7 @@ class AfterEncodeRunnerTest :
                     f.original.exists() shouldBe true
                     f.output.exists() shouldBe true
                     verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
-                    verify { f.jobs.releaseCallback(f.job, "token") }
+                    verify { f.recovery.releaseCallback(f.job.id, "token") }
                     verify { f.history.failed(44, any()) }
                     if (stage != "delete") verify(exactly = 0) { f.uploads.deleteLocal(any()) }
                 } finally {
@@ -178,16 +191,19 @@ class AfterEncodeRunnerTest :
                 f.run()
                 f.run()
                 verify(exactly = 2) { f.uploads.upload(1, "encoded:${f.output.canonicalPath}", f.output, any(), any(), any()) }
-                verify(exactly = 2) { f.jobs.releaseCallback(f.job, "token") }
+                verify(exactly = 2) { f.recovery.releaseCallback(f.job.id, "token") }
             } finally {
                 f.cleanup()
             }
         }
-        listOf("receipt", "changed", "validation", "validation-exception").forEach { reason ->
+        listOf("receipt", "changed", "registration", "validation", "validation-exception").forEach { reason ->
             expect("$reason failure preserves raw and split recordings") {
                 val f = Fixture()
                 try {
                     when (reason) {
+                        "registration" ->
+                            every { f.recovery.validateOriginalRegistration(any()) } throws
+                                IllegalStateException("changed row")
                         "receipt" ->
                             every { f.uploads.verifyRegistered(1, "original") } throws
                                 IllegalStateException("legacy receipt missing")
