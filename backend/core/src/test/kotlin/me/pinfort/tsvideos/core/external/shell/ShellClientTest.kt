@@ -10,6 +10,23 @@ class ShellClientTest :
     ExpectSpec({
         val shellClient = ShellClient()
         val workingDir = File(".")
+        expect("uncaptured child stdout and stderr are diagnostics on parent stderr") {
+            val originalOut = System.out
+            val originalErr = System.err
+            val out = java.io.ByteArrayOutputStream()
+            val err = java.io.ByteArrayOutputStream()
+            try {
+                System.setOut(java.io.PrintStream(out))
+                System.setErr(java.io.PrintStream(err))
+                shellClient.execute(workingDir, listOf("bash", "-c", "echo child-out-marker; echo child-err-marker >&2")) shouldBe 0
+                out.toString().contains("child-out-marker") shouldBe false
+                err.toString().contains("child-out-marker") shouldBe true
+                err.toString().contains("child-err-marker") shouldBe true
+            } finally {
+                System.setOut(originalOut)
+                System.setErr(originalErr)
+            }
+        }
 
         expect("interruption tears down the actual owned process tree within a bound") {
             val directory =
@@ -51,6 +68,35 @@ class ShellClientTest :
                 worker.join(4000)
                 pidFile.delete()
                 directory.delete()
+            }
+        }
+        listOf(0, 7).forEach { code ->
+            expect("uncaptured parent exit $code survives an observed descendant retaining pipes") {
+                val directory =
+                    java.nio.file.Files
+                        .createTempDirectory("shell-drain")
+                        .toFile()
+                val pidFile = File(directory, "child.pid")
+                try {
+                    val start = System.nanoTime()
+                    shellClient.execute(
+                        directory,
+                        listOf("bash", "-c", "sleep 60 & echo $! > child.pid; sleep 0.2; exit $code"),
+                        10,
+                    ) shouldBe
+                        code
+                    (System.nanoTime() - start < 4_000_000_000L) shouldBe true
+                    val pid = pidFile.readText().trim().toLong()
+                    val stat = File("/proc/$pid/stat")
+                    val running =
+                        ProcessHandle.of(pid).map { it.isAlive }.orElse(false) &&
+                            (!stat.exists() || !stat.readText().substringAfterLast(") ").startsWith("Z"))
+                    running shouldBe false
+                } finally {
+                    if (pidFile.exists()) ProcessHandle.of(pidFile.readText().trim().toLong()).ifPresent { it.destroyForcibly() }
+                    pidFile.delete()
+                    directory.delete()
+                }
             }
         }
         expect("a descendant holding output pipes cannot hang stream draining") {

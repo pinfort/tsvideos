@@ -27,6 +27,9 @@ class ProcessingHistoryCommand(
     private val mapper: ProcessingHistoryMapper,
     transactionManager: PlatformTransactionManager,
     private val cancellation: ProcessingCancellation = ProcessingCancellation(),
+    private val timings: me.pinfort.tsvideos.core.component.ProcessingStageTimings =
+        me.pinfort.tsvideos.core.component
+            .ProcessingStageTimings(),
 ) {
     private val transaction =
         TransactionTemplate(transactionManager).apply {
@@ -131,6 +134,13 @@ class ProcessingHistoryCommand(
     }
 
     fun <T> stage(
+        attemptId: Long,
+        stage: ProcessingStage,
+        artifact: (T) -> ProcessingArtifact? = { null },
+        operation: () -> T,
+    ): T = timings.measure(stage) { executeStage(attemptId, stage, artifact, operation) }
+
+    private fun <T> executeStage(
         attemptId: Long,
         stage: ProcessingStage,
         artifact: (T) -> ProcessingArtifact? = { null },

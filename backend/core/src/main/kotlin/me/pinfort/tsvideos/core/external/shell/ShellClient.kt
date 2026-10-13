@@ -29,17 +29,32 @@ class ShellClient {
     ): ShellResult {
         require(timeoutSec > 0)
         if (Thread.interrupted()) throw InterruptedException("Command interrupted before start")
-        val redirect = if (capture) ProcessBuilder.Redirect.PIPE else ProcessBuilder.Redirect.INHERIT
         val process =
             ProcessBuilder(command)
                 .directory(workingDir)
-                .redirectOutput(redirect)
-                .redirectError(redirect)
+                .redirectOutput(ProcessBuilder.Redirect.PIPE)
+                .redirectError(ProcessBuilder.Redirect.PIPE)
                 .start()
         val owned = linkedSetOf<ProcessHandle>()
         val drains = Executors.newFixedThreadPool(2) { runnable -> Thread(runnable, "shell-stream").apply { isDaemon = true } }
-        val stdout = if (capture) drains.submit<String> { process.inputStream.bufferedReader().readText() } else null
-        val stderr = if (capture) drains.submit<String> { process.errorStream.bufferedReader().readText() } else null
+        val stdout =
+            drains.submit<String> {
+                if (capture) {
+                    process.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    process.inputStream.use { it.copyTo(System.err) }
+                    ""
+                }
+            }
+        val stderr =
+            drains.submit<String> {
+                if (capture) {
+                    process.errorStream.bufferedReader().use { it.readText() }
+                } else {
+                    process.errorStream.use { it.copyTo(System.err) }
+                    ""
+                }
+            }
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSec)
         try {
             while (true) {
@@ -48,9 +63,16 @@ class ShellClient {
                 if (System.nanoTime() >= deadline) throw TimeoutException()
             }
             // Descendants may retain inherited pipes after the direct process exits.
-            val out = stdout?.get(1, TimeUnit.SECONDS).orEmpty()
-            val err = stderr?.get(1, TimeUnit.SECONDS).orEmpty()
-            return ShellResult(process.exitValue(), out, err)
+            return try {
+                val out = stdout.get(1, TimeUnit.SECONDS)
+                val err = stderr.get(1, TimeUnit.SECONDS)
+                ShellResult(process.exitValue(), out, err)
+            } catch (drainTimeout: TimeoutException) {
+                if (capture) throw drainTimeout
+                // Diagnostics are best effort: an inherited pipe cannot change the parent's exit code.
+                // The finally block terminates observed owners so daemon drains can reach EOF and close.
+                ShellResult(process.exitValue(), "", "")
+            }
         } catch (failure: TimeoutException) {
             throw ShellCommandTimeoutException("Command or output drain timed out after ${timeoutSec}s")
         } finally {
@@ -60,9 +82,10 @@ class ShellClient {
                 process.descendants().use { children -> children.forEach { owned.add(it) } }
                 terminate(owned.toList().asReversed() + process.toHandle())
             } finally {
-                stdout?.cancel(true)
-                stderr?.cancel(true)
+                stdout.cancel(true)
+                stderr.cancel(true)
                 drains.shutdownNow()
+                runCatching { process.outputStream.close() }
                 if (interrupted) Thread.currentThread().interrupt()
             }
         }

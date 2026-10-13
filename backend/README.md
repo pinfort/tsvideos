@@ -70,3 +70,5 @@ Processor deployment and recovery: [processing identity and reconciliation](docs
 Processor upload ownership, verification, migration and recovery: [verified-uploads.md](docs/verified-uploads.md).
 
 Processor status/history, migration, activity semantics and explicit retention: [processing-history.md](docs/processing-history.md).
+
+Batch process JSON reports, outcomes, timings and Slack policies: [batch-reports.md](docs/batch-reports.md).
