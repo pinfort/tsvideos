@@ -50,9 +50,12 @@ class FileProcessingPipeline(
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
     private val history: ProcessingHistoryCommand,
+    private val quality: me.pinfort.tsvideos.core.component.RecordingQualityInspector,
+    private val qualityReports: me.pinfort.tsvideos.core.command.RecordingQualityCommand,
 ) {
     enum class Result {
         PROCESSED,
+        QUARANTINED,
         DRY_RUN,
         SKIPPED_ALREADY_REGISTERED,
     }
@@ -74,6 +77,14 @@ class FileProcessingPipeline(
         val identity = ProcessingIdentity.from(file)
         if (dryRun) {
             val inspection = inspect(file, onDropCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
+            if (quality.enabled()) {
+                val decision = quality.inspect(file, inspection.drops, inspection.duration)
+                logger.info("Dry run quality: $decision")
+                if (decision.action == me.pinfort.tsvideos.core.domain.QualityAction.QUARANTINE) {
+                    logger.info("Dry run: would quarantine in place at ${identity.path}; no registration or processing")
+                    return Result.QUARANTINED
+                }
+            }
             logger.info(
                 "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}; " +
                     "would register, split, compress, upload and submit encoding",
@@ -81,6 +92,10 @@ class FileProcessingPipeline(
             return Result.DRY_RUN
         }
         val existing = processingJobCommand.find(identity)
+        if (existing?.state == "QUARANTINED") {
+            logger.warn("Job ${existing.id} remains quarantined in place at ${identity.path}; explicit quality release required")
+            return Result.QUARANTINED
+        }
         if (existing != null && existing.state != "RETRYABLE") {
             check(existing.state in setOf("SUBMITTED", "COMPLETED")) {
                 "Job ${existing.id} is ${existing.state}; reconcile before retrying (encoder submission may have succeeded)"
@@ -113,6 +128,24 @@ class FileProcessingPipeline(
                     check(ProcessingIdentity.from(file) == identity) { "Recording changed during inspection; retry when stable" }
                     inspected
                 }
+            if (quality.enabled()) {
+                val decision =
+                    history.stage(attempt.id, ProcessingStage.QUALITY_CHECK) {
+                        quality.inspect(file, inspection.drops, inspection.duration).also {
+                            check(ProcessingIdentity.from(file) == identity) { "Recording changed during quality inspection" }
+                            qualityReports.record(job, attempt.id, it)
+                        }
+                    }
+                logger.info("Quality decision job=${job.id}: $decision")
+                if (decision.action == me.pinfort.tsvideos.core.domain.QualityAction.QUARANTINE) {
+                    history.finish(
+                        attempt.id,
+                        ProcessingOutcome.FAILED,
+                        me.pinfort.tsvideos.core.domain.ProcessingErrorCode.QUALITY_QUARANTINED,
+                    )
+                    return Result.QUARANTINED
+                }
+            }
             val runner = RollbackRunner()
             var registered: ExecutedFile? = null
             val executedFile =
@@ -149,7 +182,13 @@ class FileProcessingPipeline(
                 e.addSuppressed(historyFailure)
             }
             if (!uploadStarted && e.suppressed.isEmpty() && executedFileCommand.findByFile(identity.path) == null) {
-                processingJobCommand.transition(job, "CLAIMED", "RETRYABLE")
+                try {
+                    if (processingJobCommand.find(identity)?.state != "QUARANTINED") {
+                        processingJobCommand.transition(job, "CLAIMED", "RETRYABLE")
+                    }
+                } catch (recoveryFailure: Exception) {
+                    e.addSuppressed(recoveryFailure)
+                }
             }
             // Keep durable evidence even after an external effect succeeded but its DB update failed.
             logger.error("Processing job ${job.id} requires reconciliation", e)

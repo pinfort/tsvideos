@@ -56,6 +56,8 @@ class FileProcessingPipelineTest :
         lateinit var jobs: ProcessingJobCommand
         lateinit var uploads: VerifiedUploadCommand
         lateinit var history: me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
+        lateinit var quality: me.pinfort.tsvideos.core.component.RecordingQualityInspector
+        lateinit var qualityReports: me.pinfort.tsvideos.core.command.RecordingQualityCommand
         lateinit var logger: Logger
         lateinit var fileProcessingPipeline: FileProcessingPipeline
 
@@ -89,6 +91,8 @@ class FileProcessingPipelineTest :
             jobs = mockk(relaxed = true)
             uploads = mockk(relaxed = true)
             history = historyFixture()
+            quality = mockk { every { enabled() } returns false }
+            qualityReports = mockk(relaxed = true)
             every { jobs.find(any()) } returns null
             every { jobs.findByPath(any()) } returns null
             every { jobs.claim(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "CLAIMED", null, null)
@@ -115,6 +119,8 @@ class FileProcessingPipelineTest :
                     processingJobCommand = jobs,
                     verifiedUploadCommand = uploads,
                     history = history,
+                    quality = quality,
+                    qualityReports = qualityReports,
                 )
         }
 
@@ -123,6 +129,101 @@ class FileProcessingPipelineTest :
             val original = File(recordingDir, "[210708-0030][BSBS13_1][channel]title.m2ts")
             original.writeBytes("original ts content".toByteArray())
             return original
+        }
+
+        expect("quality quarantine preserves original and never registers splits uploads or submits") {
+            val original = newOriginalFile()
+            every { programCommand.findByName(any()) } returns null
+            every { tsSelectClient.check(any(), any()) } returns 4
+            every { durationProbeClient.probe(any()) } returns 100.0
+            every { quality.enabled() } returns true
+            val decision =
+                me.pinfort.tsvideos.core.domain.RecordingQualityDecision(
+                    me.pinfort.tsvideos.core.domain.QualityAction.QUARANTINE,
+                    emptyList(),
+                )
+            every { quality.inspect(any(), any(), any()) } returns decision
+            fileProcessingPipeline.processFile(original) shouldBe FileProcessingPipeline.Result.QUARANTINED
+            verify { qualityReports.record(any(), 44, decision) }
+            verify { history.finish(44, ProcessingOutcome.FAILED, me.pinfort.tsvideos.core.domain.ProcessingErrorCode.QUALITY_QUARANTINED) }
+            verify(exactly = 0) { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+            verify {
+                tsSplitterClient wasNot Called
+                uploads wasNot Called
+                amatsukazeAddTaskClient wasNot Called
+            }
+            original.readText() shouldBe "original ts content"
+            original.parentFile.listFiles()!!.size shouldBe 1
+        }
+
+        expect("dry run quarantine makes no DB mutation and does not claim that registration would follow") {
+            val original = newOriginalFile()
+            every { programCommand.findByName(any()) } returns null
+            every { tsSelectClient.check(any(), any()) } returns 4
+            every { durationProbeClient.probe(any()) } returns 100.0
+            every { quality.enabled() } returns true
+            every { quality.inspect(any(), any(), any()) } returns
+                me.pinfort.tsvideos.core.domain.RecordingQualityDecision(
+                    me.pinfort.tsvideos.core.domain.QualityAction.QUARANTINE,
+                    emptyList(),
+                )
+            fileProcessingPipeline.processFile(original, true) shouldBe FileProcessingPipeline.Result.QUARANTINED
+            verify {
+                jobs wasNot Called
+                history wasNot Called
+                qualityReports wasNot Called
+                executedFileCommand wasNot Called
+                tsSplitterClient wasNot
+                    Called
+                uploads wasNot Called
+                amatsukazeAddTaskClient wasNot Called
+            }
+            verify(exactly = 0) { logger.info(match { it.contains("would register") }) }
+            original.readText() shouldBe "original ts content"
+            original.parentFile.listFiles()!!.size shouldBe 1
+        }
+
+        expect("existing quarantine remains held without inspection even when policy is disabled") {
+            val original = newOriginalFile()
+            every { jobs.find(any()) } returns
+                ProcessingJob(1, "key", original.canonicalPath, original.length(), original.lastModified(), "QUARANTINED", null, null)
+            fileProcessingPipeline.processFile(original) shouldBe FileProcessingPipeline.Result.QUARANTINED
+            verify {
+                quality wasNot Called
+                tsSelectClient wasNot Called
+                qualityReports wasNot Called
+            }
+            verify(exactly = 0) { jobs.claim(any()) }
+        }
+
+        expect("failure after quarantine persistence preserves original exception without retry transition") {
+            val original = newOriginalFile()
+            every { programCommand.findByName(any()) } returns null
+            every { tsSelectClient.check(any(), any()) } returns 4
+            every { durationProbeClient.probe(any()) } returns 100.0
+            every { quality.enabled() } returns true
+            every { quality.inspect(any(), any(), any()) } returns
+                me.pinfort.tsvideos.core.domain.RecordingQualityDecision(
+                    me.pinfort.tsvideos.core.domain.QualityAction.QUARANTINE,
+                    emptyList(),
+                )
+            val failure = IllegalStateException("history persistence failed")
+            every {
+                history.finish(
+                    44,
+                    ProcessingOutcome.FAILED,
+                    me.pinfort.tsvideos.core.domain.ProcessingErrorCode.QUALITY_QUARANTINED,
+                )
+            } throws
+                failure
+            every { jobs.find(any()) } returnsMany
+                listOf(
+                    null,
+                    ProcessingJob(1, "key", original.canonicalPath, original.length(), original.lastModified(), "QUARANTINED", null, null),
+                )
+            shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) } shouldBe failure
+            verify(exactly = 0) { jobs.transition(any(), any(), any()) }
+            original.exists() shouldBe true
         }
 
         fun executedFileFixture(
@@ -206,7 +307,13 @@ class FileProcessingPipelineTest :
         }
 
         context("processFile - happy path") {
-            expect("processes all four stages and returns PROCESSED") {
+            expect("warning quality persists findings and still processes all four stages") {
+                every { quality.enabled() } returns true
+                every { quality.inspect(any(), any(), any()) } returns
+                    me.pinfort.tsvideos.core.domain.RecordingQualityDecision(
+                        me.pinfort.tsvideos.core.domain.QualityAction.WARN,
+                        emptyList(),
+                    )
                 val original = newOriginalFile()
                 val outDir = File(original.parentFile, "tssplitter")
                 val executedFile = executedFileFixture(original)

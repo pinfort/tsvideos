@@ -70,3 +70,8 @@ Processor deployment and recovery: [processing identity and reconciliation](docs
 Processor upload ownership, verification, migration and recovery: [verified-uploads.md](docs/verified-uploads.md).
 
 Processor status/history, migration, activity semantics and explicit retention: [processing-history.md](docs/processing-history.md).
+
+## Recording quality
+
+See [quality rules and in-place quarantine](docs/recording-quality.md) for opt-in configuration, schema migration, retained reports and explicit release.
+

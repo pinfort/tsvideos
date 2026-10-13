@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.processor.console.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.CliktError
 import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.multiple
@@ -25,14 +26,27 @@ class ProcessCommand(
     private val uploadProgressPrinter = ProgressPrinter("Uploading")
 
     override fun run() {
-        paths.forEach {
-            pathProcessingRunner.processPath(
-                Path.of(it),
-                dryRun,
-                dropCheckProgressPrinter::render,
-                compressProgressPrinter::render,
-                uploadProgressPrinter::render,
-            )
+        var summary = PathProcessingRunner.Summary()
+        try {
+            paths.forEach {
+                summary +=
+                    pathProcessingRunner.processPath(
+                        Path.of(it),
+                        dryRun,
+                        dropCheckProgressPrinter::render,
+                        compressProgressPrinter::render,
+                        uploadProgressPrinter::render,
+                    )
+            }
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw CliktError("Processing interrupted", statusCode = 130)
         }
+        if (summary.quarantined >
+            0
+        ) {
+            throw CliktError("${summary.quarantined} recording(s) quarantined; ${summary.failed} failed", statusCode = 4)
+        }
+        if (summary.failed > 0) throw CliktError("${summary.failed} recording(s) failed", statusCode = 1)
     }
 }
