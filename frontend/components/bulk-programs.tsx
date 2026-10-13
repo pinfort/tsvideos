@@ -48,7 +48,7 @@ export function BulkPrograms({ programs }: { programs: Program[] }) {
     {plan && <section aria-label="実行前の確認" className="space-y-3 rounded border p-4">
       <h2>{plan.request.action === "DELETE" ? "削除" : "移動"}の確認</h2>
       <p>元のローカル録画ファイルは削除しません。NASとデータベースの処理は一括で取り消せません。途中失敗時は表示されたパスを確認してください。</p>
-      <p>削除予定の登録サイズ合計: {plan.targets.reduce((n, t) => n + t.estimatedMetadataBytes, 0).toLocaleString()} bytes（実際の空き容量の保証ではありません）</p>
+      <p>{plan.request.action === "DELETE" ? "削除予定" : "移動対象"}の登録サイズ合計: {plan.targets.reduce((n, t) => n + t.estimatedMetadataBytes, 0).toLocaleString()} bytes（実際の空き容量の保証ではありません）</p>
       {plan.targets.map(t => <div key={t.id} className="border-b py-2">
         <h3>#{t.id} {t.snapshot?.program.name}</h3>
         <p>{t.eligible ? "実行可能" : `実行不可: ${t.reason}`}</p>
