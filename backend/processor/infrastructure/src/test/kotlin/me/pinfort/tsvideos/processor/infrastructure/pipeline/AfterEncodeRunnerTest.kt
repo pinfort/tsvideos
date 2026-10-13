@@ -57,6 +57,7 @@ class AfterEncodeRunnerTest :
             init {
                 every { recovery.present(any()) } answers { firstArg<File>().exists() }
                 every { recovery.callback(any()) } returns null
+                every { recovery.validateOriginalRegistration(any()) } returns original
                 every { recovery.capture(any(), any()) } answers
                     {
                         val f = firstArg<File>()
@@ -195,11 +196,14 @@ class AfterEncodeRunnerTest :
                 f.cleanup()
             }
         }
-        listOf("receipt", "changed", "validation", "validation-exception").forEach { reason ->
+        listOf("receipt", "changed", "registration", "validation", "validation-exception").forEach { reason ->
             expect("$reason failure preserves raw and split recordings") {
                 val f = Fixture()
                 try {
                     when (reason) {
+                        "registration" ->
+                            every { f.recovery.validateOriginalRegistration(any()) } throws
+                                IllegalStateException("changed row")
                         "receipt" ->
                             every { f.uploads.verifyRegistered(1, "original") } throws
                                 IllegalStateException("legacy receipt missing")

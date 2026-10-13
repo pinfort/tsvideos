@@ -296,7 +296,7 @@ class AfterEncodeRunner(
         if (!dryRun) {
             val job = checkNotNull(processingJobCommand.findByExecutedFile(executedFileId))
             verifiedUploadCommand.verifyRegistered(job.id, "original")
-            val raw = File(job.inputPath)
+            val raw = recovery.validateOriginalRegistration(job)
             if (raw.exists()) check(ProcessingIdentity.from(raw).key == job.identityKey) { "Original recording changed; preserved" }
         }
         deleteLocalFile(inPath.toFile(), dryRun, frozen, true)
@@ -334,7 +334,13 @@ class AfterEncodeRunner(
             logger.warn("executed file not found, id=$executedFileId")
             return
         }
-        deleteLocalFile(File(executedFile.file), dryRun)
+        val raw =
+            if (dryRun) {
+                File(executedFile.file)
+            } else {
+                recovery.validateOriginalRegistration(checkNotNull(processingJobCommand.findByExecutedFile(executedFileId)))
+            }
+        deleteLocalFile(raw, dryRun)
         splittedFileCommand.selectByExecutedFileId(executedFileId).forEach {
             deleteLocalFile(File(it.file), dryRun, frozen, true)
         }

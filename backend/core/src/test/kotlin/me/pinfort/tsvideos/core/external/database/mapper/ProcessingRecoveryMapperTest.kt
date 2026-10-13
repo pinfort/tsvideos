@@ -131,6 +131,33 @@ class ProcessingRecoveryMapperTest : ExpectSpec() {
                 file.delete()
             }
         }
+        expect("fast callback uses an independent token only after submission CAS and completion absorbs acknowledgement") {
+            val file = Files.createTempFile("resume-fast", ".m2ts").toFile()
+            try {
+                seed(file)
+                val token = command().acquire(1, true)
+                sql("INSERT INTO processing_attempt(job_id,attempt_number,kind,outcome) VALUES(1,2,'RESUME','ACTIVE')")
+                jobs.claimCallback(1, "callback") shouldBe 0
+                jobs.transition(1, "CLAIMED", "SUBMISSION_UNKNOWN") shouldBe 1
+                jobs.claimCallback(1, "callback") shouldBe 1
+                mapper.owner(1) shouldBe token
+                val jobCommand =
+                    me.pinfort.tsvideos.core.command.ProcessingJobCommand(
+                        jobs,
+                        me.pinfort.tsvideos.core.command
+                            .ProcessingJobClaimCommand(jobs),
+                    )
+                jobCommand.complete(command().job(1))
+                jobCommand.acknowledgeSubmission(command().job(1))
+                command().job(1).state shouldBe "COMPLETED"
+                jobs.releaseCallback(1, "callback") shouldBe 1
+                sql("UPDATE processing_attempt SET outcome='COMPLETED' WHERE attempt_number=2")
+                command().release(1, token)
+                mapper.owner(1) shouldBe null
+            } finally {
+                file.delete()
+            }
+        }
         expect("failed attempt start releases only a token without an ACTIVE record") {
             val file = Files.createTempFile("resume-input", ".m2ts").toFile()
             try {

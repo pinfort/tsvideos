@@ -45,6 +45,14 @@ class ProcessingRecoveryCommand(
 
     fun job(id: Long): ProcessingJob = mapper.job(id) ?: throw ResumeJobMissing()
 
+    fun validateOriginalRegistration(job: ProcessingJob): File {
+        val row = executed.find(checkNotNull(job.executedFileId)) ?: error("CALLBACK_REGISTRATION_MISSING")
+        check(row.file == job.inputPath && row.size == job.inputSize) { "ORIGINAL_REGISTRATION_CHANGED" }
+        val raw = File(job.inputPath)
+        if (present(raw)) check(ProcessingIdentity.from(raw).key == job.identityKey) { "ORIGINAL_CHANGED" }
+        return raw
+    }
+
     fun evidence(id: Long): Map<String, CheckpointEvidence> =
         mapper.checkpoints(id).associate {
             it.stage to
@@ -59,7 +67,10 @@ class ProcessingRecoveryCommand(
     ): String =
         checkNotNull(
             transaction.execute {
-                mapper.lockJob(id) ?: throw ResumeJobMissing()
+                val current = mapper.lockJob(id) ?: throw ResumeJobMissing()
+                if (current.state == "RETRYABLE" && current.executedFileId?.let(executed::find) != null) {
+                    throw ResumeBlocked("REGISTRATION_WITHOUT_CHECKPOINT")
+                }
                 if (resume &&
                     (mapper.active(id) != 0 || mapper.attempts(id) == 0)
                 ) {
@@ -231,6 +242,7 @@ class ProcessingRecoveryCommand(
         val callback = callback(id)
         if (callback != null && job.state in setOf("SUBMITTED", "SUBMISSION_UNKNOWN", "COMPLETED")) {
             checked(stages, "CALLBACK_CONTEXT") {
+                validateOriginalRegistration(job)
                 val executedId = checkNotNull(job.executedFileId) { "CALLBACK_REGISTRATION_MISSING" }
                 check(splits.selectByExecutedFileId(executedId).any { it.id == callback.splitId }) { "CALLBACK_REGISTRATION_MISSING" }
                 check(programs.selectAll().count { it.executedFileId == executedId } == 1) { "CALLBACK_PROGRAM_MISSING" }
@@ -247,13 +259,18 @@ class ProcessingRecoveryCommand(
                                 manifest.sourceSize == output.file.size &&
                                 manifest.finalPath == output.target,
                         ) { "CALLBACK_ARTIFACT_CHANGED" }
+                        if (manifest.state == "REGISTERED") {
+                            uploads.verifyRecoveryRegistration(manifest, callback.splitId, output.mime, output.encoding)
+                        }
                         if (manifest.state !in setOf("REGISTERED", "FINALIZED")) verify(output.file)
                     }
                     if (manifest?.state == "REGISTERED" && !present(File(output.file.path))) "SKIP" else "EXECUTE"
                 }
             }
             checked(stages, "FINALIZE") {
-                check(uploads.inspectRecovery(id, "original")?.state == "REGISTERED") { "ARCHIVE_RECEIPT_MISSING" }
+                val archive = uploads.inspectRecovery(id, "original")
+                check(archive?.state == "REGISTERED") { "ARCHIVE_RECEIPT_MISSING" }
+                uploads.verifyRecoveryRegistration(checkNotNull(archive), callback.splitId, "video/vnd.dlna.mpeg-tts", "gzip")
                 callback.cleanupFiles.forEach { if (present(File(it.path))) verify(it) }
                 if (present(File(job.inputPath))) {
                     check(ProcessingIdentity.from(File(job.inputPath)).key == job.identityKey) { "ORIGINAL_CHANGED" }

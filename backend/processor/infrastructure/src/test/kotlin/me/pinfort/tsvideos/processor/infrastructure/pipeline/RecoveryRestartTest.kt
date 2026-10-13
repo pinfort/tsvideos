@@ -169,7 +169,22 @@ class RecoveryRestartTest : ExpectSpec() {
                     DirectoryNameComponent(NormalizeComponent()),
                 )
 
-            fun uploads() = VerifiedUploadCommand(uploadMapper, nas, files, createdMapper, tx)
+            fun uploads(): VerifiedUploadCommand {
+                val interceptor =
+                    org.springframework.transaction.interceptor
+                        .TransactionInterceptor()
+                interceptor.transactionManager = tx
+                interceptor.transactionAttributeSource =
+                    org.springframework.transaction.annotation
+                        .AnnotationTransactionAttributeSource()
+                return org.springframework.aop.framework
+                    .ProxyFactory(
+                        VerifiedUploadCommand(uploadMapper, nas, files, createdMapper, tx),
+                    ).apply {
+                        isProxyTargetClass = true
+                        addAdvice(interceptor)
+                    }.proxy as VerifiedUploadCommand
+            }
 
             fun recovery() = ProcessingRecoveryCommand(recoveryMapper, jobMapper, executedMapper, splitMapper, programMapper, uploads(), tx)
 
@@ -211,6 +226,13 @@ class RecoveryRestartTest : ExpectSpec() {
                     .first { it.stage.contains("one.mp4") }
                     .reason shouldBe "ARTIFACT_INACCESSIBLE"
                 every { nas.exists(any(), firstManifest.finalPath) } answers { remote.containsKey(firstManifest.finalPath) }
+                val victim = File(root, "victim.m2ts").apply { writeText("do not delete") }
+                sql("UPDATE executed_file SET file='${victim.canonicalPath.replace("\\", "\\\\")}' WHERE id=1")
+                recovery().plan(1).blocked shouldBe true
+                io.kotest.assertions.throwables
+                    .shouldThrow<me.pinfort.tsvideos.core.domain.ResumeBlocked> { runner().resume(1) }
+                victim.readText() shouldBe "do not delete"
+                sql("UPDATE executed_file SET file='${original.canonicalPath.replace("\\", "\\\\")}' WHERE id=1")
                 failSecond = false
                 val before = recoveryMapper.attempts(1)
                 val plan = recovery().plan(1)
@@ -224,6 +246,10 @@ class RecoveryRestartTest : ExpectSpec() {
                 moved.exists() shouldBe false
                 two.exists() shouldBe false
                 createdMapper.selectBySplittedFileId(1).size shouldBe 3
+                sql("UPDATE created_file SET mime='video/changed' WHERE id=${firstManifest.createdFileId}")
+                recovery().plan(1).blocked shouldBe true
+                sql("UPDATE created_file SET mime='video/mp4' WHERE id=${firstManifest.createdFileId}")
+                recovery().plan(1).blocked shouldBe false
                 runner().run(AfterEncodeRunner.Input(9, moved.toPath(), listOf(one.toPath(), two.toPath()), true, ""))
                 createdMapper.selectBySplittedFileId(1).size shouldBe 3
 
