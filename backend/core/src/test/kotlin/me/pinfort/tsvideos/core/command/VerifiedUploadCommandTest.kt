@@ -89,6 +89,38 @@ class VerifiedUploadCommandTest : ExpectSpec() {
 
         fun Fixture.manifest() = checkNotNull(manifests.find(job, ProcessingIdentity.hash("output")))
 
+        expect("interruption cleans only an owned partial upload and releases its claim") {
+            val f = fixture()
+            every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
+                arg<() -> Unit>(3)()
+                f.remote[secondArg()] = byteArrayOf(1)
+                throw InterruptedException()
+            }
+            try {
+                shouldThrow<InterruptedException> { f.upload() }
+                f.remote.isEmpty() shouldBe true
+                f.source.exists() shouldBe true
+                f.manifest().state shouldBe "NEW"
+                f.manifest().claimToken shouldBe null
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("interruption after rename preserves ambiguous remote ownership") {
+            val f = fixture()
+            every { f.nas.finalize(any(), any(), any()) } answers {
+                f.remote[f.target] = f.remote.remove(secondArg())!!
+                throw InterruptedException()
+            }
+            try {
+                shouldThrow<InterruptedException> { f.upload() }
+                f.remote.keys shouldBe setOf(f.target)
+                f.manifest().state shouldBe "FINALIZING"
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
         expect("successful upload is registered exactly once and repeated callback survives local deletion") {
             val f = fixture()
             try {

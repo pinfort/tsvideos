@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest
@@ -101,34 +102,48 @@ class VerifiedUploadCommand(
                 check(manifests.transition(id, token, current.state, next) == 1) { "Upload state changed" }
                 current = current.copy(state = next)
             }
-            if (current.state in setOf("FINALIZED", "REGISTERED")) {
-                verifyRemote(current, current.finalPath)
-                if (source.exists()) verifySource(current, source)
-                return@withClaim
-            }
-            verifySource(current, source)
-            check(current.state != "FINALIZING") { "Ambiguous rename outcome; manual reconciliation required" }
-            if (current.state == "CREATING") error("Ambiguous temporary creation; manual reconciliation required")
-            if (current.state == "TRANSFERRING") {
-                // Only this state proves exclusive open succeeded. Never delete a merely reserved path.
-                nas.delete(type, current.temporaryPath)
-                transition("NEW")
-            }
-            if (current.state == "NEW") {
-                check(!nas.exists(type, target)) { "Unowned final destination exists" }
-                transition("CREATING")
-                nas.transfer(type, current.temporaryPath, source, { transition("TRANSFERRING") }, progress)
+            try {
+                if (current.state in setOf("FINALIZED", "REGISTERED")) {
+                    verifyRemote(current, current.finalPath)
+                    if (source.exists()) verifySource(current, source)
+                    return@withClaim
+                }
                 verifySource(current, source)
+                check(current.state != "FINALIZING") { "Ambiguous rename outcome; manual reconciliation required" }
+                if (current.state == "CREATING") error("Ambiguous temporary creation; manual reconciliation required")
+                if (current.state == "TRANSFERRING") {
+                    // Only this state proves exclusive open succeeded. Never delete a merely reserved path.
+                    nas.delete(type, current.temporaryPath)
+                    transition("NEW")
+                }
+                if (current.state == "NEW") {
+                    check(!nas.exists(type, target)) { "Unowned final destination exists" }
+                    transition("CREATING")
+                    nas.transfer(type, current.temporaryPath, source, { transition("TRANSFERRING") }, progress)
+                    verifySource(current, source)
+                    verifyRemote(current, current.temporaryPath)
+                    transition("TEMP_VERIFIED")
+                }
+                check(current.state == "TEMP_VERIFIED") { "Upload requires reconciliation" }
                 verifyRemote(current, current.temporaryPath)
-                transition("TEMP_VERIFIED")
+                check(!nas.exists(type, target)) { "Unowned final destination exists" }
+                transition("FINALIZING")
+                nas.finalize(type, current.temporaryPath, target)
+                verifyRemote(current, target)
+                transition("FINALIZED")
+            } catch (failure: Exception) {
+                if (ProcessingCancellation.isInterrupted(failure) && current.state in setOf("TRANSFERRING", "TEMP_VERIFIED")) {
+                    try {
+                        ProcessingCancellation.recovery {
+                            nas.delete(type, current.temporaryPath)
+                            transition("NEW")
+                        }
+                    } catch (cleanup: Exception) {
+                        failure.addSuppressed(cleanup)
+                    }
+                }
+                throw failure
             }
-            check(current.state == "TEMP_VERIFIED") { "Upload requires reconciliation" }
-            verifyRemote(current, current.temporaryPath)
-            check(!nas.exists(type, target)) { "Unowned final destination exists" }
-            transition("FINALIZING")
-            nas.finalize(type, current.temporaryPath, target)
-            verifyRemote(current, target)
-            transition("FINALIZED")
         }
         return VerifiedUploadReceipt(id)
     }
@@ -270,6 +285,7 @@ class VerifiedUploadCommand(
             val digest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(65536)
             while (true) {
+                if (Thread.interrupted()) throw InterruptedException("Upload interrupted")
                 val count = input.read(buffer)
                 if (count < 0) break
                 digest.update(buffer, 0, count)
@@ -286,7 +302,7 @@ class VerifiedUploadCommand(
         try {
             return action(checkNotNull(manifests.get(id)), token)
         } finally {
-            manifests.release(id, token)
+            ProcessingCancellation.recovery { manifests.release(id, token) }
         }
     }
 }

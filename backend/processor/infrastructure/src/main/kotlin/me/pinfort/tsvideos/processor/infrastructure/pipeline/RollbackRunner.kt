@@ -12,6 +12,12 @@ internal class RollbackRunner {
         try {
             return body()
         } catch (failure: Exception) {
+            // Split filename prefixes do not prove ownership. Preserve evidence on interruption.
+            if (me.pinfort.tsvideos.core.component.ProcessingCancellation
+                    .isInterrupted(failure)
+            ) {
+                throw failure
+            }
             while (rollbacks.isNotEmpty()) {
                 try {
                     rollbacks.removeFirst().invoke()

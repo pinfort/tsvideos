@@ -8,6 +8,7 @@ import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.MimeTypeComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
+import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
 import me.pinfort.tsvideos.core.domain.ProcessingAttempt
@@ -47,6 +48,7 @@ class AfterEncodeRunner(
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
     private val history: ProcessingHistoryCommand,
+    private val cancellation: ProcessingCancellation = ProcessingCancellation(),
 ) {
     /**
      * Amatsukaze が実行後バッチに渡す環境変数のうち、この処理で使うもの。
@@ -70,6 +72,7 @@ class AfterEncodeRunner(
         dryRun: Boolean = false,
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ) {
+        cancellation.check()
         if (!input.success) {
             if (!dryRun) {
                 val failedSplit = findOriginalSplittedFile(input.inPath)
@@ -114,6 +117,7 @@ class AfterEncodeRunner(
                 logger.info("Dry run: would verify, register and remove callback outputs: ${input.files}")
             } else {
                 input.files.forEach { path ->
+                    cancellation.check()
                     val mime = mimeTypeComponent.guess(path.fileName.toString())
                     val active = checkNotNull(attempt)
                     val target = nasTargetFile(path)
@@ -154,6 +158,7 @@ class AfterEncodeRunner(
                     e.addSuppressed(historyFailure)
                 }
             }
+            if (ProcessingCancellation.isInterrupted(e)) throw e
             // アップロード済みのファイルや削除済みのローカルファイルは戻せないため、
             // 通知して番組を ERROR にするだけに留める。無人のバッチから呼ばれるので、
             // 例外をそのまま投げると誰も気づけない。
@@ -169,7 +174,9 @@ class AfterEncodeRunner(
             )
             return
         } finally {
-            if (job != null && token != null) processingJobCommand.releaseCallback(job, token)
+            if (job != null && token != null) {
+                ProcessingCancellation.recovery { processingJobCommand.releaseCallback(job, token) }
+            }
         }
         logger.info("uploading file completed, targets=${input.files}")
     }
@@ -254,6 +261,7 @@ class AfterEncodeRunner(
         file: File,
         dryRun: Boolean,
     ) {
+        cancellation.check()
         if (!file.exists()) return
         logger.info("removing file, file=$file")
         if (!dryRun) {

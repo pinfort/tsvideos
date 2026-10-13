@@ -10,6 +10,23 @@ class CompressComponentTest :
     ExpectSpec({
         val compressComponent = CompressComponent(LoggerFactory.getLogger(CompressComponentTest::class.java))
 
+        expect("interruption removes only the exclusively created partial output") {
+            val original = File.createTempFile("interrupt-compress", ".ts").apply { writeBytes(ByteArray(32000)) }
+            val output = File(original.path + ".gz")
+            try {
+                io.kotest.assertions.throwables.shouldThrow<InterruptedException> {
+                    compressComponent.compress(original, output, false) { _, _ -> throw InterruptedException() }
+                }
+                output.exists() shouldBe false
+                original.length() shouldBe 32000
+                output.writeText("existing")
+                compressComponent.compress(original, output, false) { _, _ -> throw InterruptedException() } shouldBe false
+                output.readText() shouldBe "existing"
+            } finally {
+                original.delete()
+                output.delete()
+            }
+        }
         context("compress") {
             expect("compresses the original file into a gzip file readable back to the original bytes") {
                 val original = File.createTempFile("compress-test", ".m2ts")

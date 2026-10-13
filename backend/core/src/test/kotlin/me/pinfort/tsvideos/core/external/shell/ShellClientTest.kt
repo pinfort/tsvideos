@@ -11,6 +11,56 @@ class ShellClientTest :
         val shellClient = ShellClient()
         val workingDir = File(".")
 
+        expect("interruption tears down the actual owned process tree within a bound") {
+            val directory =
+                java.nio.file.Files
+                    .createTempDirectory("shell-tree")
+                    .toFile()
+            val pidFile = File(directory, "child.pid")
+            val failure =
+                java.util.concurrent.atomic
+                    .AtomicReference<Throwable>()
+            val worker =
+                Thread {
+                    try {
+                        shellClient.executeCapturingOutput(directory, listOf("bash", "-c", "sleep 60 & echo $! > child.pid; wait"), 60)
+                    } catch (caught: Throwable) {
+                        failure.set(caught)
+                    }
+                }
+            worker.start()
+            try {
+                val deadline = System.nanoTime() + 5_000_000_000L
+                while ((!pidFile.exists() || pidFile.readText().trim().isEmpty()) && System.nanoTime() < deadline) Thread.sleep(10)
+                val pid = pidFile.readText().trim().toLong()
+                Thread.sleep(100)
+                val start = System.nanoTime()
+                worker.interrupt()
+                worker.join(4000)
+                worker.isAlive shouldBe false
+                (System.nanoTime() - start < 4_000_000_000L) shouldBe true
+                (failure.get() is InterruptedException) shouldBe true
+                // Linux may briefly retain a terminated orphan as a zombie until init reaps it.
+                val stat = File("/proc/$pid/stat")
+                val running =
+                    ProcessHandle.of(pid).map { it.isAlive }.orElse(false) &&
+                        (!stat.exists() || !stat.readText().substringAfterLast(") ").startsWith("Z"))
+                running shouldBe false
+            } finally {
+                worker.interrupt()
+                worker.join(4000)
+                pidFile.delete()
+                directory.delete()
+            }
+        }
+        expect("a descendant holding output pipes cannot hang stream draining") {
+            val start = System.nanoTime()
+            shouldThrow<ShellCommandTimeoutException> {
+                shellClient.executeCapturingOutput(workingDir, listOf("bash", "-c", "sleep 60 & sleep 0.2; exit 0"), 10)
+            }
+            (System.nanoTime() - start < 4_000_000_000L) shouldBe true
+        }
+
         context("execute") {
             expect("success with an argument containing spaces") {
                 val exitCode =

@@ -43,6 +43,7 @@ class VerifiedUploadNas(
                     val digest = MessageDigest.getInstance("SHA-256")
                     val buffer = ByteArray(65536)
                     while (true) {
+                        if (Thread.interrupted()) throw InterruptedException("Upload interrupted")
                         val count = input.read(buffer)
                         if (count < 0) break
                         digest.update(buffer, 0, count)
@@ -76,6 +77,7 @@ class VerifiedUploadNas(
                             var transferred = 0L
                             progress(0, source.length())
                             while (true) {
+                                if (Thread.interrupted()) throw InterruptedException("Upload interrupted")
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 output.write(buffer, 0, count)

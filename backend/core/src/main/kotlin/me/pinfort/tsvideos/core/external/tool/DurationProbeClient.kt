@@ -45,6 +45,11 @@ class DurationProbeClient(
                 }
             }
         } catch (e: Exception) {
+            if (me.pinfort.tsvideos.core.component.ProcessingCancellation
+                    .isInterrupted(e)
+            ) {
+                throw e
+            }
             logger.warn("Failed to probe duration, file=$file", e)
             0.0
         }

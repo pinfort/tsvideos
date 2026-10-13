@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
 import me.pinfort.tsvideos.core.domain.ProcessingAttempt
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptHistory
@@ -25,6 +26,7 @@ import java.util.concurrent.atomic.AtomicLong
 class ProcessingHistoryCommand(
     private val mapper: ProcessingHistoryMapper,
     transactionManager: PlatformTransactionManager,
+    private val cancellation: ProcessingCancellation = ProcessingCancellation(),
 ) {
     private val transaction =
         TransactionTemplate(transactionManager).apply {
@@ -120,6 +122,7 @@ class ProcessingHistoryCommand(
     ): (Long, Long) -> Unit {
         val last = AtomicLong(0)
         return { value, total ->
+            cancellation.check()
             val now = System.nanoTime()
             val previous = last.get()
             if ((previous == 0L || now - previous >= 10_000_000_000L) && last.compareAndSet(previous, now)) heartbeat(attemptId)
@@ -133,14 +136,18 @@ class ProcessingHistoryCommand(
         artifact: (T) -> ProcessingArtifact? = { null },
         operation: () -> T,
     ): T {
+        cancellation.check()
         val event = startStage(attemptId, stage)
         try {
             val result = operation()
+            cancellation.check()
             finishStage(event, ProcessingOutcome.COMPLETED, artifact = artifact(result))
             return result
         } catch (failure: Exception) {
             try {
-                finishStage(event, outcome(failure), classify(failure))
+                val outcome = outcome(failure)
+                val error = classify(failure)
+                ProcessingCancellation.recovery { finishStage(event, outcome, error) }
             } catch (
                 historyFailure: Exception,
             ) {
@@ -154,7 +161,9 @@ class ProcessingHistoryCommand(
         attemptId: Long,
         failure: Exception,
     ) {
-        finish(attemptId, outcome(failure), classify(failure))
+        val outcome = outcome(failure)
+        val error = classify(failure)
+        ProcessingCancellation.recovery { finish(attemptId, outcome, error) }
     }
 
     fun history(jobId: Long? = null): List<ProcessingAttemptHistory> =
