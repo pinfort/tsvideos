@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
@@ -105,6 +106,25 @@ class AfterEncodeRunnerTest :
                 root.deleteRecursively()
             }
         }
+        expect("exhausted upload failure retains notification and release failures without another Slack attempt") {
+            val f = Fixture()
+            val primary = java.net.SocketTimeoutException("exhausted")
+            val notification = IllegalStateException("notification")
+            val release = IllegalStateException("release")
+            every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws primary
+            every { f.slack.notify(any()) } throws notification
+            every { f.jobs.releaseCallback(any(), any()) } throws release
+            try {
+                shouldThrow<java.net.SocketTimeoutException> { f.run() } shouldBe primary
+                primary.suppressed.toList() shouldBe listOf(notification, release)
+                verify(exactly = 1) { f.slack.notify(any()) }
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
+                f.original.exists() shouldBe true
+                f.output.exists() shouldBe true
+            } finally {
+                f.cleanup()
+            }
+        }
         expect("callback interruption propagates, preserves originals and releases ownership") {
             val f = Fixture()
             every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws InterruptedException()
@@ -160,7 +180,8 @@ class AfterEncodeRunnerTest :
                         "register" -> every { f.uploads.register(any(), any(), any(), any()) } throws IllegalStateException("db failure")
                         else -> every { f.uploads.deleteLocal(any()) } throws IllegalStateException("delete failure")
                     }
-                    f.run()
+                    shouldThrow<IllegalStateException> { f.run() }
+                    verify(exactly = 1) { f.slack.notify(any()) }
                     f.original.exists() shouldBe true
                     f.output.exists() shouldBe true
                     verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
@@ -195,7 +216,8 @@ class AfterEncodeRunnerTest :
                         "validation" -> every { f.validation.validate(1) } returns false
                         else -> every { f.validation.validate(1) } throws IllegalStateException("unavailable")
                     }
-                    f.run()
+                    shouldThrow<IllegalStateException> { f.run() }
+                    verify(exactly = 1) { f.slack.notify(any()) }
                     f.original.exists() shouldBe true
                     f.input.exists() shouldBe true
                     f.split.exists() shouldBe true
@@ -210,7 +232,7 @@ class AfterEncodeRunnerTest :
             val f = Fixture()
             try {
                 every { f.programs.findByExecutedFileId(10) } returns null
-                f.run()
+                shouldThrow<IllegalStateException> { f.run() }
                 f.original.exists() shouldBe true
                 verify { f.slack.notify(match { it.contains("program not found") }) }
             } finally {
@@ -244,8 +266,8 @@ class AfterEncodeRunnerTest :
         expect("duplicate and empty output manifests cannot upload") {
             val f = Fixture()
             try {
-                f.run(files = emptyList())
-                f.run(files = listOf(f.output, f.output))
+                shouldThrow<IllegalArgumentException> { f.run(files = emptyList()) }
+                shouldThrow<IllegalArgumentException> { f.run(files = listOf(f.output, f.output)) }
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
                 f.output.exists() shouldBe true
             } finally {

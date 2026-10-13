@@ -57,10 +57,22 @@ try:
             env.update({f'{kind}_STORE_NAS_URL': f'smb://127.0.0.1:{nas_port}/fixture', f'{kind}_STORE_NAS_USERNAME': 'smoke', f'{kind}_STORE_NAS_PASSWORD': 'retry-nas', f'{kind}_STORE_NAS_BASE_DIR': ''})
         command = ['java', '-jar', str(root / 'processor/console/build/libs/console.jar'), 'after-encode', '--item-id', '10', '--in-path', str(succeeded), '--files', str(output), '--success', '1']
         # Read-only callback dry-run does not create history, manifests or upload data.
-        subprocess.run(command + ['--dry-run'], env=env, capture_output=True, check=True)
+        assert subprocess.run(command + ['--dry-run'], env=env, capture_output=True).returncode == 1
         assert sql('SELECT COUNT(*) FROM upload_manifest;') == '0'
         assert output.exists()
+        # Permanent authentication failure exits 1 without retry or local deletion.
+        rejected = subprocess.run(command, env=dict(env, VIDEO_STORE_NAS_PASSWORD='wrong-fixture-password'), capture_output=True, text=True, timeout=60)
+        assert rejected.returncode == 1
+        assert 'retry attempt' not in rejected.stdout + rejected.stderr
+        assert output.exists() and raw.exists()
         run(['docker', 'stop', nas])
+        exhausted_env = dict(env, SPRING_APPLICATION_JSON=json.dumps({'processor-retry': {'max-attempts': 1}}))
+        exhausted = subprocess.run(command, env=exhausted_env, capture_output=True, text=True, timeout=60)
+        assert exhausted.returncode == 1
+        assert 'stopped at attempt 1/1' in exhausted.stdout + exhausted.stderr
+        assert sql('SELECT state FROM upload_manifest;') == 'NEW'
+        assert sql('SELECT COUNT(*) FROM upload_manifest WHERE claim_token IS NOT NULL;') == '0'
+        assert output.exists() and raw.exists()
         log = Path(directory) / 'callback.log'
         with log.open('w') as stream:
             process = subprocess.Popen(command, env=env, stdout=stream, stderr=subprocess.STDOUT)
@@ -73,7 +85,7 @@ try:
                 if process.poll() is not None: raise AssertionError(text)
                 time.sleep(.25)
             else: raise AssertionError('No bounded retry observed')
-            assert process.wait(timeout=90) == 0
+            assert process.wait(timeout=90) == 1
         text = log.read_text(errors='replace')
         retry_lines = [line for line in text.splitlines() if 'ProcessingRetry' in line]
         assert retry_lines and all('retry-nas' not in line and 'retry-db' not in line for line in retry_lines)
@@ -83,13 +95,13 @@ try:
         assert not output.exists()
         assert raw.read_bytes() == b'original-recording'
         assert succeeded.exists()
-        subprocess.run(command, env=env, capture_output=True, check=True, timeout=60)
+        assert subprocess.run(command, env=env, capture_output=True, timeout=60).returncode == 1
         assert sql('SELECT COUNT(*) FROM created_file;') == '1'
         assert sql('SELECT COUNT(*) FROM upload_manifest;') == '1'
         assert raw.exists()
         remote = run(['docker', 'exec', nas, 'find', '/shares/fixture', '-type', 'f']).stdout.strip().splitlines()
         assert len(remote) == 1 and remote[0].endswith('output.mp4')
-        print(json.dumps({'result': 'PASS', 'actualTransientRetryObserved': True, 'receiptState': 'REGISTERED', 'createdRows': 1, 'repeatedCallbackConverged': True, 'originalPreserved': True, 'retryLines': len(retry_lines)}))
+        print(json.dumps({'result': 'PASS', 'actualTransientRetryObserved': True, 'receiptState': 'REGISTERED', 'createdRows': 1, 'repeatedCallbackConverged': True, 'originalPreserved': True, 'retryLines': len(retry_lines), 'callbackExit': 1, 'callbackCompleted': False, 'exhaustedExit': 1, 'permanentFailureExit': 1}))
 finally:
     if process is not None and process.poll() is None:
         process.terminate(); process.wait(timeout=15)

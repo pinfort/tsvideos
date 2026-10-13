@@ -101,6 +101,7 @@ class AfterEncodeRunner(
         val token = if (!dryRun) processingJobCommand.claimCallback(checkNotNull(job)) else null
         check(dryRun || token != null) { "Callback already claimed; reconcile interrupted callback before retrying" }
         var attempt: ProcessingAttempt? = null
+        var primaryFailure: Exception? = null
         try {
             if (!dryRun) attempt = history.begin(checkNotNull(job), ProcessingAttemptKind.CALLBACK)
             require(input.files.isNotEmpty()) { "Callback output list is empty" }
@@ -151,6 +152,7 @@ class AfterEncodeRunner(
                 history.finish(attempt.id, ProcessingOutcome.COMPLETED)
             }
         } catch (e: Exception) {
+            primaryFailure = e
             if (attempt != null) {
                 try {
                     history.failed(attempt.id, e)
@@ -159,12 +161,10 @@ class AfterEncodeRunner(
                 }
             }
             if (ProcessingCancellation.isInterrupted(e)) throw e
-            // アップロード済みのファイルや削除済みのローカルファイルは戻せないため、
-            // 通知して番組を ERROR にするだけに留める。無人のバッチから呼ばれるので、
-            // 例外をそのまま投げると誰も気づけない。
+            // Report once, then propagate failure so unattended callers receive a nonzero exit.
             if (job?.state == "COMPLETED") {
                 logger.error("Rejected callback for completed job ${job.id}; existing outcome preserved", e)
-                return
+                throw e
             }
             notifyFailure(
                 splittedFile.executedFileId,
@@ -172,10 +172,15 @@ class AfterEncodeRunner(
                 e,
                 dryRun,
             )
-            return
+            throw e
         } finally {
             if (job != null && token != null) {
-                ProcessingCancellation.recovery { processingJobCommand.releaseCallback(job, token) }
+                try {
+                    ProcessingCancellation.recovery { processingJobCommand.releaseCallback(job, token) }
+                } catch (releaseFailure: Exception) {
+                    if (primaryFailure == null) throw releaseFailure
+                    primaryFailure.addSuppressed(releaseFailure)
+                }
             }
         }
         logger.info("uploading file completed, targets=${input.files}")
@@ -233,9 +238,17 @@ class AfterEncodeRunner(
         e: Exception,
         dryRun: Boolean,
     ) {
-        logger.error(message, e)
-        slackClient.notify("$message, e:${e.message}\nstackTrace:\n```\n${e.stackTraceToString()}\n```")
-        programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.ERROR, dryRun)
+        listOf<() -> Unit>(
+            { logger.error(message, e) },
+            { slackClient.notify("$message, e:${e.message}\nstackTrace:\n```\n${e.stackTraceToString()}\n```") },
+            { programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.ERROR, dryRun) },
+        ).forEach { report ->
+            try {
+                report()
+            } catch (reportFailure: Exception) {
+                e.addSuppressed(reportFailure)
+            }
+        }
     }
 
     /**
