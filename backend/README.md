@@ -68,3 +68,7 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 
 See [manager/console/README.md](manager/console/README.md) for JSON fields,
 ID-only output, stdout/stderr separation, and exit codes.
+
+### Manual collections and tags
+
+See [library organization](docs/library-organization.md) for the required `053_library_organization.sql` migration, name normalization, APIs and recording-preserving deletion rules.

@@ -69,3 +69,13 @@ describe("parseProgramQuery", () => {
     ).toBe("2024-02-29T00:00:00.000000001");
   });
 });
+
+it("validates and preserves collection/tag filters", () => {
+  const parsed = parseProgramQuery({ collectionId: "3", tagId: "9" });
+  expect(parsed).toEqual(
+    expect.objectContaining({ collectionId: 3, tagId: 9 }),
+  );
+  expect(programQueryParams(parsed).get("collectionId")).toBe("3");
+  expect(() => parseProgramQuery({ tagId: "0" })).toThrow();
+  expect(() => parseProgramQuery({ collectionId: "-1" })).toThrow();
+});

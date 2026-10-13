@@ -143,6 +143,17 @@ class ProgramControllerTest : DescribeSpec() {
             }
         }
 
+        it("passes collection and tag filters into shared search and rejects nonpositive IDs") {
+            every { programCommand.search(match { it.collectionId == 3L && it.tagId == 9L }) } returns
+                ProgramSearchPage(emptyList(), 0, 100, 0)
+            mockMvc
+                .perform(get("/api/v1/programs").param("collectionId", "3").param("tagId", "9"))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.total").value(0))
+            mockMvc.perform(get("/api/v1/programs").param("collectionId", "0")).andExpect(status().isBadRequest)
+            mockMvc.perform(get("/api/v1/programs").param("tagId", "-1")).andExpect(status().isBadRequest)
+        }
+
         describe("detail") {
             it("success") {
                 every { programCommand.find(1L) } returns program

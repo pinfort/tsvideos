@@ -1,3 +1,4 @@
+import { getOrganizationOptions } from "@/lib/api/organization";
 import {
   parseProgramQuery,
   type ProgramQueryParams,
@@ -14,6 +15,12 @@ export default async function HomePage({
   searchParams: Promise<ProgramQueryParams>;
 }) {
   const values = await searchParams;
+  let organization;
+  try {
+    organization = await getOrganizationOptions();
+  } catch {
+    /* Search remains available if organization metadata is unavailable. */
+  }
   let query;
   let validationError: string | undefined;
   try {
@@ -37,7 +44,16 @@ export default async function HomePage({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-10">
       <header>
-        <SearchForm key={JSON.stringify(values)} values={values} />
+        <SearchForm
+          key={JSON.stringify(values)}
+          values={values}
+          organization={organization}
+        />
+        {!organization && (
+          <p role="status">
+            コレクション・タグの候補を取得できませんでした。検索は引き続き利用できます。
+          </p>
+        )}
       </header>
       <main>
         {validationError || apiError ? (

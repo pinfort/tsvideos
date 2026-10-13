@@ -1,7 +1,13 @@
 import Link from "next/link";
 import type { ProgramQueryParams } from "@/lib/program-query";
 
-export function SearchForm({ values = {} }: { values?: ProgramQueryParams }) {
+export function SearchForm({
+  values = {},
+  organization = { collections: [], tags: [] },
+}: {
+  values?: ProgramQueryParams;
+  organization?: import("@/lib/api/organization-types").Organization;
+}) {
   const v = (key: string, fallback = "") =>
     typeof values[key] === "string" ? (values[key] as string) : fallback;
   const field =
@@ -14,7 +20,33 @@ export function SearchForm({ values = {} }: { values?: ProgramQueryParams }) {
       aria-label="録画検索"
     >
       <h1 className="text-2xl font-semibold">録画を検索</h1>
+      <Link href="/collections" className="text-blue-600 underline">
+        コレクション・手動タグを管理
+      </Link>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {(["collections", "tags"] as const).map((kind) => {
+          const key = kind === "collections" ? "collectionId" : "tagId";
+          const current = v(key);
+          return (
+            <label key={kind} className="flex flex-col gap-1 text-sm">
+              {kind === "collections" ? "コレクション" : "手動タグ"}
+              <select name={key} defaultValue={current} className={field}>
+                <option value="">すべて</option>
+                {current &&
+                  !organization[kind].some(
+                    (label) => String(label.id) === current,
+                  ) && (
+                    <option value={current}>不明・削除済み #{current}</option>
+                  )}
+                {organization[kind].map((label) => (
+                  <option key={label.id} value={label.id}>
+                    {label.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          );
+        })}
         <label className="flex flex-col gap-1 text-sm">
           番組名
           <input

@@ -16,6 +16,8 @@ data class ProgramSearchQuery(
     val direction: Direction = Direction.DESC,
     val limit: Int = 100,
     val offset: Int = 0,
+    val collectionId: Long? = null,
+    val tagId: Long? = null,
 ) {
     enum class FileType { TS, ENCODED }
 
@@ -24,6 +26,8 @@ data class ProgramSearchQuery(
     enum class Direction { ASC, DESC }
 
     init {
+        require(collectionId == null || collectionId > 0) { "collectionId must be positive" }
+        require(tagId == null || tagId > 0) { "tagId must be positive" }
         require(
             recordedFrom == null || recordedTo == null || recordedFrom < recordedTo,
         ) { "recorded-from must be earlier than recorded-to" }

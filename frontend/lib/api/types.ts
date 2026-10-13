@@ -53,6 +53,8 @@ export interface ProgramSearchQuery {
   direction?: "ASC" | "DESC";
   limit?: number;
   offset?: number;
+  collectionId?: number;
+  tagId?: number;
 }
 
 export interface ProgramDetailResponse {

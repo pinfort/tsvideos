@@ -49,6 +49,18 @@ class ProgramSearchSql {
                     WHERE sf.executed_file_id = ex.id AND cf.status = 'FILE_MOVED' AND $mime)
                 """.trimIndent()
         }
+        if (query.collectionId !=
+            null
+        ) {
+            conditions +=
+                "EXISTS (SELECT 1 FROM library_collection_program lcp JOIN library_collection lc ON lc.id=lcp.label_id WHERE lcp.program_id=pg.id AND lc.id=#{collectionId})"
+        }
+        if (query.tagId !=
+            null
+        ) {
+            conditions +=
+                "EXISTS (SELECT 1 FROM library_tag_program ltp JOIN library_tag lt ON lt.id=ltp.label_id WHERE ltp.program_id=pg.id AND lt.id=#{tagId})"
+        }
         val where = if (conditions.isEmpty()) "" else " WHERE " + conditions.joinToString(" AND ")
         return "FROM program pg LEFT OUTER JOIN executed_file ex ON pg.executed_file_id = ex.id$where"
     }
