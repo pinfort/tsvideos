@@ -36,6 +36,11 @@ class RecoveryInspectionCliTest :
             JsonMapper
                 .builder()
                 .build()
+                .readTree(planned.stdout)["exitCode"]
+                .asInt() shouldBe 4
+            JsonMapper
+                .builder()
+                .build()
                 .readTree(planned.stdout)["dryRun"]
                 .asBoolean() shouldBe true
             InspectCommand(core).invoke(listOf("--job-id", "1")).stdout.contains("日本語") shouldBe true

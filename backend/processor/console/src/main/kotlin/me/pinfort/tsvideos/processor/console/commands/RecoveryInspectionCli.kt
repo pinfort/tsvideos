@@ -27,11 +27,13 @@ abstract class RecoveryInspectionCli(
         }
         try {
             val report = inspection.inspect(jobId, recording)
+            val exit = if (planning && !report.resumePossible) 4 else report.exitCode
             if (json) {
                 echo(
                     JsonMapper.builder().build().writeValueAsString(
                         mapOf(
                             "schemaVersion" to 1,
+                            "exitCode" to exit,
                             "operation" to commandName,
                             "dryRun" to true,
                             "inspection" to report,
@@ -55,7 +57,6 @@ abstract class RecoveryInspectionCli(
                 report.resumeCommand?.let { echo("Resume command arguments: $it") }
                 (report.prerequisites + report.manualOptions).forEach { echo(it) }
             }
-            val exit = if (planning && !report.resumePossible) 4 else report.exitCode
             if (exit != 0) throw CliktError("Inspection requires attention; review evidence and prerequisites", statusCode = exit)
         } catch (failure: CliktError) {
             throw failure
