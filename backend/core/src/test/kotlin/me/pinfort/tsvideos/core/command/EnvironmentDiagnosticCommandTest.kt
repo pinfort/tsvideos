@@ -38,6 +38,16 @@ class EnvironmentDiagnosticCommandTest :
             }
             command = EnvironmentDiagnosticCommand(environment, database, nas)
         }
+        expect("database interruption and interrupt flag propagate without NAS checks") {
+            every { database.check(any(), any(), any()) } throws java.sql.SQLException("wrapped", InterruptedException())
+            try {
+                io.kotest.assertions.throwables
+                    .shouldThrow<InterruptedException> { command.diagnose() }
+                verify(exactly = 0) { nas.check(any(), any(), any(), any(), any(), any()) }
+            } finally {
+                Thread.interrupted()
+            }
+        }
         expect("valid configuration checks every endpoint without exposing credentials") {
             val report = command.diagnose()
             report.hasFailures shouldBe false

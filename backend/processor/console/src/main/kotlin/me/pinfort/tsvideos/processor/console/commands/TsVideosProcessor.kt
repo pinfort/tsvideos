@@ -17,5 +17,8 @@ class TsVideosProcessor(
         versionOption(ApplicationVersion.value)
     }
 
+    override fun help(context: com.github.ajalt.clikt.core.Context): String =
+        "Process recordings. Use tvpcli preflight [--json] [--dry-run | --check-write] <paths> to check prerequisites without processing."
+
     override fun run() = Unit
 }

@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.core.command
 
 import me.pinfort.tsvideos.core.component.DatabaseDiagnosticProbe
 import me.pinfort.tsvideos.core.component.NasDiagnosticProbe
+import me.pinfort.tsvideos.core.component.diagnosticCancellation
 import me.pinfort.tsvideos.core.domain.DiagnosticCheck
 import me.pinfort.tsvideos.core.domain.DiagnosticReport
 import me.pinfort.tsvideos.core.domain.DiagnosticStatus
@@ -16,6 +17,7 @@ class EnvironmentDiagnosticCommand(
     private val nasProbe: NasDiagnosticProbe,
 ) {
     fun diagnose(checkWrite: Boolean = false): DiagnosticReport {
+        diagnosticCancellation()
         val checks = mutableListOf<DiagnosticCheck>()
         val databaseUrl = setting("spring.datasource.url")
         val databaseUser = setting("spring.datasource.username")
@@ -33,7 +35,13 @@ class EnvironmentDiagnosticCommand(
             ).all { it }
         checks +=
             if (databaseValid) {
-                val success = runCatching { databaseProbe.check(databaseUrl!!, databaseUser!!, databasePassword!!) }.getOrDefault(false)
+                val success =
+                    try {
+                        databaseProbe.check(databaseUrl!!, databaseUser!!, databasePassword!!).also { diagnosticCancellation() }
+                    } catch (error: Exception) {
+                        diagnosticCancellation(error)
+                        false
+                    }
                 DiagnosticCheck(
                     "database.connectivity",
                     if (success) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
@@ -68,6 +76,7 @@ class EnvironmentDiagnosticCommand(
                 checks += DiagnosticCheck("$id.write", DiagnosticStatus.UNCHECKED, "Correct NAS configuration before checking permissions")
             }
         }
+        diagnosticCancellation()
         return DiagnosticReport(checks)
     }
 

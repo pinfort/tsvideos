@@ -9,5 +9,10 @@ import org.springframework.stereotype.Component
 class ConsoleRunner(
     private val tsVideosProcessor: TsVideosProcessor,
 ) : CommandLineRunner {
-    override fun run(vararg args: String) = tsVideosProcessor.main(args)
+    override fun run(vararg args: String) =
+        tsVideosProcessor.main(
+            me.pinfort.tsvideos.core.config.DiagnosticEnvironment
+                .commandArguments(args.toList().toTypedArray())
+                .toTypedArray(),
+        )
 }
