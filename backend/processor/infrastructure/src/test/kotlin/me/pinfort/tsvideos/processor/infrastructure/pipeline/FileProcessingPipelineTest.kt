@@ -96,6 +96,7 @@ class FileProcessingPipelineTest :
             every { jobs.findByExecutedFile(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "SUBMITTED", 1, null)
             every { jobs.claimCallback(any()) } returns "token"
             every { createdFileCommand.selectBySplittedFileId(any()) } returns emptyList()
+            every { splittedFileCommand.selectByExecutedFileId(any()) } returns emptyList()
             every { nasComponent.matchesSize(any(), any(), any()) } returns true
             every { sambaClient.resolvePathUnderBaseDir(any(), any()) } answers { secondArg() }
             fileProcessingPipeline =
@@ -115,6 +116,7 @@ class FileProcessingPipelineTest :
                     processingJobCommand = jobs,
                     verifiedUploadCommand = uploads,
                     history = history,
+                    recovery = mockk(relaxed = true),
                 )
         }
 

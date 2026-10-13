@@ -14,6 +14,15 @@ dependencies {
     testImplementation(libs.kotest.runner.junit5)
     testImplementation(libs.kotest.assertions.core)
     testImplementation(libs.mockk)
+    testImplementation(libs.kotest.extensions.spring)
+    testImplementation(libs.mybatis.spring.test)
+    testImplementation(libs.mybatis.spring.boot)
+    testImplementation(libs.testcontainers.core)
+    testImplementation(libs.testcontainers.junit5)
+    testImplementation(libs.testcontainers.mariadb)
+    testImplementation(libs.testcontainers.spring.boot)
+    testRuntimeOnly("org.mariadb.jdbc:mariadb-java-client")
+    testImplementation("org.springframework.boot:spring-boot-starter-test") { exclude(module = "mockito-core") }
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
@@ -32,3 +41,5 @@ tasks.test {
 tasks.bootJar {
     enabled = false
 }
+
+sourceSets.test { resources.srcDir(project(":core").file("src/test/resources")) }

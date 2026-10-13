@@ -70,3 +70,22 @@ Processor deployment and recovery: [processing identity and reconciliation](docs
 Processor upload ownership, verification, migration and recovery: [verified-uploads.md](docs/verified-uploads.md).
 
 Processor status/history, migration, activity semantics and explicit retention: [processing-history.md](docs/processing-history.md).
+
+### Durable resume (`processor:console`, #63)
+
+Apply `064_processing_job.sql`, `072_upload_manifest.sql`, `067_processing_history.sql`, then `063_processing_recovery.sql` before deploying. The last migration adds durable processing ownership, immutable successful checkpoint evidence and an immutable complete callback input manifest. History/checkpoint rows survive reset; invalidations are appended after rollback, never rewritten as success. Existing jobs without checkpoint evidence are not automatically adopted.
+
+```bash
+java -jar processor.jar resume --job-id 42 --dry-run --json
+java -jar processor.jar resume --job-id 42 --json
+```
+
+The first command is read-only: it does not claim jobs, write history, create manifests, upload or delete. It reads the exact retained local/NAS artifacts and reports ordered `EXECUTE`, `SKIP` or `BLOCKED` stages, prerequisites and recovery guidance. Missing and inaccessible artifacts are different outcomes. The second command takes durable exclusive ownership, checks the plan again, starts a new attempt and executes only needed stages. Exit codes are 0 success, 1 operational failure, 2 invalid input, 3 unknown job, 4 blocked prerequisites/ownership and 130 interruption.
+
+Local generated evidence includes canonical path, size, mtime and SHA-256, with file attributes checked before and after hashing. Reuse validates hashes again before processing. The original recording keeps the established #64 path/size/mtime identity; this does not claim a content hash of the raw source. Remote reuse checks receipt ownership, registered rows, size and SHA-256 even if ordinary upload checksum verification was disabled. There is no NAS directory scan.
+
+Failures before upload retain the existing reverse rollback behavior; rolled-back registration/split checkpoints are invalidated. Interruption preserves unproven split artifacts for manual inspection. After split/compression/upload preservation, resume can skip verified inspection, registration, split and compression, resume an owned transfer or reuse a verified registered archive, and continue to submission. Uncheckpointed existing generated files, changed hashes, missing/inaccessible evidence or ambiguous upload creation/rename block automatic recovery. Upload states NEW/TRANSFERRING/TEMP_VERIFIED follow #72's proven temporary ownership rules; CREATING/FINALIZING require operator reconciliation.
+
+Before encoder communication, state changes to SUBMISSION_UNKNOWN. Resume never resends SUBMISSION_UNKNOWN or SUBMITTED work. Inspect the actual encoder queue and reconcile the existing job; a rejected submission may be explicitly reset using the existing recovery procedure. No timeout proves rejection. A submitted job without a retained successful callback input waits for the callback. A retained callback manifest lets resume finish partial output registration/cleanup even if earlier local outputs or the original input have already been deleted; verified remote receipts are required. Repeated normal callbacks use the same frozen manifest and remain idempotent.
+
+Processing/resume claims and callback claims use token ownership and database state checks. Reset/retry cannot take an owned processing job. A fast callback is permitted only after the atomic SUBMISSION_UNKNOWN transition; the submitting process does not delete local inputs after that point. Normal exceptions/cancellation release only their own token after terminal history is recorded. An ACTIVE attempt or crash-lost token is never reclaimed by age: first stop/verify the old worker, inspect encoder and upload states and artifacts, then reconcile the exact owner/attempt in the database under operator control. Do not clear a claim merely because its timestamp is old, or overwrite an unrelated NAS destination.

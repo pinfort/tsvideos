@@ -202,6 +202,34 @@ class VerifiedUploadCommand(
         return VerifiedUploadReceipt(manifest.id)
     }
 
+    /** Read-only recovery validation: never acquires a manifest claim or changes upload state. */
+    fun inspectRecovery(
+        jobId: Long,
+        artifact: String,
+    ): UploadManifest? {
+        val manifest = manifests.find(jobId, ProcessingIdentity.hash(artifact)) ?: return null
+        check(manifest.claimToken == null) { "UPLOAD_OWNERSHIP_RECONCILIATION_REQUIRED" }
+        check(manifest.state !in setOf("CREATING", "FINALIZING")) { "UPLOAD_AMBIGUOUS_RECONCILIATION_REQUIRED" }
+        val type = SambaClient.NasType.valueOf(manifest.nasType)
+        if (manifest.state in setOf("FINALIZED", "REGISTERED")) {
+            check(nas.exists(type, manifest.finalPath)) { "REMOTE_ARTIFACT_MISSING" }
+            verifyRemote(manifest, manifest.finalPath)
+            check(nas.sha256(type, manifest.finalPath) == manifest.sourceSha256) { "REMOTE_ARTIFACT_CHANGED" }
+            if (manifest.state == "REGISTERED") requireRegistered(manifest)
+            if (File(manifest.sourcePath).exists()) verifySource(manifest, File(manifest.sourcePath))
+        } else {
+            check(manifest.state in setOf("NEW", "TRANSFERRING", "TEMP_VERIFIED")) { "UPLOAD_STATE_RECONCILIATION_REQUIRED" }
+            verifySource(manifest, File(manifest.sourcePath))
+            check(!nas.exists(type, manifest.finalPath)) { "UNOWNED_REMOTE_ARTIFACT" }
+            if (manifest.state == "TEMP_VERIFIED") {
+                check(nas.exists(type, manifest.temporaryPath)) { "REMOTE_TEMPORARY_MISSING" }
+                verifyRemote(manifest, manifest.temporaryPath)
+                check(nas.sha256(type, manifest.temporaryPath) == manifest.sourceSha256) { "REMOTE_ARTIFACT_CHANGED" }
+            }
+        }
+        return manifest
+    }
+
     private fun requireRegistered(manifest: UploadManifest) {
         check(manifest.state == "REGISTERED") { "Remote artifact has not been registered" }
         val file =

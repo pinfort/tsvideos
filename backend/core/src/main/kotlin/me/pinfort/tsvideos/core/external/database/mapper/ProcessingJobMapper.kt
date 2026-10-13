@@ -76,17 +76,17 @@ interface ProcessingJobMapper {
     ): Int
 
     @org.apache.ibatis.annotations.Delete(
-        "DELETE FROM processing_job WHERE executed_file_id=#{id} AND callback_claim IS NULL AND state IN ('REJECTED','COMPLETED','RETRYABLE','RESETTING')",
+        "DELETE FROM processing_job WHERE executed_file_id=#{id} AND callback_claim IS NULL AND processing_claim IS NULL AND state IN ('REJECTED','COMPLETED','RETRYABLE','RESETTING')",
     )
     fun removeReset(id: Long): Int
 
     @Update(
-        "UPDATE processing_job SET state='CLAIMED',executed_file_id=NULL, updated_at=UTC_TIMESTAMP(6) WHERE identity_key=#{key} AND state='RETRYABLE' AND callback_claim IS NULL",
+        "UPDATE processing_job SET state='CLAIMED',executed_file_id=NULL, updated_at=UTC_TIMESTAMP(6) WHERE identity_key=#{key} AND state='RETRYABLE' AND callback_claim IS NULL AND processing_claim IS NULL",
     )
     fun retry(key: String): Int
 
     @Update(
-        "UPDATE processing_job SET state='RESETTING', updated_at=UTC_TIMESTAMP(6) WHERE id=#{id} AND callback_claim IS NULL AND state IN ('COMPLETED','REJECTED','RETRYABLE','RESETTING')",
+        "UPDATE processing_job SET state='RESETTING', updated_at=UTC_TIMESTAMP(6) WHERE id=#{id} AND callback_claim IS NULL AND processing_claim IS NULL AND state IN ('COMPLETED','REJECTED','RETRYABLE','RESETTING')",
     )
     fun prepareReset(id: Long): Int
 

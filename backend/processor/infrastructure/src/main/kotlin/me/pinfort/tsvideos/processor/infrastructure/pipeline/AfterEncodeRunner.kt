@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
+import me.pinfort.tsvideos.core.command.ProcessingRecoveryCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
@@ -10,6 +11,9 @@ import me.pinfort.tsvideos.core.component.MimeTypeComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
+import me.pinfort.tsvideos.core.domain.CallbackInputManifest
+import me.pinfort.tsvideos.core.domain.CallbackOutput
+import me.pinfort.tsvideos.core.domain.CheckpointEvidence
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
 import me.pinfort.tsvideos.core.domain.ProcessingAttempt
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
@@ -18,6 +22,7 @@ import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.Program
+import me.pinfort.tsvideos.core.domain.ResumeBlocked
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
@@ -48,6 +53,7 @@ class AfterEncodeRunner(
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
     private val history: ProcessingHistoryCommand,
+    private val recovery: ProcessingRecoveryCommand,
     private val cancellation: ProcessingCancellation = ProcessingCancellation(),
 ) {
     /**
@@ -67,10 +73,36 @@ class AfterEncodeRunner(
         val errorMessage: String,
     )
 
+    fun resume(jobId: Long) {
+        val token = recovery.acquireCallback(jobId)
+        try {
+            val plan = recovery.plan(jobId, token)
+            if (plan.blocked || plan.mode != "CALLBACK") throw ResumeBlocked("CALLBACK_PREREQUISITES_CHANGED")
+            val saved = checkNotNull(recovery.callback(jobId))
+            run(
+                Input(
+                    saved.itemId,
+                    Path.of(saved.inPath),
+                    saved.outputs.map {
+                        Path.of(it.file.path)
+                    },
+                    true,
+                    "",
+                ),
+                ownershipToken = token,
+                resuming = true,
+            )
+        } finally {
+            ProcessingCancellation.recovery { recovery.releaseCallback(jobId, token) }
+        }
+    }
+
     fun run(
         input: Input,
         dryRun: Boolean = false,
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
+        ownershipToken: String? = null,
+        resuming: Boolean = false,
     ) {
         cancellation.check()
         if (!input.success) {
@@ -98,7 +130,7 @@ class AfterEncodeRunner(
 
         val job = processingJobCommand.findByExecutedFile(splittedFile.executedFileId)
         check(job != null || dryRun) { "Legacy callback requires reconciliation before processing" }
-        val token = if (!dryRun) processingJobCommand.claimCallback(checkNotNull(job)) else null
+        val token = if (!dryRun) ownershipToken ?: processingJobCommand.claimCallback(checkNotNull(job)) else null
         check(dryRun || token != null) { "Callback already claimed; reconcile interrupted callback before retrying" }
         var attempt: ProcessingAttempt? = null
         try {
@@ -106,6 +138,39 @@ class AfterEncodeRunner(
             require(input.files.isNotEmpty()) { "Callback output list is empty" }
             val paths = input.files.map { it.toFile().canonicalPath }.sorted()
             require(paths.distinct().size == paths.size) { "Duplicate callback output paths" }
+            val existingInput = job?.let { recovery.callback(it.id) }
+            val frozen =
+                if (existingInput != null) {
+                    check(
+                        existingInput.itemId == input.itemId &&
+                            existingInput.inPath == input.inPath.toFile().canonicalPath &&
+                            existingInput.splitId == splittedFile.id &&
+                            existingInput.outputs.map { it.file.path }.sorted() == paths,
+                    ) { "Callback input changed" }
+                    existingInput
+                } else if (!dryRun) {
+                    val proposed =
+                        CallbackInputManifest(
+                            checkNotNull(job).id,
+                            input.itemId,
+                            splittedFile.id,
+                            input.inPath.toFile().canonicalPath,
+                            input.files
+                                .map { path ->
+                                    val mime = mimeTypeComponent.guess(path.fileName.toString())
+                                    CallbackOutput(recovery.capture(path.toFile()), nasTargetFile(path), mime.mime, mime.encoding)
+                                }.sortedBy { it.file.path },
+                            (
+                                listOf(input.inPath.toFile()) +
+                                    splittedFileCommand.selectByExecutedFileId(splittedFile.executedFileId).map { File(it.file) }
+                            ).distinctBy { it.canonicalPath }
+                                .filter(recovery::present)
+                                .map { recovery.capture(it) },
+                        )
+                    recovery.freezeCallback(proposed, checkNotNull(token))
+                } else {
+                    null
+                }
             if (job != null && token != null) {
                 processingJobCommand.freezeManifest(
                     job,
@@ -116,11 +181,13 @@ class AfterEncodeRunner(
             if (dryRun) {
                 logger.info("Dry run: would verify, register and remove callback outputs: ${input.files}")
             } else {
-                input.files.forEach { path ->
+                checkNotNull(frozen).outputs.forEach { output ->
                     cancellation.check()
-                    val mime = mimeTypeComponent.guess(path.fileName.toString())
+                    val path = Path.of(output.file.path)
+                    val retained = verifiedUploadCommand.inspectRecovery(checkNotNull(job).id, "encoded:${output.file.path}")
+                    if (retained?.state !in setOf("REGISTERED", "FINALIZED") || path.toFile().exists()) recovery.verify(output.file)
                     val active = checkNotNull(attempt)
-                    val target = nasTargetFile(path)
+                    val target = output.target
                     val receipt =
                         history.stage(
                             active.id,
@@ -136,18 +203,32 @@ class AfterEncodeRunner(
                                     target,
                                     history.progress(active.id, onUploadProgress),
                                 )
-                            verifiedUploadCommand.register(uploaded, splittedFile.id, mime.mime, mime.encoding)
+                            verifiedUploadCommand.register(uploaded, splittedFile.id, output.mime, output.encoding)
+                            recovery.save(
+                                checkNotNull(job).id,
+                                active.id,
+                                checkNotNull(token),
+                                "UPLOAD_ENCODED:${output.file.rowId ?: output.file.sha256.take(12)}",
+                                CheckpointEvidence(referenceId = uploaded.manifestId),
+                            )
                             uploaded
                         }
                     history.stage(active.id, ProcessingStage.FINALIZE) { verifiedUploadCommand.deleteLocal(receipt) }
                 }
             }
             if (attempt == null) {
-                finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
+                finishProcess(splittedFile.executedFileId, input.inPath, dryRun, frozen)
             } else {
                 history.stage(attempt.id, ProcessingStage.FINALIZE, { ProcessingArtifact("PROGRAM", it, null) }) {
-                    finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
+                    finishProcess(splittedFile.executedFileId, input.inPath, dryRun, frozen)
                 }
+                recovery.save(
+                    checkNotNull(job).id,
+                    attempt.id,
+                    checkNotNull(token),
+                    "CALLBACK_COMPLETE",
+                    CheckpointEvidence(referenceId = splittedFile.id),
+                )
                 history.finish(attempt.id, ProcessingOutcome.COMPLETED)
             }
         } catch (e: Exception) {
@@ -158,7 +239,7 @@ class AfterEncodeRunner(
                     e.addSuppressed(historyFailure)
                 }
             }
-            if (ProcessingCancellation.isInterrupted(e)) throw e
+            if (ProcessingCancellation.isInterrupted(e) || resuming) throw e
             // アップロード済みのファイルや削除済みのローカルファイルは戻せないため、
             // 通知して番組を ERROR にするだけに留める。無人のバッチから呼ばれるので、
             // 例外をそのまま投げると誰も気づけない。
@@ -175,7 +256,7 @@ class AfterEncodeRunner(
             return
         } finally {
             if (job != null && token != null) {
-                ProcessingCancellation.recovery { processingJobCommand.releaseCallback(job, token) }
+                ProcessingCancellation.recovery { recovery.releaseCallback(job.id, token) }
             }
         }
         logger.info("uploading file completed, targets=${input.files}")
@@ -208,6 +289,7 @@ class AfterEncodeRunner(
         executedFileId: Long,
         inPath: Path,
         dryRun: Boolean,
+        frozen: CallbackInputManifest?,
     ): Long {
         val program = programCommand.findByExecutedFileId(executedFileId) ?: error("program not found")
         check(validateCompletedComponent.validate(program.id)) { "program invalid" }
@@ -217,8 +299,8 @@ class AfterEncodeRunner(
             val raw = File(job.inputPath)
             if (raw.exists()) check(ProcessingIdentity.from(raw).key == job.identityKey) { "Original recording changed; preserved" }
         }
-        deleteLocalFile(inPath.toFile(), dryRun)
-        removeExecutedFile(executedFileId, dryRun)
+        deleteLocalFile(inPath.toFile(), dryRun, frozen, true)
+        removeExecutedFile(executedFileId, dryRun, frozen)
         programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.COMPLETED, dryRun)
         if (!dryRun) processingJobCommand.findByExecutedFile(executedFileId)?.let { processingJobCommand.complete(it) }
         return program.id
@@ -244,6 +326,7 @@ class AfterEncodeRunner(
     private fun removeExecutedFile(
         executedFileId: Long,
         dryRun: Boolean,
+        frozen: CallbackInputManifest?,
     ) {
         logger.info("executed file to be deleted, id=$executedFileId")
         val executedFile = executedFileCommand.find(executedFileId)
@@ -253,16 +336,29 @@ class AfterEncodeRunner(
         }
         deleteLocalFile(File(executedFile.file), dryRun)
         splittedFileCommand.selectByExecutedFileId(executedFileId).forEach {
-            deleteLocalFile(File(it.file), dryRun)
+            deleteLocalFile(File(it.file), dryRun, frozen, true)
         }
     }
 
     private fun deleteLocalFile(
         file: File,
         dryRun: Boolean,
+        frozen: CallbackInputManifest? = null,
+        requireEvidence: Boolean = false,
     ) {
         cancellation.check()
-        if (!file.exists()) return
+        if (!recovery.present(file)) return
+        if (!dryRun &&
+            requireEvidence
+        ) {
+            recovery.verify(
+                checkNotNull(
+                    frozen?.cleanupFiles?.singleOrNull {
+                        it.path == file.canonicalPath
+                    },
+                ) { "Local cleanup artifact has no ownership evidence" },
+            )
+        }
         logger.info("removing file, file=$file")
         if (!dryRun) {
             java.nio.file.Files
