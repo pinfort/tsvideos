@@ -42,6 +42,7 @@ class AfterEncodeRunnerTest :
             val programs = mockk<ProgramCommand>(relaxed = true)
             val jobs = mockk<ProcessingJobCommand>(relaxed = true)
             val uploads = mockk<VerifiedUploadCommand>(relaxed = true)
+            val history = historyFixture()
             val validation = mockk<ValidateCompletedComponent>()
             val slack = mockk<SlackClient>(relaxed = true)
             val samba = mockk<SambaClient>()
@@ -90,6 +91,7 @@ class AfterEncodeRunnerTest :
                         mockk(relaxed = true),
                         jobs,
                         uploads,
+                        history,
                     )
             }
 
@@ -121,6 +123,7 @@ class AfterEncodeRunnerTest :
                     f.uploads.verifyRegistered(1, "original")
                     f.jobs.complete(f.job)
                 }
+                verify { f.history.finish(44, me.pinfort.tsvideos.core.domain.ProcessingOutcome.COMPLETED, null) }
                 f.output.exists() shouldBe false
                 f.original.exists() shouldBe false
                 f.input.exists() shouldBe false
@@ -146,6 +149,7 @@ class AfterEncodeRunnerTest :
                     f.output.exists() shouldBe true
                     verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
                     verify { f.jobs.releaseCallback(f.job, "token") }
+                    verify { f.history.failed(44, any()) }
                     if (stage != "delete") verify(exactly = 0) { f.uploads.deleteLocal(any()) }
                 } finally {
                     f.cleanup()
@@ -214,6 +218,7 @@ class AfterEncodeRunnerTest :
                 every { f.splits.findByFile(any()) } returns null
                 f.run()
                 verify(exactly = 0) { f.jobs.claimCallback(any()) }
+                verify(exactly = 0) { f.history.begin(any(), any()) }
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
                 f.output.exists() shouldBe true
             } finally {
@@ -238,6 +243,7 @@ class AfterEncodeRunnerTest :
                 listOf(f.output, f.original, f.input, f.split).forEach { it.exists() shouldBe true }
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
                 verify(exactly = 0) { f.jobs.claimCallback(any()) }
+                verify(exactly = 0) { f.history.begin(any(), any()) }
             } finally {
                 f.cleanup()
             }

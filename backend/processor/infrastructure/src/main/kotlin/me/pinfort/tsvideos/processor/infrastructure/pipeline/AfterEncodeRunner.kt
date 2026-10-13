@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
@@ -8,7 +9,13 @@ import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.MimeTypeComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
+import me.pinfort.tsvideos.core.domain.ProcessingArtifact
+import me.pinfort.tsvideos.core.domain.ProcessingAttempt
+import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
+import me.pinfort.tsvideos.core.domain.ProcessingErrorCode
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
+import me.pinfort.tsvideos.core.domain.ProcessingOutcome
+import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.external.samba.SambaClient
@@ -39,6 +46,7 @@ class AfterEncodeRunner(
     private val logger: Logger,
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
+    private val history: ProcessingHistoryCommand,
 ) {
     /**
      * Amatsukaze が実行後バッチに渡す環境変数のうち、この処理で使うもの。
@@ -63,6 +71,16 @@ class AfterEncodeRunner(
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ) {
         if (!input.success) {
+            if (!dryRun) {
+                val failedSplit = findOriginalSplittedFile(input.inPath)
+                val failedJob = failedSplit?.let { processingJobCommand.findByExecutedFile(it.executedFileId) }
+                if (failedJob != null) {
+                    val failedAttempt = history.begin(failedJob, ProcessingAttemptKind.CALLBACK)
+                    val event = history.startStage(failedAttempt.id, ProcessingStage.FINALIZE)
+                    history.finishStage(event, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
+                    history.finish(failedAttempt.id, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
+                }
+            }
             notifyError(input)
             return
         }
@@ -79,7 +97,9 @@ class AfterEncodeRunner(
         check(job != null || dryRun) { "Legacy callback requires reconciliation before processing" }
         val token = if (!dryRun) processingJobCommand.claimCallback(checkNotNull(job)) else null
         check(dryRun || token != null) { "Callback already claimed; reconcile interrupted callback before retrying" }
+        var attempt: ProcessingAttempt? = null
         try {
+            if (!dryRun) attempt = history.begin(checkNotNull(job), ProcessingAttemptKind.CALLBACK)
             require(input.files.isNotEmpty()) { "Callback output list is empty" }
             val paths = input.files.map { it.toFile().canonicalPath }.sorted()
             require(paths.distinct().size == paths.size) { "Duplicate callback output paths" }
@@ -95,21 +115,45 @@ class AfterEncodeRunner(
             } else {
                 input.files.forEach { path ->
                     val mime = mimeTypeComponent.guess(path.fileName.toString())
+                    val active = checkNotNull(attempt)
+                    val target = nasTargetFile(path)
                     val receipt =
-                        verifiedUploadCommand.upload(
-                            checkNotNull(job).id,
-                            "encoded:${path.toFile().canonicalPath}",
-                            path.toFile(),
-                            SambaClient.NasType.VIDEO_STORE_NAS,
-                            nasTargetFile(path),
-                            onUploadProgress,
-                        )
-                    verifiedUploadCommand.register(receipt, splittedFile.id, mime.mime, mime.encoding)
-                    verifiedUploadCommand.deleteLocal(receipt)
+                        history.stage(
+                            active.id,
+                            ProcessingStage.UPLOAD_ENCODED,
+                            { ProcessingArtifact("UPLOAD_MANIFEST", it.manifestId, target) },
+                        ) {
+                            val uploaded =
+                                verifiedUploadCommand.upload(
+                                    checkNotNull(job).id,
+                                    "encoded:${path.toFile().canonicalPath}",
+                                    path.toFile(),
+                                    SambaClient.NasType.VIDEO_STORE_NAS,
+                                    target,
+                                    history.progress(active.id, onUploadProgress),
+                                )
+                            verifiedUploadCommand.register(uploaded, splittedFile.id, mime.mime, mime.encoding)
+                            uploaded
+                        }
+                    history.stage(active.id, ProcessingStage.FINALIZE) { verifiedUploadCommand.deleteLocal(receipt) }
                 }
             }
-            finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
+            if (attempt == null) {
+                finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
+            } else {
+                history.stage(attempt.id, ProcessingStage.FINALIZE, { ProcessingArtifact("PROGRAM", it, null) }) {
+                    finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
+                }
+                history.finish(attempt.id, ProcessingOutcome.COMPLETED)
+            }
         } catch (e: Exception) {
+            if (attempt != null) {
+                try {
+                    history.failed(attempt.id, e)
+                } catch (historyFailure: Exception) {
+                    e.addSuppressed(historyFailure)
+                }
+            }
             // アップロード済みのファイルや削除済みのローカルファイルは戻せないため、
             // 通知して番組を ERROR にするだけに留める。無人のバッチから呼ばれるので、
             // 例外をそのまま投げると誰も気づけない。
@@ -157,40 +201,20 @@ class AfterEncodeRunner(
         executedFileId: Long,
         inPath: Path,
         dryRun: Boolean,
-    ) {
-        val program = programCommand.findByExecutedFileId(executedFileId)
-        if (program == null) {
-            // この時点でNASへのアップロードは済んでいるため、他の失敗と同様に通知する
-            logger.error("program not found, executedFileId=$executedFileId")
-            slackClient.notify("program not found. executed_file_id:$executedFileId")
-            return
+    ): Long {
+        val program = programCommand.findByExecutedFileId(executedFileId) ?: error("program not found")
+        check(validateCompletedComponent.validate(program.id)) { "program invalid" }
+        if (!dryRun) {
+            val job = checkNotNull(processingJobCommand.findByExecutedFile(executedFileId))
+            verifiedUploadCommand.verifyRegistered(job.id, "original")
+            val raw = File(job.inputPath)
+            if (raw.exists()) check(ProcessingIdentity.from(raw).key == job.identityKey) { "Original recording changed; preserved" }
         }
-
-        try {
-            if (validateCompletedComponent.validate(program.id)) {
-                logger.info("program valid, status will be completed, programId=${program.id}")
-                if (!dryRun) {
-                    val job = checkNotNull(processingJobCommand.findByExecutedFile(executedFileId))
-                    verifiedUploadCommand.verifyRegistered(job.id, "original")
-                    val raw = File(job.inputPath)
-                    if (raw.exists()) {
-                        check(ProcessingIdentity.from(raw).key == job.identityKey) {
-                            "Original recording changed; preserved"
-                        }
-                    }
-                }
-                deleteLocalFile(inPath.toFile(), dryRun)
-                removeExecutedFile(executedFileId, dryRun)
-                programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.COMPLETED, dryRun)
-                if (!dryRun) processingJobCommand.findByExecutedFile(executedFileId)?.let { processingJobCommand.complete(it) }
-            } else {
-                logger.error("program invalid, programId=${program.id}")
-                slackClient.notify("program invalid. programId:${program.id}")
-                programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.ERROR, dryRun)
-            }
-        } catch (e: Exception) {
-            notifyFailure(executedFileId, "program invalid. programId:${program.id}", e, dryRun)
-        }
+        deleteLocalFile(inPath.toFile(), dryRun)
+        removeExecutedFile(executedFileId, dryRun)
+        programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.COMPLETED, dryRun)
+        if (!dryRun) processingJobCommand.findByExecutedFile(executedFileId)?.let { processingJobCommand.complete(it) }
+        return program.id
     }
 
     /**

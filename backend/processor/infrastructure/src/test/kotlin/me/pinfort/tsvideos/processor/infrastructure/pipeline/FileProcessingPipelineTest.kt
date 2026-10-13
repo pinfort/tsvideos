@@ -25,6 +25,8 @@ import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.ProcessingJob
+import me.pinfort.tsvideos.core.domain.ProcessingOutcome
+import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
@@ -53,6 +55,7 @@ class FileProcessingPipelineTest :
         lateinit var sambaClient: SambaClient
         lateinit var jobs: ProcessingJobCommand
         lateinit var uploads: VerifiedUploadCommand
+        lateinit var history: me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
         lateinit var logger: Logger
         lateinit var fileProcessingPipeline: FileProcessingPipeline
 
@@ -85,6 +88,7 @@ class FileProcessingPipelineTest :
             logger = mockk(relaxed = true)
             jobs = mockk(relaxed = true)
             uploads = mockk(relaxed = true)
+            history = historyFixture()
             every { jobs.find(any()) } returns null
             every { jobs.findByPath(any()) } returns null
             every { jobs.claim(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "CLAIMED", null, null)
@@ -110,6 +114,7 @@ class FileProcessingPipelineTest :
                     logger = logger,
                     processingJobCommand = jobs,
                     verifiedUploadCommand = uploads,
+                    history = history,
                 )
         }
 
@@ -190,6 +195,12 @@ class FileProcessingPipelineTest :
                     verify { listOf(splittedFileCommand, createdFileCommand) wasNot Called }
                     verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
                     original.exists() shouldBe true
+                    if (dryRun) {
+                        verify(exactly = 0) { history.begin(any(), any()) }
+                    } else {
+                        verify { history.failed(44, any()) }
+                        verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                    }
                 }
             }
         }
@@ -255,6 +266,16 @@ class FileProcessingPipelineTest :
                 val result = fileProcessingPipeline.processFile(original)
 
                 result shouldBe FileProcessingPipeline.Result.PROCESSED
+                verifyOrder {
+                    history.begin(any(), any())
+                    history.stage<Any?>(44, ProcessingStage.INSPECT, any(), any())
+                    history.stage<Any?>(44, ProcessingStage.SPLIT, any(), any())
+                    history.stage<Any?>(44, ProcessingStage.COMPRESS, any(), any())
+                    history.stage<Any?>(44, ProcessingStage.UPLOAD_ORIGINAL, any(), any())
+                    history.stage<Any?>(44, ProcessingStage.FINALIZE, any(), any())
+                    history.stage<Any?>(44, ProcessingStage.SUBMIT_ENCODER, any(), any())
+                    history.finish(44, ProcessingOutcome.COMPLETED, null)
+                }
                 verify { amatsukazeAddTaskClient.addTask(any(), any(), "30fps_light") }
                 verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
                 verify {

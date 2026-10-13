@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
@@ -11,7 +12,11 @@ import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.FileName
+import me.pinfort.tsvideos.core.domain.ProcessingArtifact
+import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
+import me.pinfort.tsvideos.core.domain.ProcessingOutcome
+import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import me.pinfort.tsvideos.core.external.samba.SambaClient
@@ -44,6 +49,7 @@ class FileProcessingPipeline(
     private val logger: Logger,
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
+    private val history: ProcessingHistoryCommand,
 ) {
     enum class Result {
         PROCESSED,
@@ -89,15 +95,24 @@ class FileProcessingPipeline(
         executedFileCommand.findByFile(identity.path)?.let {
             error("Recording path already registered: changed or legacy input requires reset before processing")
         }
-        val inspection =
-            inspect(file, onDropCheckProgress)
-                ?: error("Recording name already registered; reconcile or reset before processing")
-        check(ProcessingIdentity.from(file) == identity) { "Recording changed during inspection; retry when stable" }
         val job =
             processingJobCommand.claim(identity)
                 ?: error("Recording already claimed by another invocation")
+        val attempt = history.begin(job, ProcessingAttemptKind.PROCESS)
         var uploadStarted = false
         try {
+            val inspection =
+                history.stage(
+                    attempt.id,
+                    ProcessingStage.INSPECT,
+                    { ProcessingArtifact("INPUT", job.id, identity.path) },
+                ) {
+                    val inspected =
+                        inspect(file, history.progress(attempt.id, onDropCheckProgress))
+                            ?: error("Recording name already registered; reconcile or reset before processing")
+                    check(ProcessingIdentity.from(file) == identity) { "Recording changed during inspection; retry when stable" }
+                    inspected
+                }
             val runner = RollbackRunner()
             var registered: ExecutedFile? = null
             val executedFile =
@@ -107,17 +122,32 @@ class FileProcessingPipeline(
             processingJobCommand.link(job, executedFile.id)
             var splitInvoked = false
             val mainSplittedFile =
-                runner.stage({ if (splitInvoked) rollbackTsSplit(executedFile) }) {
-                    tsSplit(executedFile) { splitInvoked = true }
+                history.stage(attempt.id, ProcessingStage.SPLIT, { ProcessingArtifact("SPLITTED_FILE", it.id, it.file) }) {
+                    runner.stage({ if (splitInvoked) rollbackTsSplit(executedFile) }) {
+                        tsSplit(executedFile) { splitInvoked = true }
+                    }
                 }
             uploadStarted = true
             // Preserve registration, split and upload evidence after any external upload starts.
-            compressAndSave(mainSplittedFile, onCompressProgress, onUploadProgress)
+            compressAndSave(
+                mainSplittedFile,
+                attempt.id,
+                history.progress(attempt.id, onCompressProgress),
+                history.progress(attempt.id, onUploadProgress),
+            )
             // Once submission starts rollback would destroy input possibly already consumed by the encoder.
-            processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
-            amatsukazeAddTask(mainSplittedFile)
-            processingJobCommand.acknowledgeSubmission(job)
+            history.stage(attempt.id, ProcessingStage.SUBMIT_ENCODER) {
+                processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
+                amatsukazeAddTask(mainSplittedFile)
+                processingJobCommand.acknowledgeSubmission(job)
+            }
+            history.finish(attempt.id, ProcessingOutcome.COMPLETED)
         } catch (e: Exception) {
+            try {
+                history.failed(attempt.id, e)
+            } catch (historyFailure: Exception) {
+                e.addSuppressed(historyFailure)
+            }
             if (!uploadStarted && e.suppressed.isEmpty() && executedFileCommand.findByFile(identity.path) == null) {
                 processingJobCommand.transition(job, "CLAIMED", "RETRYABLE")
             }
@@ -240,14 +270,17 @@ class FileProcessingPipeline(
     // Stage 3: gzip-compress the main split file and upload it to the original-store NAS
     private fun compressAndSave(
         splittedFile: SplittedFile,
+        attemptId: Long,
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
     ) {
         val splitFile = File(splittedFile.file)
         val compressedFile = File(splitFile.parentFile, "${splitFile.name}.gz")
 
-        if (!compressComponent.compress(splitFile, compressedFile, false, onCompressProgress)) {
-            error("Compressed file already exists; reconcile before processing")
+        history.stage(attemptId, ProcessingStage.COMPRESS) {
+            if (!compressComponent.compress(splitFile, compressedFile, false, onCompressProgress)) {
+                error("Compressed file already exists; reconcile before processing")
+            }
         }
 
         val targetFile =
@@ -259,17 +292,25 @@ class FileProcessingPipeline(
 
         val job = checkNotNull(processingJobCommand.findByExecutedFile(splittedFile.executedFileId))
         val receipt =
-            verifiedUploadCommand.upload(
-                job.id,
-                "original",
-                compressedFile,
-                SambaClient.NasType.ORIGINAL_STORE_NAS,
-                targetFile,
-                onUploadProgress,
-            )
-        verifiedUploadCommand.register(receipt, splittedFile.id, "video/vnd.dlna.mpeg-tts", "gzip")
-        splittedFileCommand.updateStatus(splittedFile, SplittedFile.Status.COMPRESS_SAVED)
-        verifiedUploadCommand.deleteLocal(receipt)
+            history.stage(
+                attemptId,
+                ProcessingStage.UPLOAD_ORIGINAL,
+                { ProcessingArtifact("UPLOAD_MANIFEST", it.manifestId, targetFile) },
+            ) {
+                val uploaded =
+                    verifiedUploadCommand.upload(
+                        job.id,
+                        "original",
+                        compressedFile,
+                        SambaClient.NasType.ORIGINAL_STORE_NAS,
+                        targetFile,
+                        onUploadProgress,
+                    )
+                verifiedUploadCommand.register(uploaded, splittedFile.id, "video/vnd.dlna.mpeg-tts", "gzip")
+                splittedFileCommand.updateStatus(splittedFile, SplittedFile.Status.COMPRESS_SAVED)
+                uploaded
+            }
+        history.stage(attemptId, ProcessingStage.FINALIZE) { verifiedUploadCommand.deleteLocal(receipt) }
     }
 
     // Stage 4: submit the main split file to the running Amatsukaze server
