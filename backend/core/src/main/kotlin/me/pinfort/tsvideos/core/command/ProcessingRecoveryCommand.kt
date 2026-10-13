@@ -230,6 +230,12 @@ class ProcessingRecoveryCommand(
         }
         val callback = callback(id)
         if (callback != null && job.state in setOf("SUBMITTED", "SUBMISSION_UNKNOWN", "COMPLETED")) {
+            checked(stages, "CALLBACK_CONTEXT") {
+                val executedId = checkNotNull(job.executedFileId) { "CALLBACK_REGISTRATION_MISSING" }
+                check(splits.selectByExecutedFileId(executedId).any { it.id == callback.splitId }) { "CALLBACK_REGISTRATION_MISSING" }
+                check(programs.selectAll().count { it.executedFileId == executedId } == 1) { "CALLBACK_PROGRAM_MISSING" }
+                "SKIP"
+            }
             for (output in callback.outputs) {
                 checked(stages, "UPLOAD_ENCODED:${output.file.path}") {
                     val manifest = uploads.inspectRecovery(id, "encoded:${output.file.path}")
