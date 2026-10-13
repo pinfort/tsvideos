@@ -25,8 +25,11 @@ def port(container, internal):
 def quoted(value):
     return "'" + str(value).replace("'", "''") + "'"
 try:
+    with socket.socket() as reservation:
+        reservation.bind(('127.0.0.1', 0))
+        fixed_nas_port = reservation.getsockname()[1]
     run(['docker', 'run', '-d', '--name', db, '-e', 'MARIADB_ROOT_PASSWORD=retry-db', '-e', 'MARIADB_DATABASE=test', '-p', '127.0.0.1::3306', 'mariadb:11.8'])
-    run(['docker', 'run', '-d', '--name', nas, '-e', 'AVAHI_DISABLE=1', '-e', 'WSDD2_DISABLE=1', '-e', 'NETBIOS_DISABLE=1', '-e', 'ACCOUNT_smoke=retry-nas', '-e', 'UID_smoke=1000', '-e', 'SAMBA_VOLUME_CONFIG_fixture=[fixture]; path=/shares/fixture; valid users = smoke; guest ok = no; read only = no; browseable = yes', '-p', '127.0.0.1::445', 'ghcr.io/servercontainers/samba'])
+    run(['docker', 'run', '-d', '--name', nas, '-e', 'AVAHI_DISABLE=1', '-e', 'WSDD2_DISABLE=1', '-e', 'NETBIOS_DISABLE=1', '-e', 'ACCOUNT_smoke=retry-nas', '-e', 'UID_smoke=1000', '-e', 'SAMBA_VOLUME_CONFIG_fixture=[fixture]; path=/shares/fixture; valid users = smoke; guest ok = no; read only = no; browseable = yes', '-p', f'127.0.0.1:{fixed_nas_port}:445', 'ghcr.io/servercontainers/samba'])
     run(['docker', 'exec', nas, 'mkdir', '-p', '/shares/fixture'])
     run(['docker', 'exec', nas, 'chown', '1000:1000', '/shares/fixture'])
     for _ in range(60):
@@ -49,7 +52,7 @@ try:
         modified = raw.stat().st_mtime_ns // 1000000
         identity = hashlib.sha256(f'{raw}\0{raw.stat().st_size}\0{modified}'.encode()).hexdigest()
         sql(f"INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) VALUES(100,{quoted(raw)},0,18,'2026-10-14 00:00:00','TEST','title','Channel',60,'SPLITTED'); INSERT INTO program(id,name,executed_file_id,status) VALUES(100,'retry smoke',100,'REGISTERED'); INSERT INTO splitted_file(id,executed_file_id,file,size,duration,status) VALUES(100,100,{quoted(split)},5,60,'REGISTERED'); INSERT INTO processing_job(id,identity_key,input_path,input_size,modified_millis,state,executed_file_id) VALUES(100,'{identity}',{quoted(raw)},{raw.stat().st_size},{modified},'SUBMITTED',100);")
-        env = dict(os.environ, DATABASE_CONNECTION=f'jdbc:mariadb://127.0.0.1:{port(db, 3306)}/test', DATABASE_USER_NAME='root', DATABASE_PASSWORD='retry-db', SLACK_WEBHOOK_URL='', SPRING_APPLICATION_JSON=json.dumps({'processor-retry': {'max-attempts': 10, 'initial-delay-millis': 2000, 'max-delay-millis': 2000}}))
+        env = dict(os.environ, DATABASE_CONNECTION=f'jdbc:mariadb://127.0.0.1:{port(db, 3306)}/test', DATABASE_USER_NAME='root', DATABASE_PASSWORD='retry-db', SLACK_WEBHOOK_URL='', SPRING_APPLICATION_JSON=json.dumps({'processor-retry': {'max-attempts': 10, 'initial-delay-millis': 10000, 'max-delay-millis': 10000}}))
         for kind in ['VIDEO', 'ORIGINAL']:
             env.update({f'{kind}_STORE_NAS_URL': f'smb://127.0.0.1:{nas_port}/fixture', f'{kind}_STORE_NAS_USERNAME': 'smoke', f'{kind}_STORE_NAS_PASSWORD': 'retry-nas', f'{kind}_STORE_NAS_BASE_DIR': ''})
         command = ['java', '-jar', str(root / 'processor/console/build/libs/console.jar'), 'after-encode', '--item-id', '10', '--in-path', str(succeeded), '--files', str(output), '--success', '1']
@@ -64,7 +67,9 @@ try:
             for _ in range(240):
                 text = log.read_text(errors='replace')
                 if 'UPLOAD retry attempt' in text:
-                    run(['docker', 'start', nas]); break
+                    run(['docker', 'start', nas])
+                    assert port(nas, 445) == nas_port
+                    break
                 if process.poll() is not None: raise AssertionError(text)
                 time.sleep(.25)
             else: raise AssertionError('No bounded retry observed')
@@ -72,7 +77,7 @@ try:
         text = log.read_text(errors='replace')
         retry_lines = [line for line in text.splitlines() if 'ProcessingRetry' in line]
         assert retry_lines and all('retry-nas' not in line and 'retry-db' not in line for line in retry_lines)
-        assert sql('SELECT state FROM upload_manifest;') == 'REGISTERED'
+        assert sql('SELECT state FROM upload_manifest;') == 'REGISTERED', json.dumps({'manifest': sql('SELECT state,claim_token FROM upload_manifest;'), 'log': text[-16000:]})
         assert sql('SELECT COUNT(*) FROM created_file;') == '1'
         assert sql('SELECT COUNT(*) FROM upload_manifest WHERE claim_token IS NOT NULL;') == '0'
         assert not output.exists()
