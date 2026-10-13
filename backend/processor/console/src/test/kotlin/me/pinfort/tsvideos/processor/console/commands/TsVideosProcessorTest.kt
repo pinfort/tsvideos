@@ -46,11 +46,11 @@ class TsVideosProcessorTest :
 
         context("subcommands") {
             expect("routes process to the path processing runner") {
-                every { pathProcessingRunner.processPaths(any(), any(), any(), any()) } returns PathProcessingRunner.BatchResult(1, 0)
+                every { pathProcessingRunner.processReport(any(), any(), any(), any(), any()) } returns batchFixture(1, 0)
 
                 tsVideosProcessor.main(arrayOf("process", "/path/one"))
 
-                verify { pathProcessingRunner.processPaths(listOf(Path.of("/path/one")), false, any(), any()) }
+                verify { pathProcessingRunner.processReport(listOf(Path.of("/path/one")), false, any(), any(), any()) }
             }
 
             expect("routes after-encode to the after encode runner") {

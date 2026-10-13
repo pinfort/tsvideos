@@ -1,11 +1,17 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
+import me.pinfort.tsvideos.core.component.ProcessingStageTiming
+import me.pinfort.tsvideos.core.component.ProcessingStageTimings
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
 import org.slf4j.Logger
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
-import java.io.File
 import java.nio.file.Path
+import java.time.Instant
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 @Component
 class PathProcessingRunner(
@@ -14,6 +20,8 @@ class PathProcessingRunner(
     private val logger: Logger,
     private val cancellation: ProcessingCancellation = ProcessingCancellation(),
     private val concurrency: ProcessingConcurrency = ProcessingConcurrency(),
+    private val timings: ProcessingStageTimings = ProcessingStageTimings(),
+    @Value("\${processor.shutdown.grace-seconds:30}") private val graceSeconds: Long = 30,
 ) {
     data class Progress(
         val path: String,
@@ -32,43 +40,123 @@ class PathProcessingRunner(
         val failed: Int,
     )
 
-    fun processPaths(
+    private class Pending(
+        val ordinal: Int,
+        val path: String,
+    ) {
+        @Volatile var started = false
+        val result = AtomicReference<RecordingReport?>()
+    }
+
+    init {
+        require(graceSeconds in 1..300)
+    }
+
+    fun processReport(
         paths: List<Path>,
         dryRun: Boolean = false,
+        notifications: BatchNotification = BatchNotification.PER_FILE,
         progress: (Progress) -> Unit = {},
         complete: (Completion) -> Unit = {},
-    ): BatchResult =
-        cancellation.runOwned {
-            val completed =
-                java.util.concurrent.atomic
-                    .AtomicInteger()
-            val failed =
-                java.util.concurrent.atomic
-                    .AtomicInteger()
-            val executor = concurrency.executor(cancellation)
+    ): ProcessingBatchReport {
+        val startedAt = Instant.now().toString()
+        val entries = mutableListOf<Pending>()
+        var interrupted = false
+        var discovered = false
+        val executor = concurrency.executor(cancellation)
+        val notificationInterrupted = AtomicBoolean(false)
+
+        fun notify(message: String) {
+            if (dryRun || notifications == BatchNotification.NONE) return
             try {
-                paths.forEach { path ->
-                    cancellation.check()
-                    val target = path.toFile()
-                    if (!target.exists()) {
-                        failed.incrementAndGet()
-                        slackClient.notify("Recording unavailable: $path")
-                        complete(Completion(path.toString(), "FAILED"))
-                    } else {
-                        resolveFiles(target).forEach { file ->
+                slackClient.notify(message)
+            } catch (failure: Exception) {
+                if (ProcessingCancellation.isInterrupted(failure)) Thread.currentThread().interrupt()
+                logger.warn("Batch notification unavailable")
+            } finally {
+                if (Thread.currentThread().isInterrupted) {
+                    notificationInterrupted.set(true)
+                    cancellation.requestStop()
+                }
+            }
+        }
+
+        fun unavailable(
+            path: Path,
+            reason: String,
+        ) {
+            val pending = Pending(entries.size, path.toAbsolutePath().normalize().toString())
+            entries.add(pending)
+            pending.result.set(RecordingReport(pending.ordinal, pending.path, BatchOutcome.FAILED, reason, 0, emptyList()))
+            if (notifications == BatchNotification.PER_FILE) notify("Recording failed: ${pending.path} ($reason)")
+            complete(Completion(pending.path, "FAILED"))
+        }
+        try {
+            cancellation.runOwned {
+                try {
+                    paths.forEach { path ->
+                        cancellation.check()
+                        val target = path.toFile()
+                        val files =
+                            try {
+                                when {
+                                    !target.exists() -> {
+                                        unavailable(
+                                            path,
+                                            if (java.nio.file.Files
+                                                    .notExists(path)
+                                            ) {
+                                                "INPUT_MISSING"
+                                            } else {
+                                                "INPUT_INACCESSIBLE"
+                                            },
+                                        )
+                                        emptyList()
+                                    }
+                                    target.isDirectory ->
+                                        target
+                                            .listFiles { candidate -> candidate.isFile && candidate.name.endsWith(".m2ts") }
+                                            ?.sortedBy { it.name } ?: run {
+                                            unavailable(path, "DIRECTORY_INACCESSIBLE")
+                                            emptyList()
+                                        }
+                                    !target.isFile -> {
+                                        unavailable(path, "INPUT_NOT_REGULAR")
+                                        emptyList()
+                                    }
+                                    else -> listOf(target)
+                                }
+                            } catch (_: SecurityException) {
+                                unavailable(path, "INPUT_INACCESSIBLE")
+                                emptyList()
+                            }
+                        files.forEach { file ->
                             cancellation.check()
+                            val canonical =
+                                try {
+                                    file.canonicalPath
+                                } catch (_: Exception) {
+                                    unavailable(file.toPath(), "INPUT_INACCESSIBLE")
+                                    return@forEach
+                                }
+                            val pending = Pending(entries.size, canonical)
+                            entries.add(pending)
                             executor.execute {
+                                val started = System.nanoTime()
+                                val stages = mutableListOf<ProcessingStageTiming>()
+                                var outcome = BatchOutcome.INTERRUPTED
+                                var reason = "INTERRUPTED"
                                 try {
                                     cancellation.runOwned {
-                                        val canonical = file.canonicalPath
+                                        pending.started = true
 
                                         fun listener(stage: String): (Long, Long) -> Unit =
                                             { value, total ->
                                                 cancellation.check()
                                                 progress(Progress(canonical, stage, value, total))
                                             }
-                                        try {
-                                            val result =
+                                        val result =
+                                            timings.observe(stages) {
                                                 fileProcessingPipeline.processFile(
                                                     file,
                                                     dryRun,
@@ -76,39 +164,103 @@ class PathProcessingRunner(
                                                     listener("COMPRESS"),
                                                     listener("UPLOAD"),
                                                 )
-                                            completed.incrementAndGet()
-                                            complete(Completion(canonical, result.name))
-                                        } catch (failure: Exception) {
-                                            if (ProcessingCancellation.isInterrupted(failure)) throw failure
-                                            failed.incrementAndGet()
-                                            // Avoid expanding tool exception messages or stack traces into Slack.
-                                            logger.error("Recording failed: {} ({})", canonical, failure.javaClass.simpleName)
-                                            slackClient.notify("Recording failed: $canonical (${failure.javaClass.simpleName})")
-                                            complete(Completion(canonical, "FAILED"))
-                                        }
+                                            }
+                                        outcome =
+                                            when (result) {
+                                                FileProcessingPipeline.Result.PROCESSED -> BatchOutcome.SUBMITTED
+                                                FileProcessingPipeline.Result.DRY_RUN -> BatchOutcome.DRY_RUN
+                                                FileProcessingPipeline.Result.SKIPPED_ALREADY_REGISTERED ->
+                                                    BatchOutcome.SKIPPED_ALREADY_REGISTERED
+                                            }
+                                        reason = outcome.name
                                     }
                                 } catch (failure: Exception) {
                                     if (ProcessingCancellation.isInterrupted(failure)) {
+                                        outcome = if (pending.started) BatchOutcome.INTERRUPTED else BatchOutcome.NOT_STARTED
+                                        reason = "INTERRUPTED"
                                         cancellation.requestStop()
                                     } else {
-                                        failed.incrementAndGet()
-                                        logger.error("Worker failed", failure)
+                                        outcome = BatchOutcome.FAILED
+                                        reason = if (failure is IllegalArgumentException) "INVALID_INPUT" else "PROCESSING_FAILED"
+                                        logger.error("Recording failed: {} ({})", canonical, failure.javaClass.simpleName)
+                                        if (notifications == BatchNotification.PER_FILE) notify("Recording failed: $canonical ($reason)")
                                     }
+                                } finally {
+                                    pending.result.set(
+                                        RecordingReport(
+                                            pending.ordinal,
+                                            canonical,
+                                            outcome,
+                                            reason,
+                                            TimeUnit.NANOSECONDS.toMillis((System.nanoTime() - started).coerceAtLeast(0)),
+                                            stages.toList(),
+                                        ),
+                                    )
+                                    complete(Completion(canonical, outcome.name))
                                 }
                             }
                         }
                     }
+                    discovered = true
+                    executor.shutdown()
+                    while (!executor.awaitTermination(100, TimeUnit.MILLISECONDS)) cancellation.check()
+                    cancellation.check()
+                } catch (failure: Exception) {
+                    if (!ProcessingCancellation.isInterrupted(failure)) throw failure
+                    interrupted = true
+                    cancellation.requestStop()
+                } finally {
+                    executor.shutdownNow()
+                    // Briefly clear interruption only for bounded worker settlement; restore it afterward.
+                    val hadInterrupt = Thread.interrupted()
+                    try {
+                        if (!executor.awaitTermination(graceSeconds, TimeUnit.SECONDS)) interrupted = true
+                    } catch (_: InterruptedException) {
+                        interrupted = true
+                    } finally {
+                        if (hadInterrupt || interrupted) Thread.currentThread().interrupt()
+                    }
                 }
-                executor.shutdown()
-                while (!executor.awaitTermination(100, java.util.concurrent.TimeUnit.MILLISECONDS)) cancellation.check()
-                cancellation.check()
-                BatchResult(completed.get(), failed.get())
-            } finally {
-                executor.shutdownNow()
             }
+        } catch (failure: Exception) {
+            if (!ProcessingCancellation.isInterrupted(failure)) throw failure
+            interrupted = true
+        } finally {
+            executor.shutdownNow()
         }
+        val records =
+            entries.map { entry ->
+                entry.result.get() ?: RecordingReport(
+                    entry.ordinal,
+                    entry.path,
+                    if (entry.started) BatchOutcome.INTERRUPTED else BatchOutcome.NOT_STARTED,
+                    "INTERRUPTED",
+                    0,
+                    emptyList(),
+                )
+            }
+        val report = ProcessingBatchReport(startedAt, Instant.now().toString(), dryRun, interrupted, discovered, records)
+        if (notifications == BatchNotification.SUMMARY && !interrupted) {
+            notify(
+                "Processing batch: submitted=${report.submitted}, skipped=${report.skipped}, " +
+                    "failed=${report.failed}, exit=${report.exitCode}",
+            )
+        }
+        return if (notificationInterrupted.get()) report.copy(interrupted = true, endedAt = Instant.now().toString()) else report
+    }
 
-    /** Compatibility entry point; CLI submits all paths through one bounded batch. */
+    /** Compatibility API: interrupted callers retain the original exception contract. */
+    fun processPaths(
+        paths: List<Path>,
+        dryRun: Boolean = false,
+        progress: (Progress) -> Unit = {},
+        complete: (Completion) -> Unit = {},
+    ): BatchResult {
+        val report = processReport(paths, dryRun, BatchNotification.PER_FILE, progress, complete)
+        if (report.interrupted) throw InterruptedException("Processing interrupted")
+        return BatchResult(report.submitted + report.skipped + report.planned, report.failed)
+    }
+
     fun processPath(
         path: Path,
         dryRun: Boolean = false,
@@ -124,13 +276,4 @@ class PathProcessingRunner(
             }
         })
     }
-
-    private fun resolveFiles(target: File): List<File> =
-        if (target.isDirectory) {
-            target
-                .listFiles { candidate -> candidate.isFile && candidate.name.endsWith(".m2ts") }
-                ?.sortedBy { it.name } ?: emptyList()
-        } else {
-            listOf(target)
-        }
 }

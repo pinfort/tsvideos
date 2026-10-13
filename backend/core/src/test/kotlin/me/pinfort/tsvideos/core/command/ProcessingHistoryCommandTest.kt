@@ -55,6 +55,27 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
         }
 
     init {
+        expect("observed timings correspond to persisted successful and failed stage events") {
+            val timings =
+                me.pinfort.tsvideos.core.component
+                    .ProcessingStageTimings()
+            val observed = mutableListOf<me.pinfort.tsvideos.core.component.ProcessingStageTiming>()
+            val command = ProcessingHistoryCommand(mapper, transactions, timings = timings)
+            val job = job()
+            val attempt = command.begin(job, ProcessingAttemptKind.PROCESS)
+            timings.observe(observed) {
+                command.stage(attempt.id, ProcessingStage.INSPECT) { 1 } shouldBe 1
+                val failure =
+                    shouldThrow<java.io.IOException> {
+                        command.stage(attempt.id, ProcessingStage.SPLIT) { throw java.io.IOException("secret") }
+                    }
+                command.failed(attempt.id, failure)
+            }
+            val persisted = command().history(job.id).single().stages
+            observed.map { it.stage } shouldBe persisted.map { it.stage }
+            observed.all { it.elapsedMillis >= 0 } shouldBe true
+            persisted.map { it.outcome } shouldBe listOf(ProcessingOutcome.COMPLETED, ProcessingOutcome.FAILED)
+        }
         expect("owned interruption persists across command restart and leaves other attempts active") {
             val cancellation =
                 me.pinfort.tsvideos.core.component
