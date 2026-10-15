@@ -69,6 +69,7 @@ class EmergencyBroadcastDetectorTest :
         fun pmt(
             programInfo: ByteArray = ByteArray(0),
             withSuperimpose: Boolean = true,
+            currentNext: Boolean = true,
         ): ByteArray {
             val esLoop = ByteArrayOutputStream()
             // 映像 (MPEG-2)
@@ -78,7 +79,7 @@ class EmergencyBroadcastDetectorTest :
                 esLoop.write(bytes(0x06, 0xe0 or (superimposePid shr 8), superimposePid and 0xff, 0xf0, 0x03, 0x52, 0x01, 0x38))
             }
             val body =
-                bytes(serviceId shr 8, serviceId and 0xff, 0xc1, 0x00, 0x00, 0xe1, 0x00) +
+                bytes(serviceId shr 8, serviceId and 0xff, if (currentNext) 0xc1 else 0xc0, 0x00, 0x00, 0xe1, 0x00) +
                     bytes(0xf0 or (programInfo.size shr 8), programInfo.size and 0xff) +
                     programInfo +
                     esLoop.toByteArray()
@@ -137,6 +138,17 @@ class EmergencyBroadcastDetectorTest :
 
             expect("ignores an emergency descriptor that signals the end of the broadcast") {
                 val file = tempTs(sectionPackets(0, pat()), sectionPackets(pmtPid, pmt(programInfo = emergencyDescriptor(active = false))))
+
+                detector.detect(file).ewsDetected shouldBe false
+            }
+
+            expect("ignores a PMT announced for the next version (current_next_indicator=0)") {
+                val file =
+                    tempTs(
+                        sectionPackets(0, pat()),
+                        sectionPackets(pmtPid, pmt()),
+                        sectionPackets(pmtPid, pmt(programInfo = emergencyDescriptor(active = true), currentNext = false)),
+                    )
 
                 detector.detect(file).ewsDetected shouldBe false
             }
@@ -286,6 +298,23 @@ class EmergencyBroadcastDetectorTest :
                 file.writeBytes(ByteArray(4096))
 
                 shouldThrow<TsVideosException> { detector.detect(file) }
+            }
+
+            expect("stops reading once both EWS and superimpose are found") {
+                // 進捗の途中通知は 16MB ごとなので、最後まで読めば途中通知が出る大きさにする
+                val file =
+                    tempTs(
+                        sectionPackets(0, pat()),
+                        sectionPackets(pmtPid, pmt(programInfo = emergencyDescriptor(active = true))),
+                        packets(superimposePid, superimposePes(visibleText)),
+                        nullPackets(100_000),
+                    )
+                val events = mutableListOf<Pair<Long, Long>>()
+
+                val result = detector.detect(file) { processed, total -> events += processed to total }
+
+                result shouldBe EmergencyBroadcastDetector.Result(ewsDetected = true, superimposeDetected = true)
+                events shouldBe listOf(file.length() to file.length())
             }
 
             expect("reports progress that finishes at the file size") {

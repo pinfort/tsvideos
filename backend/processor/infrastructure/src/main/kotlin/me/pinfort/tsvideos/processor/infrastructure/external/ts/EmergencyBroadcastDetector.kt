@@ -189,6 +189,8 @@ class EmergencyBroadcastDetector {
             section: ByteArray,
         ) {
             if (!Crc32Mpeg2.isValid(section)) return
+            // current_next_indicator=0 は次に有効になる予告版なので、現在の PAT/PMT としては扱わない
+            if (section.size <= SECTION_HEADER_LENGTH || section.u8(5) and 0x01 == 0) return
             val crc = section.crcTail()
             if (lastSectionCrc[pid] == crc) return // 前回と同じ内容なら解析を省略
             lastSectionCrc[pid] = crc

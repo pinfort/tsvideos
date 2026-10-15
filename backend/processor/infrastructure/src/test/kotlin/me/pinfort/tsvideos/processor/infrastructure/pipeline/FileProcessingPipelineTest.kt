@@ -332,6 +332,33 @@ class FileProcessingPipelineTest :
                 verify(exactly = 0) { executedFileTagCommand.recordCheck(any(), any(), any(), any()) }
             }
 
+            expect("keeps the registration when saving the tags fails") {
+                val original = newOriginalFile()
+                val executedFile = executedFileFixture(original)
+
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+                every {
+                    executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
+                } returns executedFile
+                every { programCommand.insert(any(), any(), any()) } returns mockk()
+                every { executedFileTagCommand.recordCheck(any(), any(), any(), any()) } throws
+                    RuntimeException("Table 'executed_file_tag' doesn't exist")
+                // stop at the next stage; reaching it shows the registration stage did not fail
+                every { tsSplitterClient.split(any(), any(), any()) } throws TsVideosException("ts split failed")
+                every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
+                every { executedFileCommand.findByFile(original.absolutePath) } returns executedFile
+                every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+                every { executedFileCommand.delete(any(), any()) } just Runs
+
+                val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldBe "ts split failed"
+                verify { executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, any(), any()) }
+                verify { tsSplitterClient.split(any(), any(), any()) }
+            }
+
             expect("dry run does not fail") {
                 val original = newOriginalFile()
                 every { programCommand.findByName(original.name) } returns null

@@ -154,11 +154,22 @@ class FileProcessingPipeline(
                 duration = duration,
             )
         programCommand.insert(file.name, executedFile.id)
-        inspection.emergencyTags?.let {
-            executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, it)
-        }
+        inspection.emergencyTags?.let { recordEmergencyCheck(executedFile, it) }
 
         return executedFile
+    }
+
+    // Like detection itself, saving its result is supplementary: if it fails (e.g. the tag tables have
+    // not been created yet), keep the registration and leave the recording "not checked".
+    private fun recordEmergencyCheck(
+        executedFile: ExecutedFile,
+        tags: Set<String>,
+    ) {
+        try {
+            executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, tags)
+        } catch (e: Exception) {
+            logger.warn("Recording emergency broadcast tags failed, leave it unchecked, executedFile=$executedFile", e)
+        }
     }
 
     private fun rollbackRegistration(file: File) {
