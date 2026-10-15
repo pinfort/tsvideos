@@ -14,9 +14,11 @@ class TsVideosProcessor(
     private val status: StatusCommand,
     private val history: HistoryCommand,
     private val resume: ResumeCommand,
+    private val inspect: InspectCommand,
+    private val recover: RecoverCommand,
 ) : CliktCommand(name = "tvpcli") {
     init {
-        subcommands(process, afterEncode, reset, status, history, resume)
+        subcommands(process, afterEncode, reset, status, history, resume, inspect, recover)
         versionOption(ApplicationVersion.value)
     }
 
