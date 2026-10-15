@@ -114,3 +114,23 @@ CREATE TABLE executed_file_check (
 ```
 
 Processor deployment and recovery: [processing identity and reconciliation](docs/processing-idempotency.md). Apply migration 064 before upgrading.
+
+既存の DB には次のテーブルを一度だけ作成してください（`core/src/main/resources/db/migrations/064_processing_job.sql` と同じ内容です）。**processor を停止してから、この機能を含むビルドをデプロイする前に**作成する必要があります。
+
+```sql
+CREATE TABLE IF NOT EXISTS processing_job (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ identity_key CHAR(64) CHARACTER SET ascii NOT NULL UNIQUE,
+ input_path TEXT COLLATE utf8mb4_bin NOT NULL,
+ input_size BIGINT NOT NULL,
+ modified_millis BIGINT NOT NULL,
+ state VARCHAR(40) NOT NULL,
+ executed_file_id BIGINT NULL,
+ callback_claim VARCHAR(36) NULL,
+ callback_manifest CHAR(64) CHARACTER SET ascii NULL,
+ created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+ updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+ KEY executed_file_id (executed_file_id),
+ KEY input_path (input_path(255))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+```

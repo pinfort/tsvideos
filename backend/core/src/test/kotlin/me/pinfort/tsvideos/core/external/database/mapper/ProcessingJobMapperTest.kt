@@ -4,6 +4,7 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import me.pinfort.tsvideos.core.command.ProcessingJobClaimCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
@@ -14,8 +15,10 @@ import org.springframework.boot.testcontainers.context.ImportTestcontainers
 import org.springframework.context.annotation.Import
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig
+import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
@@ -37,6 +40,8 @@ class ProcessingJobMapperTest : ExpectSpec() {
     @Autowired private lateinit var command: ProcessingJobCommand
 
     @Autowired private lateinit var dataSource: DataSource
+
+    @Autowired private lateinit var transactionManager: PlatformTransactionManager
 
     init {
         expect("stale transitions and repeated registration links cannot overwrite a job") {
@@ -63,6 +68,16 @@ class ProcessingJobMapperTest : ExpectSpec() {
             command.claim(identity)?.id shouldBe job.id
             command.claim(identity) shouldBe null
         }
+        expect("a duplicate claim does not mark the caller's transaction rollback-only") {
+            val identity = ProcessingIdentity(UUID.randomUUID().toString(), "/outer-duplicate", 1, 2)
+            checkNotNull(command.claim(identity))
+            val outerKey = UUID.randomUUID().toString()
+            TransactionTemplate(transactionManager).executeWithoutResult {
+                command.claim(identity) shouldBe null
+                mapper.claim(outerKey, "/outer-work", 1, 2) shouldBe 1
+            }
+            mapper.find(outerKey) shouldNotBe null
+        }
         expect("documented legacy adoption creates exactly one callback-capable job") {
             dataSource.connection.use { connection ->
                 connection.createStatement().use { statement ->
@@ -87,7 +102,10 @@ class ProcessingJobMapperTest : ExpectSpec() {
             mapper.transition(job.id, "SUBMITTED", "COMPLETED") shouldBe 1
             mapper.releaseCallback(job.id, "legacy-owner") shouldBe 1
             mapper.prepareReset(job.id) shouldBe 1
+            // an interrupted reset can be replayed
+            mapper.prepareReset(job.id) shouldBe 1
             mapper.claimCallback(job.id, "racing-callback") shouldBe 0
+            mapper.find(job.identityKey)?.updatedAt shouldNotBe null
         }
         expect("only proven rollback can be retried and active claims cannot reset") {
             val key = UUID.randomUUID().toString()

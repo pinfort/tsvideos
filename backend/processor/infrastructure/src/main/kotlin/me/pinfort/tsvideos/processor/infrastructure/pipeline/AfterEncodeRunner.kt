@@ -89,13 +89,18 @@ class AfterEncodeRunner(
                 val job = processingJobCommand.findByExecutedFile(splittedFile.executedFileId)
                 check(job != null || dryRun) { "Legacy callback requires reconciliation before processing" }
                 val token = if (!dryRun) processingJobCommand.claimCallback(checkNotNull(job)) else null
-                check(dryRun || token != null) { "Callback already claimed; reconcile interrupted callback before retrying" }
+                check(dryRun || token != null) {
+                    "Callback of job ${job?.id} already claimed by ${job?.callbackClaim} (last updated ${job?.updatedAt} UTC); " +
+                        "reconcile an interrupted callback before retrying"
+                }
                 job to token
             } catch (e: Exception) {
                 // 別のコールバックが処理中の可能性があるため、番組の状態は変えずに通知だけ行う
                 report("claiming encode callback failed. in_path:${input.inPath}", e)
                 return
             }
+        // claim 前のスナップショット。この呼び出し内での完了は finishProcess の中で完結し、catch には到達しない。
+        val alreadyCompleted = job?.state == "COMPLETED"
         var completed = false
         try {
             require(input.files.isNotEmpty()) { "Callback output list is empty" }
@@ -115,9 +120,7 @@ class AfterEncodeRunner(
             // アップロード済みのファイルや削除済みのローカルファイルは戻せないため、
             // 通知して番組を ERROR にするだけに留める。無人のバッチから呼ばれるので、
             // 例外をそのまま投げると誰も気づけない。
-            // job は claim 前のスナップショットで、「呼び出し時点で完了済み」を表す。
-            // この呼び出し内での完了は finishProcess の中で完結し、ここには到達しない。
-            if (job?.state == "COMPLETED") {
+            if (alreadyCompleted) {
                 logger.error("Rejected callback for completed job ${job.id}; existing outcome preserved", e)
                 return
             }
@@ -142,7 +145,7 @@ class AfterEncodeRunner(
         try {
             processingJobCommand.releaseCallback(job, token)
         } catch (e: Exception) {
-            report("releasing callback claim of job ${job.id} failed; reconcile the stale claim", e)
+            report("releasing callback claim of job ${job.id} failed; reconcile the stale claim $token", e)
         }
     }
 

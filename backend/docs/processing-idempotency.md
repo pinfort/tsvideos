@@ -14,6 +14,10 @@ A changed fingerprint is a new job, but existing path/name registrations require
 explicit reset; they are never silently reused or overwritten. Inspect/drop-check
 failures create no job. A proven rollback before any upload permits RETRYABLE claims.
 If any rollback step fails, or recording RETRYABLE itself fails, the job stays CLAIMED.
+A recording that is already registered without a matching job (pre-upgrade registrations,
+adopted legacy jobs, a changed fingerprint) or whose job awaits reconciliation fails on
+every `process` run, so directory rescans alert to Slack each time. This is deliberate:
+the alert repeats until an operator resets or reconciles the recording.
 Crashes and uncertain external effects are never automatically reclaimed.
 
 Job states: CLAIMED (active or interrupted), RETRYABLE (known safe retry),
@@ -67,6 +71,11 @@ WHERE id=@job_id AND callback_claim='the-inspected-owner-token';
 ```
 
 Do not clear callback_manifest or delete FILE_MOVED rows to force a changed callback.
+A callback refuses to upload over a video NAS target that has no created_file row ("Unowned
+NAS target exists"). This happens when an upload finished but the process died before
+inserting its row. Under stopped callbacks, compare the NAS file with the local output
+(same name, same length). If they match and no other created_file row points at that target,
+delete the NAS file and replay the original callback. Otherwise keep both and investigate.
 Preserve local artifacts if a pending upload is missing or NAS verification fails.
 For CLAIMED with no possible encoder task, inspect all registrations and generated
 artifacts. With an executed_file row, transition the inspected CLAIMED job to REJECTED

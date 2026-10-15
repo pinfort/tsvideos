@@ -20,12 +20,12 @@ interface ProcessingJobMapper {
     ): Int
 
     @Select(
-        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest FROM processing_job WHERE identity_key=#{key}",
+        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest,updated_at FROM processing_job WHERE identity_key=#{key}",
     )
     fun find(key: String): ProcessingJob?
 
     @Select(
-        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest FROM processing_job WHERE executed_file_id=#{id} ORDER BY id DESC LIMIT 1",
+        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest,updated_at FROM processing_job WHERE executed_file_id=#{id} ORDER BY id DESC LIMIT 1",
     )
     fun findByExecutedFile(id: Long): ProcessingJob?
 
@@ -92,7 +92,7 @@ interface ProcessingJobMapper {
     fun prepareReset(id: Long): Int
 
     @Select(
-        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest FROM processing_job WHERE input_path=#{path} ORDER BY id DESC LIMIT 1",
+        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest,updated_at FROM processing_job WHERE input_path=#{path} ORDER BY id DESC LIMIT 1",
     )
     fun findByPath(path: String): ProcessingJob?
 }

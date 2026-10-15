@@ -95,15 +95,16 @@ class FileProcessingPipeline(
         }
         processingJobCommand.findByPath(identity.path)?.let {
             check(it.identityKey == identity.key || it.state == "RETRYABLE") {
-                "Changed recording version requires reconciliation/reset of job ${it.id} (${it.state})"
+                "Changed recording version requires reconciliation of job ${it.id} (${it.state}); " +
+                    "see docs/processing-idempotency.md, then run `tvpcli reset ${identity.path}`"
             }
         }
         executedFileCommand.findByFile(identity.path)?.let {
-            error("Recording path already registered: changed or legacy input requires reset before processing")
+            error("Recording path already registered without a matching job; run `tvpcli reset ${identity.path}` before processing")
         }
         val inspection =
             inspect(file, onDropCheckProgress, onEmergencyCheckProgress)
-                ?: error("Recording name already registered; reconcile or reset before processing")
+                ?: error("Recording name ${file.name} already registered; run `tvpcli reset` on that recording before processing")
         check(ProcessingIdentity.from(file) == identity) { "Recording changed during inspection; retry when stable" }
         val job =
             processingJobCommand.claim(identity)
