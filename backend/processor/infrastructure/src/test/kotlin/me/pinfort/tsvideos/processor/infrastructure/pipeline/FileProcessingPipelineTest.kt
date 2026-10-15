@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.Called
 import io.mockk.Runs
 import io.mockk.clearAllMocks
@@ -414,6 +415,32 @@ class FileProcessingPipelineTest :
                 result shouldBe FileProcessingPipeline.Result.SKIPPED_ALREADY_REGISTERED
                 verify(exactly = 0) { tsSelectClient.check(any(), any()) }
                 verify(exactly = 0) { emergencyBroadcastDetector.detect(any(), any()) }
+            }
+        }
+
+        context("processFile - blocked recordings alert instead of skipping") {
+            expect("a recording name registered under another path fails before claiming") {
+                val original = newOriginalFile()
+                every { programCommand.findByName(original.name) } returns mockk<Program>()
+
+                val e = shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldBe
+                    "Recording name ${original.name} already registered; run `tvpcli reset` on that recording before processing"
+                verify(exactly = 0) { jobs.claim(any()) }
+                verify(exactly = 0) { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+            }
+
+            expect("a CLAIMED job names its age and possible causes") {
+                val original = newOriginalFile()
+                every { jobs.find(any()) } returns
+                    ProcessingJob(1, "key", original.canonicalPath, 1, 1, "CLAIMED", 10, null, null, LocalDateTime.of(2026, 10, 1, 3, 4))
+
+                val e = shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldContain "Job 1 is CLAIMED (last updated 2026-10-01T03:04 UTC)"
+                e.message shouldContain "after its upload started"
+                verify(exactly = 0) { tsSelectClient.check(any(), any()) }
             }
         }
 

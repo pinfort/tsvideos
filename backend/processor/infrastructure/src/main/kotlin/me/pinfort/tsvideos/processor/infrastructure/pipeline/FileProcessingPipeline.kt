@@ -88,9 +88,7 @@ class FileProcessingPipeline(
         }
         val existing = processingJobCommand.find(identity)
         if (existing != null && existing.state != "RETRYABLE") {
-            check(existing.state in setOf("SUBMITTED", "COMPLETED")) {
-                "Job ${existing.id} is ${existing.state}; reconcile before retrying (encoder submission may have succeeded)"
-            }
+            check(existing.state in setOf("SUBMITTED", "COMPLETED")) { blockedJobMessage(existing) }
             return Result.SKIPPED_ALREADY_REGISTERED
         }
         processingJobCommand.findByPath(identity.path)?.let {
@@ -155,6 +153,18 @@ class FileProcessingPipeline(
             throw e
         }
         return Result.PROCESSED
+    }
+
+    private fun blockedJobMessage(job: ProcessingJob): String {
+        val reason =
+            when (job.state) {
+                "CLAIMED" ->
+                    "another invocation is processing it, or an earlier one stopped after its upload started " +
+                        "or without finishing rollback"
+                "SUBMISSION_UNKNOWN" -> "encoder submission may have succeeded; check the encoder queue before reconciling"
+                else -> "finish its reset (`tvpcli reset ${job.inputPath}`) before processing"
+            }
+        return "Job ${job.id} is ${job.state} (last updated ${job.updatedAt} UTC): $reason. See docs/processing-idempotency.md"
     }
 
     // Must not replace the processing failure being reported: a failure here leaves the job CLAIMED.

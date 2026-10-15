@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS processing_job (
  callback_manifest CHAR(64) CHARACTER SET ascii NULL,
  created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
  updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+ -- At most one job per executed file: retry() clears the link and reset removes the job.
  KEY executed_file_id (executed_file_id),
  -- Lookup hint for findByPath only; identity_key is what enforces uniqueness.
  KEY input_path (input_path(255))
