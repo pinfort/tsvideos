@@ -85,8 +85,19 @@ class RecoveryInspectionCommandTest :
                 command.inspect(1).status shouldBe "INCONSISTENT"
                 val archive = mockk<me.pinfort.tsvideos.core.domain.UploadManifest>()
                 every { archive.state } returns "REGISTERED"
-                every { archive.finalPath } returns "archive.gz"
+                every { archive.finalPath } returns "recording@channel/archive.gz"
                 every { receipts.inspectRecovery(1, "original") } returns archive
+                command
+                    .inspect(1)
+                    .nasArtifacts
+                    .single()
+                    .path shouldBe "recording@channel/archive.gz"
+                every { archive.finalPath } returns "smb://user:secret@host/archive.gz"
+                command
+                    .inspect(1)
+                    .nasArtifacts
+                    .single()
+                    .path shouldBe "(invalid NAS path redacted)"
                 command.inspect(1).status shouldBe "WAITING"
                 command
                     .inspect(1)

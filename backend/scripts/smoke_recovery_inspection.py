@@ -30,9 +30,9 @@ try:
   def evidence(p): return dict(path=str(p),size=p.stat().st_size,modified=p.stat().st_mtime_ns//1000000,sha256=sha(p.read_bytes()),rowId=None)
   rawmtime=raw.stat().st_mtime_ns//1000000; identity=sha(f'{raw}\0{raw.stat().st_size}\0{rawmtime}'.encode())
   e1,e2,ea=evidence(one),evidence(two),evidence(archive)
-  manifest=dict(jobId=1,itemId=9,splitId=1,inPath=str(moved),outputs=[dict(file=e1,target='x/show/one.mp4',mime='video/mp4',encoding=None),dict(file=e2,target='x/show/two.mp4',mime='video/mp4',encoding=None)],cleanupFiles=[evidence(split),evidence(moved)])
+  manifest=dict(jobId=1,itemId=9,splitId=1,inPath=str(moved),outputs=[dict(file=e1,target='x/show/one@channel.mp4',mime='video/mp4',encoding=None),dict(file=e2,target='x/show/two.mp4',mime='video/mp4',encoding=None)],cleanupFiles=[evidence(split),evidence(moved)])
   sql(f"INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) VALUES(1,{q(raw)},0,{raw.stat().st_size},'2026-01-01','1','raw','channel',60,'SPLITTED'); INSERT INTO program(id,name,executed_file_id,status) VALUES(1,'raw.m2ts',1,'ERROR'); INSERT INTO splitted_file(id,executed_file_id,file,size,duration,status) VALUES(1,1,{q(split)},{split.stat().st_size},60,'COMPRESS_SAVED'); INSERT INTO processing_job(id,identity_key,input_path,input_size,modified_millis,state,executed_file_id) VALUES(1,{q(identity)},{q(raw)},{raw.stat().st_size},{rawmtime},'SUBMITTED',1); INSERT INTO processing_attempt(id,job_id,attempt_number,kind,outcome,ended_at) VALUES(1,1,1,'CALLBACK','FAILED',UTC_TIMESTAMP(6)); INSERT INTO processing_history_identity(job_id,identity_key,input_path,input_size,modified_millis,last_attempt) VALUES(1,{q(identity)},{q(raw)},{raw.stat().st_size},{rawmtime},1); INSERT INTO processing_callback_input(job_id,manifest) VALUES(1,{q(json.dumps(manifest,ensure_ascii=False))});")
-  for i,artifact,e,target,typ,mime,encoding,share in [(1,'original',ea,'x/show/archive.gz','ORIGINAL_STORE_NAS','video/vnd.dlna.mpeg-tts','gzip','bob'),(2,'encoded:'+str(one),e1,'x/show/one.mp4','VIDEO_STORE_NAS','video/mp4',None,'alice')]:
+  for i,artifact,e,target,typ,mime,encoding,share in [(1,'original',ea,'x/show/archive.gz','ORIGINAL_STORE_NAS','video/vnd.dlna.mpeg-tts','gzip','bob'),(2,'encoded:'+str(one),e1,'x/show/one@channel.mp4','VIDEO_STORE_NAS','video/mp4',None,'alice')]:
    src=pathlib.Path(e['path']); contents=src.read_bytes()
    subprocess.run(['docker','exec','-i',nas,'sh','-c',f'mkdir -p /shares/{share}/x/show && chmod 777 /shares/{share}/x /shares/{share}/x/show && cat > /shares/{share}/{target}'],input=contents,check=True)
    sql(f"INSERT INTO created_file(id,splitted_file_id,file,size,mime,encoding,status) VALUES({i},1,{q(target)},{e['size']},{q(mime)},{q(encoding) if encoding else 'NULL'},'FILE_MOVED'); INSERT INTO upload_manifest(id,job_id,artifact_key,destination_key,nas_type,final_path,temporary_path,source_path,source_size,source_modified,source_sha256,checksum_required,state,created_file_id) VALUES({i},1,{q(sha(artifact.encode()))},{q(sha((typ+chr(0)+target).encode()))},{q(typ)},{q(target)},{q(target+'.owned-temp')},{q(e['path'])},{e['size']},{e['modified']},{q(e['sha256'])},1,'REGISTERED',{i});")
@@ -53,6 +53,8 @@ try:
   assert report['resumePossible'] and any(a['status']=='MISSING' for a in report['localArtifacts'])
   assert any(a['verification']=='SHA256_RECEIPT' for a in report['uploads'])
   assert report['callback']['outputs'][0]['file']['path']==str(one)
+  assert report['callback']['outputs'][0]['target']=='x/show/one@channel.mp4'
+  assert any(a['path']=='x/show/one@channel.mp4' for a in report['nasArtifacts'])
   sql(f"INSERT INTO upload_manifest(id,job_id,artifact_key,destination_key,nas_type,final_path,temporary_path,source_path,source_size,source_modified,source_sha256,checksum_required,state,created_file_id) SELECT 9,job_id,{q(sha(b'unknown-artifact'))},{q(sha(b'unknown-target'))},nas_type,'x/unknown','x/unknown-temp',source_path,source_size,source_modified,source_sha256,checksum_required,state,created_file_id FROM upload_manifest WHERE id=2")
   unknown=readonly('inspect',['--job-id','1','--json'])
   assert next(m for m in unknown['uploads'] if m['id']==9)['verification']=='UNCHECKED'
@@ -84,7 +86,13 @@ try:
   sql('DELETE FROM processing_job WHERE id=4')
   legacy=readonly('inspect',['--recording','/missing-legacy.m2ts','--json'],4)
   assert not legacy['resumePossible'] and legacy['records'] and legacy['nasArtifacts']
-  sql('DELETE FROM program WHERE id=2')
+  assert [r['id'] for r in legacy['records'] if r['type']=='PROGRAM']==[2]
+  sql("INSERT INTO program(id,name,executed_file_id,status) VALUES(3,'duplicate legacy',2,'ERROR')")
+  duplicate=readonly('inspect',['--recording','/missing-legacy.m2ts','--json'],4)
+  assert duplicate['status']=='INCONSISTENT'
+  assert [r['id'] for r in duplicate['records'] if r['type']=='PROGRAM']==[2,3]
+  assert any(a['reason']=='PROGRAM_REGISTRATION_MISSING_OR_AMBIGUOUS' for a in duplicate['nasArtifacts'])
+  sql('DELETE FROM program WHERE id IN (2,3)')
   orphan=readonly('inspect',['--recording','/missing-legacy.m2ts','--json'],4)
   assert orphan['status']=='INCONSISTENT' and orphan['nasArtifacts'][0]['status']=='UNCHECKED'
   denied=root/'denied'; denied.mkdir(); hidden=denied/'raw.m2ts'; hidden.write_bytes(b'data'); denied.chmod(0)

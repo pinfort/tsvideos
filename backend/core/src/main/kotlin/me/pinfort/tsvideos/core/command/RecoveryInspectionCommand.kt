@@ -102,7 +102,7 @@ class RecoveryInspectionCommand(
                 .selectByExecutedFileId(
                     row.id,
                 ).forEach { records.add(InspectionRecord("CREATED", it.id, safeNas(it.file), it.status.name)) }
-            val linkedPrograms = programs.selectAll().filter { it.executedFileId == row.id }
+            val linkedPrograms = selector.programIdsByExecutedFileId(row.id).mapNotNull { programs.find(it) }
             if (linkedPrograms.size != 1) {
                 registrationInconsistent = true
                 created.selectByExecutedFileId(row.id).forEach {
@@ -289,5 +289,5 @@ class RecoveryInspectionCommand(
         )
     }
 
-    private fun safeNas(path: String): String = if (path.contains("://") || path.contains('@')) "(invalid NAS path redacted)" else path
+    private fun safeNas(path: String): String = if (path.contains("://")) "(invalid NAS path redacted)" else path
 }
