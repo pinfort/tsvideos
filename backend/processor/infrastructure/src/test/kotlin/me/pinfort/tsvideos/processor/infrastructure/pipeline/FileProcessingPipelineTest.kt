@@ -535,6 +535,62 @@ class FileProcessingPipelineTest :
                 return executedFile
             }
 
+            // Stubs every stage up to the original-store upload; returns the archive path compress would create.
+            fun stubThroughUpload(original: File): File {
+                val executedFile = stubFailingSplit(original)
+                val outDir = File(original.parentFile, "tssplitter")
+                val splitFile = File(outDir, "${original.nameWithoutExtension}_1.m2ts")
+                every { tsSplitterClient.split(any(), any(), any()) } answers {
+                    outDir.mkdirs()
+                    splitFile.writeBytes("split content".toByteArray())
+                    0
+                }
+                every { splittedFileCommand.insert(any(), any(), any(), any(), any()) } returns
+                    SplittedFile(200, executedFile.id, splitFile.absolutePath, 13, 100.0, SplittedFile.Status.REGISTERED)
+                every { splittedFileCommand.delete(any(), any()) } just Runs
+                every { executedFileCommand.updateStatus(any(), any(), any()) } returns executedFile
+                every {
+                    sambaClient.resolvePathUnderBaseDir(SambaClient.NasType.ORIGINAL_STORE_NAS, any())
+                } answers { "nas-base-dir/${secondArg<String>()}" }
+                return File(outDir, "${splitFile.name}.gz")
+            }
+
+            expect("a failed job link rolls the registration back and releases the job for retry") {
+                val original = newOriginalFile()
+                val executedFile = stubFailingSplit(original)
+                every { jobs.link(any(), any()) } throws RuntimeException("db blip")
+
+                shouldThrow<RuntimeException> { fileProcessingPipeline.processFile(original) }
+
+                verify { executedFileCommand.delete(executedFile, false) }
+                verify { tsSplitterClient wasNot Called }
+                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
+            expect("a compress failure removes the partial archive and releases the job for retry") {
+                val original = newOriginalFile()
+                val archive = stubThroughUpload(original)
+
+                shouldThrow<IllegalStateException> {
+                    fileProcessingPipeline.processFile(original, onCompressProgress = { _, _ -> error("disk full") })
+                }
+
+                archive.exists() shouldBe false
+                verify(exactly = 0) { nasComponent.uploadResource(any(), any(), any(), any()) }
+                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
+            expect("an upload failure keeps the job claimed for reconciliation") {
+                val original = newOriginalFile()
+                stubThroughUpload(original)
+                every { nasComponent.uploadResource(any(), any(), any(), any()) } throws RuntimeException("smb timeout")
+
+                shouldThrow<RuntimeException> { fileProcessingPipeline.processFile(original) }
+
+                verify(exactly = 0) { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                verify { logger.error(match<String> { it.contains("requires reconciliation") }, any<Throwable>()) }
+            }
+
             expect("a clean rollback releases the job for retry") {
                 val original = newOriginalFile()
                 stubFailingSplit(original)

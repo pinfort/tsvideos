@@ -115,17 +115,30 @@ class FileProcessingPipeline(
             var registered: ExecutedFile? = null
             val executedFile =
                 runner.stage({ registered?.let { rollbackRegistration(it) } }) {
-                    registerRecording(File(identity.path), inspection).also { registered = it }
+                    registerRecording(File(identity.path), inspection).also {
+                        registered = it
+                        // Inside the stage so that a failed link rolls the registration back.
+                        processingJobCommand.link(job, it.id)
+                    }
                 }
-            processingJobCommand.link(job, executedFile.id)
             var splitInvoked = false
             val mainSplittedFile =
                 runner.stage({ if (splitInvoked) rollbackTsSplit(executedFile) }) {
                     tsSplit(executedFile) { splitInvoked = true }
                 }
-            uploadStarted = true
-            runner.stage({ rollbackCompressAndSave(mainSplittedFile) }) {
-                compressAndSave(mainSplittedFile, onCompressProgress, onUploadProgress)
+            var createdArchive: File? = null
+            runner.stage({
+                // A retry would upload a leftover partial archive as-is, so remove the one this attempt created.
+                if (!uploadStarted) createdArchive?.let { check(it.delete() || !it.exists()) { "Cannot delete partial archive $it" } }
+                rollbackCompressAndSave(mainSplittedFile)
+            }) {
+                compressAndSave(
+                    mainSplittedFile,
+                    onCompressProgress,
+                    onUploadProgress,
+                    onArchiveCreating = { createdArchive = it },
+                    beforeUpload = { uploadStarted = true },
+                )
             }
             // Once submission starts rollback would destroy input possibly already consumed by the encoder.
             processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
@@ -310,10 +323,13 @@ class FileProcessingPipeline(
         splittedFile: SplittedFile,
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
+        onArchiveCreating: (File) -> Unit,
+        beforeUpload: () -> Unit,
     ) {
         val splitFile = File(splittedFile.file)
         val compressedFile = File(splitFile.parentFile, "${splitFile.name}.gz")
 
+        if (!compressedFile.exists()) onArchiveCreating(compressedFile)
         if (!compressComponent.compress(splitFile, compressedFile, false, onCompressProgress)) {
             logger.error("Compress skipped, compressed file already exists, splitFile=$splitFile")
             return
@@ -326,6 +342,7 @@ class FileProcessingPipeline(
                 SambaClient.NasType.ORIGINAL_STORE_NAS,
             )
 
+        beforeUpload()
         nasComponent.uploadResource(compressedFile, targetFile, SambaClient.NasType.ORIGINAL_STORE_NAS, onUploadProgress)
         createdFileCommand.insert(
             splittedFile.id,

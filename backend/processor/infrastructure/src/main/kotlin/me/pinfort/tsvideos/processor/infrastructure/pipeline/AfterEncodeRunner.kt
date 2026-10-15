@@ -121,7 +121,7 @@ class AfterEncodeRunner(
             // 通知して番組を ERROR にするだけに留める。無人のバッチから呼ばれるので、
             // 例外をそのまま投げると誰も気づけない。
             if (alreadyCompleted) {
-                logger.error("Rejected callback for completed job ${job.id}; existing outcome preserved", e)
+                logger.error("Rejected callback for completed job ${job?.id}; existing outcome preserved", e)
                 return
             }
             notifyFailure(

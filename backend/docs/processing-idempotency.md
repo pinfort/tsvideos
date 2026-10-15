@@ -17,6 +17,10 @@ A changed fingerprint is a new job, but existing path/name registrations require
 explicit reset; they are never silently reused or overwritten. Inspect/drop-check
 failures create no job. A proven rollback before any upload permits RETRYABLE claims.
 If any rollback step fails, or recording RETRYABLE itself fails, the job stays CLAIMED.
+Failures up to and including compression (registration, job linkage, split, gzip) are
+rolled back, including the partial local archive, and become RETRYABLE. Once the upload
+to the original-store NAS has started the job stays CLAIMED, even if rollback succeeds,
+because a partial or complete NAS copy may exist.
 A recording that is already registered without a matching job (pre-upgrade registrations,
 adopted legacy jobs, a changed fingerprint) or whose job awaits reconciliation fails on
 every `process` run, so directory rescans alert to Slack each time. This is deliberate:
