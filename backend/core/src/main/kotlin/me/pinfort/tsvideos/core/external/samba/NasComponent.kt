@@ -19,6 +19,19 @@ class NasComponent(
         private val NO_OP_PROGRESS_LISTENER: (Long, Long) -> Unit = { _, _ -> }
     }
 
+    fun matchesSize(
+        file: String,
+        expectedBytes: Long,
+        nasType: SambaClient.NasType,
+    ): Boolean {
+        val nas =
+            when (nasType) {
+                SambaClient.NasType.VIDEO_STORE_NAS -> videoStoreNas
+                SambaClient.NasType.ORIGINAL_STORE_NAS -> originalStoreNas
+            }
+        return nas.resolve(file.replace('\\', '/')).use { it.exists() && it.length() == expectedBytes }
+    }
+
     fun getResource(file: String): SmbResource {
         // replace because windows path using '\'
         val resource = videoStoreNas.resolve(file.replace('\\', '/'))

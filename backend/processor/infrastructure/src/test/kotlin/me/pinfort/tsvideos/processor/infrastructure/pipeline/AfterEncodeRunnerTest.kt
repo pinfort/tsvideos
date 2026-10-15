@@ -11,6 +11,7 @@ import io.mockk.verify
 import io.mockk.verifyOrder
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.MimeTypeComponent
@@ -19,6 +20,7 @@ import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFile
+import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.external.samba.NasComponent
@@ -59,6 +61,7 @@ class AfterEncodeRunnerTest :
         lateinit var sambaClient: SambaClient
         lateinit var validateCompletedComponent: ValidateCompletedComponent
         lateinit var slackClient: SlackClient
+        lateinit var jobs: ProcessingJobCommand
         lateinit var logger: Logger
         lateinit var afterEncodeRunner: AfterEncodeRunner
 
@@ -149,6 +152,15 @@ class AfterEncodeRunnerTest :
             validateCompletedComponent = mockk()
             slackClient = mockk()
             logger = mockk(relaxed = true)
+            jobs = mockk(relaxed = true)
+            every { jobs.find(any()) } returns null
+            every { jobs.claim(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "CLAIMED", null, null)
+            every { executedFileCommand.findByFile(any()) } returns null
+            every { jobs.findByExecutedFile(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "SUBMITTED", 1, null)
+            every { jobs.claimCallback(any()) } returns "token"
+            every { createdFileCommand.selectBySplittedFileId(any()) } returns emptyList()
+            every { nasComponent.matchesSize(any(), any(), any()) } returns true
+            every { nasComponent.resourceExists(any()) } returns false
             afterEncodeRunner =
                 AfterEncodeRunner(
                     splittedFileCommand,
@@ -161,9 +173,76 @@ class AfterEncodeRunnerTest :
                     validateCompletedComponent,
                     slackClient,
                     logger,
+                    jobs,
                 )
         }
 
+        context("idempotent callbacks") {
+            for (failure in listOf("none", "db-after-upload", "second-file")) {
+                val failAfterUpload = failure == "db-after-upload"
+                expect("repeated callback converges with deleted local artifacts, failure=$failure") {
+                    val fixture = Fixture()
+                    stubRegisterAndMove(fixture)
+                    val ledger = mutableListOf<CreatedFile>()
+                    val secondOutput = File(fixture.encodedDir, "rec_2.mp4").apply { writeText("second") }
+                    val callback = inputOf(fixture).copy(files = listOf(fixture.outFile.toPath(), secondOutput.toPath()))
+                    var failSecond = failure == "second-file"
+                    var uploadCount = 0
+                    var failCommit = failAfterUpload
+                    every { createdFileCommand.selectBySplittedFileId(20) } answers { ledger.toList() }
+                    every { createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any()) } answers {
+                        CreatedFile(300L + ledger.size, firstArg(), secondArg(), thirdArg(), arg(3), arg(4), arg(5)).also { ledger.add(it) }
+                    }
+                    every { nasComponent.uploadResource(any(), any(), any(), any()) } answers {
+                        uploadCount++
+                        if (failSecond && firstArg<File>() == secondOutput) {
+                            failSecond = false
+                            error("Second file upload failed")
+                        }
+                        uploadCount == 1
+                    }
+                    every { createdFileCommand.updateStatus(any(), any(), any()) } answers {
+                        if (failCommit) {
+                            failCommit = false
+                            error("DB update failed after external upload")
+                        }
+                        val updated = firstArg<CreatedFile>().copy(status = secondArg())
+                        ledger[ledger.indexOfFirst { it.id == updated.id }] = updated
+                        updated
+                    }
+                    every { programCommand.findByExecutedFileId(10) } returns program
+                    every { validateCompletedComponent.validate(1) } returns true
+                    every { executedFileCommand.find(10) } returns executedFileOf(fixture)
+                    every { splittedFileCommand.selectByExecutedFileId(10) } returns listOf(splittedFileOf(fixture))
+                    every { programCommand.updateStatusByExecutedFileId(any(), any(), any()) } just Runs
+                    every { slackClient.notify(any()) } just Runs
+                    afterEncodeRunner.run(callback)
+                    if (failAfterUpload) fixture.outFile.exists() shouldBe true
+                    afterEncodeRunner.run(callback)
+                    afterEncodeRunner.run(callback)
+                    ledger.size shouldBe 2
+                    ledger.forEach { it.status shouldBe CreatedFile.Status.FILE_MOVED }
+                    fixture.outFile.exists() shouldBe false
+                    fixture.inFile.exists() shouldBe false
+                    verify(exactly = 2) { createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any()) }
+                    verify(exactly = if (failure == "none") 2 else 3) { nasComponent.uploadResource(any(), any(), any(), any()) }
+                    verify(exactly = 3) { jobs.releaseCallback(any(), "token") }
+                    fixture.root.deleteRecursively()
+                }
+            }
+            expect("does not remove output when NAS verification fails") {
+                val fixture = Fixture()
+                stubRegisterAndMove(fixture)
+                every { nasComponent.matchesSize(any(), any(), any()) } returns false
+                every { slackClient.notify(any()) } just Runs
+                every { programCommand.updateStatusByExecutedFileId(any(), any(), any()) } just Runs
+                afterEncodeRunner.run(inputOf(fixture))
+                fixture.outFile.exists() shouldBe true
+                verify(exactly = 0) { createdFileCommand.updateStatus(any(), any(), any()) }
+                verify { jobs.releaseCallback(any(), "token") }
+                fixture.root.deleteRecursively()
+            }
+        }
         context("run - encode failed") {
             expect("notifies slack and touches nothing") {
                 val fixture = Fixture()
@@ -194,6 +273,167 @@ class AfterEncodeRunnerTest :
             }
         }
 
+        context("run - callback claim") {
+            for ((case, stub) in listOf<Pair<String, () -> Unit>>(
+                "legacy callback" to { every { jobs.findByExecutedFile(10) } returns null },
+                "callback already claimed" to { every { jobs.claimCallback(any()) } returns null },
+                "claim query fails" to { every { jobs.claimCallback(any()) } throws RuntimeException("db down") },
+            )) {
+                expect("notifies slack without throwing or touching the program, case=$case") {
+                    val fixture = Fixture()
+                    stubRegisterAndMove(fixture)
+                    stub()
+                    every { slackClient.notify(any()) } just Runs
+
+                    afterEncodeRunner.run(inputOf(fixture))
+
+                    verify { slackClient.notify(match { it.contains("claiming encode callback failed") }) }
+                    verify(exactly = 0) { programCommand.updateStatusByExecutedFileId(any(), any(), any()) }
+                    verify(exactly = 0) { createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any()) }
+                    verify(exactly = 0) { jobs.releaseCallback(any(), any()) }
+                    fixture.outFile.exists() shouldBe true
+                    fixture.root.deleteRecursively()
+                }
+            }
+
+            expect("a failed claim release after success is reported without undoing the completion") {
+                val fixture = Fixture()
+                stubRegisterAndMove(fixture)
+                every { programCommand.findByExecutedFileId(10) } returns program
+                every { validateCompletedComponent.validate(1) } returns true
+                every { executedFileCommand.find(10) } returns executedFileOf(fixture)
+                every { splittedFileCommand.selectByExecutedFileId(10) } returns listOf(splittedFileOf(fixture))
+                every { programCommand.updateStatusByExecutedFileId(any(), any(), any()) } just Runs
+                every { jobs.releaseCallback(any(), "token") } throws IllegalStateException("claim lost")
+                every { slackClient.notify(any()) } just Runs
+
+                afterEncodeRunner.run(inputOf(fixture))
+
+                verify { programCommand.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                verify(exactly = 0) { programCommand.updateStatusByExecutedFileId(10, Program.Status.ERROR, any()) }
+                verify { slackClient.notify(match { it.contains("releasing callback claim of job 1 failed") }) }
+                fixture.root.deleteRecursively()
+            }
+
+            expect("a failed claim release does not mask the processing failure") {
+                val fixture = Fixture()
+                stubRegisterAndMove(fixture)
+                every { nasComponent.uploadResource(any(), any(), any(), any()) } throws RuntimeException("smb timeout")
+                every { programCommand.updateStatusByExecutedFileId(any(), any(), any()) } just Runs
+                every { jobs.releaseCallback(any(), "token") } throws IllegalStateException("claim lost")
+                every { slackClient.notify(any()) } just Runs
+
+                afterEncodeRunner.run(inputOf(fixture))
+
+                verify { slackClient.notify(match { it.contains("smb timeout") }) }
+                verify { programCommand.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
+                verify { slackClient.notify(match { it.contains("releasing callback claim of job 1 failed") }) }
+                fixture.root.deleteRecursively()
+            }
+        }
+
+        context("run - job lifecycle") {
+            fun stubCompletion(fixture: Fixture) {
+                stubRegisterAndMove(fixture)
+                every { programCommand.findByExecutedFileId(10) } returns program
+                every { validateCompletedComponent.validate(1) } returns true
+                every { executedFileCommand.find(10) } returns executedFileOf(fixture)
+                every { splittedFileCommand.selectByExecutedFileId(10) } returns listOf(splittedFileOf(fixture))
+            }
+
+            expect("completes a job whose submission acknowledgement has not been recorded yet") {
+                val fixture = Fixture()
+                stubCompletion(fixture)
+                every { jobs.findByExecutedFile(10) } returns
+                    ProcessingJob(1, "key", "path", 1, 1, "SUBMISSION_UNKNOWN", 10, null)
+                every { programCommand.updateStatusByExecutedFileId(any(), any(), any()) } just Runs
+
+                afterEncodeRunner.run(inputOf(fixture))
+
+                verify { jobs.complete(match { it.state == "SUBMISSION_UNKNOWN" }) }
+                verify { programCommand.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                verify { jobs.releaseCallback(any(), "token") }
+                fixture.root.deleteRecursively()
+            }
+
+            expect("marks the program as ERROR when completion fails after the originals were removed") {
+                val fixture = Fixture()
+                stubCompletion(fixture)
+                every {
+                    programCommand.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false)
+                } throws RuntimeException("db down")
+                every { programCommand.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) } just Runs
+                every { slackClient.notify(any()) } just Runs
+
+                afterEncodeRunner.run(inputOf(fixture))
+
+                fixture.inFile.exists() shouldBe false
+                fixture.executedFile.exists() shouldBe false
+                verify { slackClient.notify(match { it.contains("db down") }) }
+                verify { programCommand.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
+                verify(exactly = 0) { jobs.complete(any()) }
+                verify(exactly = 0) { logger.info(match<String> { it.contains("uploading file completed") }) }
+                verify { jobs.releaseCallback(any(), "token") }
+                fixture.root.deleteRecursively()
+            }
+
+            expect("keeps a completed program when recording the job completion fails") {
+                val fixture = Fixture()
+                stubCompletion(fixture)
+                every { programCommand.updateStatusByExecutedFileId(any(), any(), any()) } just Runs
+                every { jobs.complete(any()) } throws IllegalStateException("job is RESETTING")
+                every { slackClient.notify(any()) } just Runs
+
+                afterEncodeRunner.run(inputOf(fixture))
+
+                verify { programCommand.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                verify(exactly = 0) { programCommand.updateStatusByExecutedFileId(10, Program.Status.ERROR, any()) }
+                verify { slackClient.notify(match { it.contains("marking processing job completed failed") }) }
+                verify { jobs.releaseCallback(any(), "token") }
+                fixture.root.deleteRecursively()
+            }
+
+            expect("finds a pre-064 splitted file registered through a symlinked path") {
+                val fixture = Fixture()
+                val linkRoot = Files.createTempDirectory("after-encode-link").toFile()
+                try {
+                    val link = Files.createSymbolicLink(File(linkRoot, "link").toPath(), fixture.root.toPath())
+                    val linkedOriginal = link.resolve("myprogram/tssplitter/rec_1.m2ts").toFile()
+                    stubCompletion(fixture)
+                    every { splittedFileCommand.findByFile(linkedOriginal.canonicalPath) } returns null
+                    every { splittedFileCommand.findByFile(linkedOriginal.absolutePath) } returns splittedFileOf(fixture)
+                    every { programCommand.updateStatusByExecutedFileId(any(), any(), any()) } just Runs
+
+                    afterEncodeRunner.run(
+                        inputOf(fixture).copy(
+                            inPath = link.resolve("myprogram/tssplitter/succeeded/rec_1.m2ts"),
+                            files = listOf(link.resolve("myprogram/tssplitter/encoded/rec_1.mp4")),
+                        ),
+                    )
+
+                    verify { splittedFileCommand.findByFile(linkedOriginal.absolutePath) }
+                    verify { programCommand.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                } finally {
+                    linkRoot.deleteRecursively()
+                    fixture.root.deleteRecursively()
+                }
+            }
+
+            expect("names the current claim and its age when the callback is already claimed") {
+                val fixture = Fixture()
+                stubRegisterAndMove(fixture)
+                every { jobs.findByExecutedFile(10) } returns
+                    ProcessingJob(1, "key", "path", 1, 1, "SUBMITTED", 10, "other-owner", null, LocalDateTime.of(2026, 10, 1, 3, 4))
+                every { jobs.claimCallback(any()) } returns null
+                every { slackClient.notify(any()) } just Runs
+
+                afterEncodeRunner.run(inputOf(fixture))
+
+                verify { slackClient.notify(match { it.contains("other-owner") && it.contains("2026-10-01T03:04") }) }
+                fixture.root.deleteRecursively()
+            }
+        }
+
         context("run - NAS destination") {
             expect("uses the normalized recording directory above tssplitter and encoded for registration and upload") {
                 val fixture = Fixture("Ａnime:０１")
@@ -207,7 +447,7 @@ class AfterEncodeRunnerTest :
 
                     afterEncodeRunner.run(inputOf(fixture))
 
-                    verify(exactly = 1) {
+                    verify {
                         sambaClient.resolvePathUnderBaseDir(SambaClient.NasType.VIDEO_STORE_NAS, "A/Anime：01/rec_1.mp4")
                     }
                     verify(exactly = 1) {
@@ -322,6 +562,7 @@ class AfterEncodeRunnerTest :
                 verify { slackClient.notify(match { it.contains("program not found") }) }
                 verify(exactly = 0) { programCommand.updateStatusByExecutedFileId(any(), any(), any()) }
                 fixture.inFile.exists() shouldBe true
+                verify(exactly = 0) { logger.info(match<String> { it.contains("uploading file completed") }) }
             }
 
             expect("marks the program as ERROR when the nas upload throws") {
