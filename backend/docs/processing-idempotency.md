@@ -13,6 +13,7 @@ Use the same filesystem path spelling and preserve metadata when restoring files
 A changed fingerprint is a new job, but existing path/name registrations require an
 explicit reset; they are never silently reused or overwritten. Inspect/drop-check
 failures create no job. A proven rollback before any upload permits RETRYABLE claims.
+If any rollback step fails, or recording RETRYABLE itself fails, the job stays CLAIMED.
 Crashes and uncertain external effects are never automatically reclaimed.
 
 Job states: CLAIMED (active or interrupted), RETRYABLE (known safe retry),
@@ -55,6 +56,8 @@ to RETRYABLE: its registrations and uploads may already exist. For acknowledged
 SUBMITTED jobs cancelled by the operator, verify the encoder has terminated before
 using the same guarded transition from SUBMITTED to REJECTED, then reset.
 
+A callback that cannot claim its job (legacy job, claim already held, DB error) or cannot
+release its claim reports to Slack and exits without changing the program status.
 For an interrupted callback, verify no callback process is alive, record its exact
 `callback_claim` value, then release only that claim and replay the original callback:
 

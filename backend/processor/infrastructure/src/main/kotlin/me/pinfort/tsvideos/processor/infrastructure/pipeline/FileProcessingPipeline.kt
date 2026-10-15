@@ -14,6 +14,7 @@ import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.core.domain.FileName
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
+import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import me.pinfort.tsvideos.core.external.samba.NasComponent
@@ -107,9 +108,9 @@ class FileProcessingPipeline(
         val job =
             processingJobCommand.claim(identity)
                 ?: error("Recording already claimed by another invocation")
+        val runner = RollbackRunner()
         var uploadStarted = false
         try {
-            val runner = RollbackRunner()
             var registered: ExecutedFile? = null
             val executedFile =
                 runner.stage({ registered?.let { rollbackRegistration(it) } }) {
@@ -130,14 +131,32 @@ class FileProcessingPipeline(
             amatsukazeAddTask(mainSplittedFile)
             processingJobCommand.acknowledgeSubmission(job)
         } catch (e: Exception) {
-            if (!uploadStarted && e.suppressed.isEmpty() && executedFileCommand.findByFile(identity.path) == null) {
-                processingJobCommand.transition(job, "CLAIMED", "RETRYABLE")
+            // Retry is only safe when nothing reached the NAS and every rollback finished.
+            if (!uploadStarted && runner.rolledBackCleanly && markRetryable(job, identity, e)) {
+                logger.error("Processing job ${job.id} failed and was rolled back; it can be retried", e)
+            } else {
+                // Keep durable evidence even after an external effect succeeded but its DB update failed.
+                logger.error("Processing job ${job.id} requires reconciliation", e)
             }
-            // Keep durable evidence even after an external effect succeeded but its DB update failed.
-            logger.error("Processing job ${job.id} requires reconciliation", e)
             throw e
         }
         return Result.PROCESSED
+    }
+
+    // Must not replace the processing failure being reported: a failure here leaves the job CLAIMED.
+    private fun markRetryable(
+        job: ProcessingJob,
+        identity: ProcessingIdentity,
+        failure: Exception,
+    ): Boolean {
+        try {
+            if (executedFileCommand.findByFile(identity.path) != null) return false
+            processingJobCommand.transition(job, "CLAIMED", "RETRYABLE")
+            return true
+        } catch (e: Exception) {
+            failure.addSuppressed(e)
+            return false
+        }
     }
 
     // Read-only checks (drop-frame count, emergency broadcast detection, duration) shared by
@@ -340,10 +359,6 @@ class FileProcessingPipeline(
         check(amatsukazeAddTaskClient.addTask(splitFile, outDir, decideProfile(executedFile)) == 0) {
             "Encoder submission returned failure; outcome must be reconciled"
         }
-    }
-
-    private fun rollbackAmatsukazeAddTask(splittedFile: SplittedFile) {
-        logger.info("Nothing to rollback for AmatsukazeAddTask, splittedFile=$splittedFile")
     }
 
     private val atxDivTitleRegex = Regex("#[0-9]{1,3}-#[0-9]{1,3}")

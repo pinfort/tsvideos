@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS processing_job (
  callback_manifest CHAR(64) CHARACTER SET ascii NULL,
  created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
  updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
- KEY executed_file_id (executed_file_id)
+ KEY executed_file_id (executed_file_id),
+ KEY input_path (input_path(255))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 DROP TABLE IF EXISTS `test`.`executed_file_tag`;

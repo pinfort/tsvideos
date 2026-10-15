@@ -518,6 +518,56 @@ class FileProcessingPipelineTest :
             }
         }
 
+        context("processFile - retry decision") {
+            fun stubFailingSplit(original: File): ExecutedFile {
+                val executedFile = executedFileFixture(original)
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+                every {
+                    executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
+                } returns executedFile
+                every { programCommand.insert(any(), any(), any()) } returns mockk()
+                every { tsSplitterClient.split(any(), any(), any()) } returns 1
+                every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
+                every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+                every { executedFileCommand.delete(any(), any()) } just Runs
+                return executedFile
+            }
+
+            expect("a clean rollback releases the job for retry") {
+                val original = newOriginalFile()
+                stubFailingSplit(original)
+
+                shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
+            expect("a partially failed rollback keeps the job claimed for reconciliation") {
+                val original = newOriginalFile()
+                stubFailingSplit(original)
+                every { executedFileCommand.delete(any(), any()) } throws RuntimeException("db down")
+
+                val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                e.suppressed.map { it.message } shouldBe listOf("db down")
+                verify(exactly = 0) { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
+            expect("a failure to release the job does not mask the processing failure") {
+                val original = newOriginalFile()
+                stubFailingSplit(original)
+                every { jobs.transition(any(), "CLAIMED", "RETRYABLE") } throws IllegalStateException("state changed")
+
+                val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldBe "TsSplitter failed, exitCode=1, originalFile=$original"
+                e.suppressed.map { it.message } shouldBe listOf("state changed")
+                verify { logger.error(match<String> { it.contains("requires reconciliation") }, e) }
+            }
+        }
+
         context("processFile - ts split failure") {
             expect("rolls back ts split and drop chk when TsSplitter exits non-zero") {
                 val original = newOriginalFile()
