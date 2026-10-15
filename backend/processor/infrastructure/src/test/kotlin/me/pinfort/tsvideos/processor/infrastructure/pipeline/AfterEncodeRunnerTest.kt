@@ -377,6 +377,48 @@ class AfterEncodeRunnerTest :
                 fixture.root.deleteRecursively()
             }
 
+            expect("keeps a completed program when recording the job completion fails") {
+                val fixture = Fixture()
+                stubCompletion(fixture)
+                every { programCommand.updateStatusByExecutedFileId(any(), any(), any()) } just Runs
+                every { jobs.complete(any()) } throws IllegalStateException("job is RESETTING")
+                every { slackClient.notify(any()) } just Runs
+
+                afterEncodeRunner.run(inputOf(fixture))
+
+                verify { programCommand.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                verify(exactly = 0) { programCommand.updateStatusByExecutedFileId(10, Program.Status.ERROR, any()) }
+                verify { slackClient.notify(match { it.contains("marking processing job completed failed") }) }
+                verify { jobs.releaseCallback(any(), "token") }
+                fixture.root.deleteRecursively()
+            }
+
+            expect("finds a pre-064 splitted file registered through a symlinked path") {
+                val fixture = Fixture()
+                val linkRoot = Files.createTempDirectory("after-encode-link").toFile()
+                try {
+                    val link = Files.createSymbolicLink(File(linkRoot, "link").toPath(), fixture.root.toPath())
+                    val linkedOriginal = link.resolve("myprogram/tssplitter/rec_1.m2ts").toFile()
+                    stubCompletion(fixture)
+                    every { splittedFileCommand.findByFile(linkedOriginal.canonicalPath) } returns null
+                    every { splittedFileCommand.findByFile(linkedOriginal.absolutePath) } returns splittedFileOf(fixture)
+                    every { programCommand.updateStatusByExecutedFileId(any(), any(), any()) } just Runs
+
+                    afterEncodeRunner.run(
+                        inputOf(fixture).copy(
+                            inPath = link.resolve("myprogram/tssplitter/succeeded/rec_1.m2ts"),
+                            files = listOf(link.resolve("myprogram/tssplitter/encoded/rec_1.mp4")),
+                        ),
+                    )
+
+                    verify { splittedFileCommand.findByFile(linkedOriginal.absolutePath) }
+                    verify { programCommand.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                } finally {
+                    linkRoot.deleteRecursively()
+                    fixture.root.deleteRecursively()
+                }
+            }
+
             expect("names the current claim and its age when the callback is already claimed") {
                 val fixture = Fixture()
                 stubRegisterAndMove(fixture)

@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS processing_job (
  created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
  updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
  KEY executed_file_id (executed_file_id),
+ -- Lookup hint for findByPath only; identity_key is what enforces uniqueness.
  KEY input_path (input_path(255))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 ```

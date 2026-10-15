@@ -147,6 +147,28 @@ class ResetRunnerTest :
                 verify(exactly = 0) { jobs.reset(any()) }
             }
 
+            expect("finds a pre-064 executed file registered through a symlinked path") {
+                val fixture = ResetFixture()
+                val linkRoot = Files.createTempDirectory("reset-link").toFile()
+                try {
+                    val link = Files.createSymbolicLink(File(linkRoot, "link").toPath(), fixture.root.toPath())
+                    val linkedRecording = link.resolve("myprogram/rec.m2ts").toFile()
+                    every { executedFileCommand.findByFile(linkedRecording.canonicalPath) } returns null
+                    every { executedFileCommand.findByFile(linkedRecording.absolutePath) } returns executedFileOf(fixture)
+                    every { programCommand.findByExecutedFileId(1) } returns program
+                    every { splittedFileCommand.selectByExecutedFileId(1) } returns listOf(splittedFileOf(fixture))
+                    every { programCommand.delete(any(), any()) } just Runs
+
+                    resetRunner.run(linkedRecording.toPath(), dryRun = false)
+
+                    verify { programCommand.delete(program, false) }
+                    verify { jobs.reset(1) }
+                } finally {
+                    linkRoot.deleteRecursively()
+                    fixture.root.deleteRecursively()
+                }
+            }
+
             expect("aborts when the executed file is not found") {
                 every { executedFileCommand.findByFile(any()) } returns null
 

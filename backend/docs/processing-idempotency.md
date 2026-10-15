@@ -10,6 +10,9 @@ A job key is SHA-256 of canonical absolute input path, a NUL separator, byte len
 another NUL separator and last-modified milliseconds. It is a version fingerprint,
 not a content hash: identical size and timestamp cannot detect changed contents.
 Use the same filesystem path spelling and preserve metadata when restoring files.
+Recordings are identified by canonical path. Rows registered before 064 store the path
+as it was passed (absolute, possibly through a symlink); `reset` and callbacks fall back
+to that spelling, but `process` sees a different path and relies on the program name check.
 A changed fingerprint is a new job, but existing path/name registrations require an
 explicit reset; they are never silently reused or overwritten. Inspect/drop-check
 failures create no job. A proven rollback before any upload permits RETRYABLE claims.

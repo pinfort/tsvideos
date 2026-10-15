@@ -161,8 +161,13 @@ class AfterEncodeRunner(
      * 1つ上の階層に元のパスを組み立て直して splitted_file を探す。
      */
     private fun findOriginalSplittedFile(inPath: Path): SplittedFile? {
-        val originalFile = inPath.parent.parent.resolve(inPath.fileName)
-        return splittedFileCommand.findByFile(originalFile.toFile().canonicalPath)
+        val originalFile =
+            inPath.parent.parent
+                .resolve(inPath.fileName)
+                .toFile()
+        // 064 より前の行は absolutePath で登録されているため、見つからなければそちらでも探す
+        return splittedFileCommand.findByFile(originalFile.canonicalPath)
+            ?: splittedFileCommand.findByFile(originalFile.absolutePath)
     }
 
     private fun registerFiles(
@@ -254,7 +259,7 @@ class AfterEncodeRunner(
                 deleteLocalFile(inPath.toFile(), dryRun)
                 removeExecutedFile(executedFileId, dryRun)
                 programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.COMPLETED, dryRun)
-                if (!dryRun) processingJobCommand.findByExecutedFile(executedFileId)?.let { processingJobCommand.complete(it) }
+                if (!dryRun) completeJob(executedFileId)
                 return true
             }
             logger.error("program invalid, programId=${program.id}")
@@ -264,6 +269,22 @@ class AfterEncodeRunner(
             notifyFailure(executedFileId, "program invalid. programId:${program.id}", e, dryRun)
         }
         return false
+    }
+
+    /**
+     * 番組はすでに COMPLETED なので、ジョブの完了記録に失敗しても番組を ERROR にはしない。
+     * ジョブは SUBMITTED / SUBMISSION_UNKNOWN のまま残り、コールバックを再実行すれば完了する。
+     */
+    private fun completeJob(executedFileId: Long) {
+        try {
+            processingJobCommand.findByExecutedFile(executedFileId)?.let { processingJobCommand.complete(it) }
+        } catch (e: Exception) {
+            report(
+                "marking processing job completed failed; program stays COMPLETED, replay the callback. " +
+                    "executed_file_id:$executedFileId",
+                e,
+            )
+        }
     }
 
     /**

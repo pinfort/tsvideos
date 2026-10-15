@@ -14,6 +14,11 @@ class ProcessingJobCommand(
     private val mapper: ProcessingJobMapper,
     private val claims: ProcessingJobClaimCommand,
 ) {
+    /**
+     * Claims a new job, or re-claims a RETRYABLE one.
+     * @return the claimed job, or null when the claim was not acquired: another invocation holds it,
+     *   or the existing job is not RETRYABLE.
+     */
     fun claim(identity: ProcessingIdentity): ProcessingJob? =
         try {
             claims.insert(identity)
