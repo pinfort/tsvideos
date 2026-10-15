@@ -65,3 +65,19 @@ CREATE TABLE IF NOT EXISTS processing_job (
  updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
  KEY executed_file_id (executed_file_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+DROP TABLE IF EXISTS `test`.`executed_file_tag`;
+CREATE TABLE `test`.`executed_file_tag` (
+  `executed_file_id` bigint(20) NOT NULL,
+  `tag` varchar(64) NOT NULL,
+  PRIMARY KEY (`executed_file_id`, `tag`),
+  KEY `tag` (`tag`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+DROP TABLE IF EXISTS `test`.`executed_file_check`;
+CREATE TABLE `test`.`executed_file_check` (
+  `executed_file_id` bigint(20) NOT NULL,
+  `checker` varchar(64) NOT NULL,
+  `checked_at` datetime NOT NULL,
+  PRIMARY KEY (`executed_file_id`, `checker`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
