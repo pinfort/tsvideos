@@ -39,6 +39,7 @@ class TsVideosProcessorTest :
                     ProcessCommand(pathProcessingRunner),
                     AfterEncodeCommand(afterEncodeRunner),
                     ResetCommand(resetRunner, userQuestionComponent),
+                    ReleaseClaimCommand(mockk(), mockk(), userQuestionComponent),
                 )
         }
 

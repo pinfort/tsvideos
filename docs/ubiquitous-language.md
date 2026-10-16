@@ -33,6 +33,9 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | ドライラン | `--dry-run` | 書き込みを行わず動作だけ確認する実行方法 |
 | 処理ジョブ | `ProcessingJob` | 録画 1 件の処理状況を記録する単位。同じ録画を重複して処理しないための冪等性管理に使う |
 | 処理識別子 | `ProcessingIdentity` | パス・サイズ・更新時刻から作る録画の版の指紋。内容のハッシュではない |
+| 検証付きアップロード | `VerifiedUploadCommand` | NAS への保管を、所有権の記録 → 一時ファイルへの排他作成と転送 → 検証 → 上書きしないリネーム → 登録 の順で行うこと。登録と SHA-256 の再確認が済むまでローカルファイルは消さない |
+| アップロード台帳 | `UploadManifest` (`upload_manifest`) | 処理ジョブの成果物 1 つにつき 1 行。保管先・一時ファイル名・元ファイルの指紋と SHA-256・状態・クレームを持ち、どの NAS ファイルをこの処理が所有するかの証拠になる |
+| 受領証 | `VerifiedUploadReceipt` | 検証付きアップロードが返す台帳 ID。登録・ローカル削除のたびに台帳を読み直して検証する |
 
 ## ステータス
 
@@ -78,4 +81,4 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | TsSelect | ドロップ数のカウントなどを JVM 内で行うライブラリ (`TsSelectClient`) |
 | Amatsukaze | TS をエンコードするソフトウェア。`AmatsukazeAddTaskClient` でタスクを追加する |
 | NAS | 圧縮ファイルや作成ファイルの保管先。Samba 経由でアクセスする |
-| `tvpcli` | processor のコマンドラインツール (`process` / `after-encode` / `reset`) |
+| `tvpcli` | processor のコマンドラインツール (`process` / `after-encode` / `reset` / `release-claim`) |

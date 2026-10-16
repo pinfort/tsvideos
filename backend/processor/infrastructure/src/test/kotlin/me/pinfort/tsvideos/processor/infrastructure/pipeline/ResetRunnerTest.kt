@@ -14,6 +14,7 @@ import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
+import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
@@ -38,6 +39,7 @@ class ResetRunnerTest :
         lateinit var programCommand: ProgramCommand
         lateinit var splittedFileCommand: SplittedFileCommand
         lateinit var jobs: ProcessingJobCommand
+        lateinit var uploads: VerifiedUploadCommand
         lateinit var logger: Logger
         lateinit var resetRunner: ResetRunner
 
@@ -87,9 +89,58 @@ class ResetRunnerTest :
             splittedFileCommand = mockk()
             logger = mockk(relaxed = true)
             jobs = mockk(relaxed = true)
-            resetRunner = ResetRunner(executedFileCommand, programCommand, splittedFileCommand, logger, jobs)
+            uploads = mockk(relaxed = true)
+            every { jobs.findByPath(any()) } returns null
+            every { jobs.findByExecutedFile(any()) } returns null
+            resetRunner =
+                ResetRunner(executedFileCommand, programCommand, splittedFileCommand, logger, jobs, uploads)
         }
 
+        expect("repeated reset finishes manifest cleanup after program records have been deleted") {
+            val fixture = ResetFixture()
+            val job =
+                me.pinfort.tsvideos.core.domain.ProcessingJob(
+                    12,
+                    "key",
+                    fixture.executedFile.canonicalPath,
+                    8,
+                    1,
+                    "RESETTING",
+                    1,
+                    null,
+                )
+            var deleted = false
+            var failCleanup = true
+            every { jobs.findByExecutedFile(1) } returns job
+            every { jobs.findByPath(fixture.executedFile.canonicalPath) } returns job
+            every { executedFileCommand.findByFile(any()) } answers { if (deleted) null else executedFileOf(fixture) }
+            every { executedFileCommand.find(1) } returns null
+            every { programCommand.findByExecutedFileId(1) } answers { if (deleted) null else program }
+            every { splittedFileCommand.selectByExecutedFileId(1) } answers
+                { if (deleted) emptyList() else listOf(splittedFileOf(fixture)) }
+            every { programCommand.delete(program, false) } answers { deleted = true }
+            every { uploads.retireAfterReset(12) } answers {
+                if (failCleanup) {
+                    failCleanup = false
+                    error("NAS unavailable")
+                }
+            }
+            try {
+                shouldThrow<IllegalStateException> { resetRunner.run(fixture.executedFile.toPath()) }
+                verify(exactly = 0) { jobs.reset(1) }
+                resetRunner.run(fixture.executedFile.toPath(), dryRun = true)
+                verify(exactly = 1) { uploads.retireAfterReset(12) }
+                resetRunner.run(fixture.executedFile.toPath())
+                verify(exactly = 2) { uploads.retireAfterReset(12) }
+                verify(exactly = 1) { jobs.reset(1) }
+                verify(exactly = 1) { programCommand.delete(program, false) }
+                fixture.executedFile.exists() shouldBe true
+                fixture.splitFile.exists() shouldBe true
+                fixture.succeededSplitFile.exists() shouldBe true
+            } finally {
+                fixture.root.deleteRecursively()
+            }
+        }
         context("run") {
             expect("deletes the program, its rows and the local splitted files") {
                 val fixture = ResetFixture()

@@ -1,29 +1,28 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
-import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
+import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.MimeTypeComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
-import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
-import me.pinfort.tsvideos.core.external.samba.NasComponent
 import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 import java.io.File
+import java.nio.file.Files
 import java.nio.file.Path
 
 /**
  * Amatsukaze のエンコード実行後バッチから呼び出される処理。
- * エンコード済みファイルを created_file として登録し、NAS へアップロードしたうえで
+ * エンコード済みファイルを NAS へ検証付きでアップロードし、created_file と台帳へ登録してから
  * 元ファイルを削除し、番組を COMPLETED にする。
  *
  * FileProcessingPipeline と異なりロールバックは行わない。
@@ -33,16 +32,15 @@ import java.nio.file.Path
 @Component
 class AfterEncodeRunner(
     private val splittedFileCommand: SplittedFileCommand,
-    private val createdFileCommand: CreatedFileCommand,
     private val executedFileCommand: ExecutedFileCommand,
     private val programCommand: ProgramCommand,
-    private val nasComponent: NasComponent,
     private val nasDestinationResolver: NasDestinationResolver,
     private val mimeTypeComponent: MimeTypeComponent,
     private val validateCompletedComponent: ValidateCompletedComponent,
     private val slackClient: SlackClient,
     private val logger: Logger,
     private val processingJobCommand: ProcessingJobCommand,
+    private val verifiedUploadCommand: VerifiedUploadCommand,
 ) {
     /**
      * Amatsukaze が実行後バッチに渡す環境変数のうち、この処理で使うもの。
@@ -59,11 +57,6 @@ class AfterEncodeRunner(
         val files: List<Path>,
         val success: Boolean,
         val errorMessage: String,
-    )
-
-    private data class RegisteredFile(
-        val localFile: File,
-        val createdFile: CreatedFile,
     )
 
     fun run(
@@ -113,8 +106,26 @@ class AfterEncodeRunner(
                     ProcessingIdentity.hash("${input.itemId}\u0000${paths.joinToString("\u0000")}"),
                 )
             }
-            val registeredFiles = registerFiles(splittedFile, input.files, dryRun)
-            moveFiles(registeredFiles, dryRun, onUploadProgress)
+            input.files.forEach { path ->
+                val mime = mimeTypeComponent.guess(path.fileName.toString())
+                val target = nasTargetFile(path)
+                if (dryRun) {
+                    check(path.toFile().isFile) { "Callback output missing: $path" }
+                    logger.info("Dry run: would verify, register and remove callback output $path as $target (${mime.mime})")
+                    return@forEach
+                }
+                val receipt =
+                    verifiedUploadCommand.upload(
+                        checkNotNull(job).id,
+                        "encoded:${path.toFile().canonicalPath}",
+                        path.toFile(),
+                        SambaClient.NasType.VIDEO_STORE_NAS,
+                        target,
+                        onUploadProgress,
+                    )
+                verifiedUploadCommand.register(receipt, splittedFile.id, mime.mime, mime.encoding)
+                verifiedUploadCommand.deleteLocal(receipt)
+            }
             completed = finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
         } catch (e: Exception) {
             // アップロード済みのファイルや削除済みのローカルファイルは戻せないため、
@@ -170,74 +181,12 @@ class AfterEncodeRunner(
             ?: splittedFileCommand.findByFile(originalFile.absolutePath)
     }
 
-    private fun registerFiles(
-        splittedFile: SplittedFile,
-        files: List<Path>,
-        dryRun: Boolean,
-    ): List<RegisteredFile> =
-        files.map { path ->
-            val localFile = path.toFile()
-            val mimeType = mimeTypeComponent.guess(localFile.name)
-            val previous = createdFileCommand.selectBySplittedFileId(splittedFile.id).firstOrNull { it.file == nasTargetFile(path) }
-            if (previous == null && !dryRun) {
-                check(localFile.isFile) { "Unregistered callback output missing" }
-                check(!nasComponent.resourceExists(nasTargetFile(path))) { "Unowned NAS target exists; reconciliation required" }
-            }
-            val createdFile =
-                previous
-                    ?: createdFileCommand.insert(
-                        splittedFile.id,
-                        nasTargetFile(path),
-                        localFile.length(),
-                        mimeType.mime,
-                        mimeType.encoding,
-                        CreatedFile.Status.ENCODE_SUCCESS,
-                        dryRun,
-                    )
-            check(dryRun || createdFile.status == CreatedFile.Status.FILE_MOVED || localFile.isFile) {
-                "Pending callback output missing; reconciliation required"
-            }
-            check(!localFile.exists() || localFile.length() == createdFile.size) { "Callback output size changed" }
-            logger.info("created file registered, file=$localFile, splittedFileId=${splittedFile.id}")
-            RegisteredFile(localFile, createdFile)
-        }
-
     private fun nasTargetFile(file: Path): String =
         nasDestinationResolver.resolve(
             file.parent.parent.parent,
             file.fileName.toString(),
             SambaClient.NasType.VIDEO_STORE_NAS,
         )
-
-    private fun moveFiles(
-        registeredFiles: List<RegisteredFile>,
-        dryRun: Boolean,
-        onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
-    ) {
-        registeredFiles.forEach { (localFile, createdFile) ->
-            if (createdFile.status == CreatedFile.Status.FILE_MOVED) {
-                deleteLocalFile(localFile, dryRun)
-                return@forEach
-            }
-            check(localFile.isFile || dryRun) { "Pending output is missing; reconciliation required" }
-            if (!dryRun) {
-                nasComponent.uploadResource(
-                    localFile,
-                    createdFile.file,
-                    SambaClient.NasType.VIDEO_STORE_NAS,
-                    onUploadProgress,
-                )
-            }
-            if (!dryRun) {
-                check(nasComponent.matchesSize(createdFile.file, createdFile.size, SambaClient.NasType.VIDEO_STORE_NAS)) {
-                    "Upload has uncertain outcome or size mismatch; local output preserved"
-                }
-            }
-            createdFileCommand.updateStatus(createdFile, CreatedFile.Status.FILE_MOVED, dryRun)
-            logger.info("file uploaded, file=${localFile.name}, target=${createdFile.file}")
-            deleteLocalFile(localFile, dryRun)
-        }
-    }
 
     /** 番組を COMPLETED にできたときだけ true を返す。失敗はここで通知済み。 */
     private fun finishProcess(
@@ -256,6 +205,16 @@ class AfterEncodeRunner(
         try {
             if (validateCompletedComponent.validate(program.id)) {
                 logger.info("program valid, status will be completed, programId=${program.id}")
+                if (!dryRun) {
+                    val job = checkNotNull(processingJobCommand.findByExecutedFile(executedFileId))
+                    verifiedUploadCommand.verifyRegistered(job.id, "original")
+                    val raw = File(job.inputPath)
+                    if (raw.exists()) {
+                        check(ProcessingIdentity.from(raw).key == job.identityKey) {
+                            "Original recording changed; preserved"
+                        }
+                    }
+                }
                 deleteLocalFile(inPath.toFile(), dryRun)
                 removeExecutedFile(executedFileId, dryRun)
                 programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.COMPLETED, dryRun)
@@ -334,7 +293,7 @@ class AfterEncodeRunner(
         if (!file.exists()) return
         logger.info("removing file, file=$file")
         if (!dryRun) {
-            file.delete()
+            Files.delete(file.toPath())
         }
     }
 }

@@ -1,11 +1,11 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
-import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
+import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
@@ -17,7 +17,6 @@ import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
-import me.pinfort.tsvideos.core.external.samba.NasComponent
 import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient
@@ -31,14 +30,13 @@ import kotlin.math.ceil
 
 /**
  * DropCheck(tsselect + 緊急警報放送/文字スーパー検出) -> TsSplitter -> CompressAndSave -> AmatsukazeAddTask の4段パイプライン。
- * 各段は失敗すると自身とそれ以前の段を逆順にロールバックしてから例外を再送出する。
+ * 登録・分割・圧縮段階の失敗は逆順にロールバックする。アップロード開始後は復旧用の記録とローカルデータを保持する。
  */
 @Component
 class FileProcessingPipeline(
     private val executedFileCommand: ExecutedFileCommand,
     private val executedFileTagCommand: ExecutedFileTagCommand,
     private val splittedFileCommand: SplittedFileCommand,
-    private val createdFileCommand: CreatedFileCommand,
     private val programCommand: ProgramCommand,
     private val tsSelectClient: TsSelectClient,
     private val emergencyBroadcastDetector: EmergencyBroadcastDetector,
@@ -47,11 +45,11 @@ class FileProcessingPipeline(
     private val durationProbeClient: DurationProbeClient,
     private val mainSplittedFileFinderComponent: MainSplittedFileFinderComponent,
     private val compressComponent: CompressComponent,
-    private val nasComponent: NasComponent,
     private val nasDestinationResolver: NasDestinationResolver,
     private val processorToolConfigurationProperties: ProcessorToolConfigurationProperties,
     private val logger: Logger,
     private val processingJobCommand: ProcessingJobCommand,
+    private val verifiedUploadCommand: VerifiedUploadCommand,
 ) {
     enum class Result {
         PROCESSED,
@@ -125,19 +123,16 @@ class FileProcessingPipeline(
                     tsSplit(executedFile) { splitInvoked = true }
                 }
             var createdArchive: File? = null
-            runner.stage({
-                // A retry would upload a leftover partial archive as-is, so remove the one this attempt created.
-                if (!uploadStarted) createdArchive?.let { check(it.delete() || !it.exists()) { "Cannot delete partial archive $it" } }
-                rollbackCompressAndSave(mainSplittedFile)
-            }) {
-                compressAndSave(
-                    mainSplittedFile,
-                    onCompressProgress,
-                    onUploadProgress,
-                    onArchiveCreating = { createdArchive = it },
-                    beforeUpload = { uploadStarted = true },
-                )
-            }
+            val archive =
+                runner.stage({
+                    // A retry would upload a leftover partial archive as-is, so remove the one this attempt created.
+                    createdArchive?.let { check(it.delete() || !it.exists()) { "Cannot delete partial archive $it" } }
+                }) {
+                    compressArchive(mainSplittedFile, onCompressProgress) { createdArchive = it }
+                }
+            uploadStarted = true
+            // Preserve registration, split and upload evidence after any external upload starts.
+            saveArchive(mainSplittedFile, archive, onUploadProgress)
             // Once submission starts rollback would destroy input possibly already consumed by the encoder.
             processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
             amatsukazeAddTask(mainSplittedFile)
@@ -328,48 +323,48 @@ class FileProcessingPipeline(
             ?: emptyList()
     }
 
-    // Stage 3: gzip-compress the main split file and upload it to the original-store NAS
-    private fun compressAndSave(
+    // Stage 3a: gzip-compress the main split file next to it
+    private fun compressArchive(
         splittedFile: SplittedFile,
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
-        onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
         onArchiveCreating: (File) -> Unit,
-        beforeUpload: () -> Unit,
-    ) {
+    ): File {
         val splitFile = File(splittedFile.file)
         val compressedFile = File(splitFile.parentFile, "${splitFile.name}.gz")
 
         if (!compressedFile.exists()) onArchiveCreating(compressedFile)
         if (!compressComponent.compress(splitFile, compressedFile, false, onCompressProgress)) {
-            logger.error("Compress skipped, compressed file already exists, splitFile=$splitFile")
-            return
+            error("Compressed file already exists; reconcile before processing")
         }
+        return compressedFile
+    }
 
+    // Stage 3b: verified upload of the archive to the original-store NAS; the local archive is removed only once registered
+    private fun saveArchive(
+        splittedFile: SplittedFile,
+        compressedFile: File,
+        onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
+    ) {
         val targetFile =
             nasDestinationResolver.resolve(
-                splitFile.parentFile.parentFile.toPath(),
+                File(splittedFile.file).parentFile.parentFile.toPath(),
                 compressedFile.name,
                 SambaClient.NasType.ORIGINAL_STORE_NAS,
             )
 
-        beforeUpload()
-        nasComponent.uploadResource(compressedFile, targetFile, SambaClient.NasType.ORIGINAL_STORE_NAS, onUploadProgress)
-        createdFileCommand.insert(
-            splittedFile.id,
-            targetFile,
-            compressedFile.length(),
-            "video/vnd.dlna.mpeg-tts",
-            "gzip",
-        )
+        val job = checkNotNull(processingJobCommand.findByExecutedFile(splittedFile.executedFileId))
+        val receipt =
+            verifiedUploadCommand.upload(
+                job.id,
+                "original",
+                compressedFile,
+                SambaClient.NasType.ORIGINAL_STORE_NAS,
+                targetFile,
+                onUploadProgress,
+            )
+        verifiedUploadCommand.register(receipt, splittedFile.id, "video/vnd.dlna.mpeg-tts", "gzip")
         splittedFileCommand.updateStatus(splittedFile, SplittedFile.Status.COMPRESS_SAVED)
-        compressedFile.delete()
-    }
-
-    private fun rollbackCompressAndSave(splittedFile: SplittedFile) {
-        createdFileCommand
-            .selectBySplittedFileId(splittedFile.id)
-            .filter { it.encoding == "gzip" }
-            .forEach { createdFileCommand.delete(it) }
+        verifiedUploadCommand.deleteLocal(receipt)
     }
 
     // Stage 4: submit the main split file to the running Amatsukaze server
