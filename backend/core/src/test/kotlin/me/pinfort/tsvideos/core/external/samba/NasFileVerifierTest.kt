@@ -82,11 +82,19 @@ class NasFileVerifierTest :
             }
             verify(exactly = 0) { client.originalStoreNas() }
         }
+        expect("a store that fails to open is not retried within a session") {
+            every { client.videoStoreNas() } throws IOException("smb://secret:password@host")
+            verifier.session { session ->
+                repeat(3) { session.verify("base/path/file.mp4", 12).status shouldBe VerificationStatus.INACCESSIBLE }
+            }
+            verify(exactly = 1) { client.videoStoreNas() }
+            verify(exactly = 0) { client.originalStoreNas() }
+        }
         expect("directories and invalid metadata remain unchecked") {
             every { videoFile.exists() } returns true
             every { videoFile.isFile } returns false
             verifier.verify("base/path/file.mp4", 12).status shouldBe VerificationStatus.UNCHECKED
-            listOf("", "../escape", "/absolute", "C:\\local", "smb://host/file").forEach {
+            listOf("", "../escape", "/absolute", "C:\\local", "smb://host/file", "base/./file.mp4", "base//file.mp4", "base/dir/").forEach {
                 verifier.verify(it, 12).status shouldBe VerificationStatus.UNCHECKED
             }
             verifier.verify("base/path/file.mp4", -1).status shouldBe VerificationStatus.UNCHECKED

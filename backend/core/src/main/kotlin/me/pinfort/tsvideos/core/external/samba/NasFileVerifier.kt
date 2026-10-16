@@ -28,7 +28,8 @@ class NasFileVerifier(
         private val opened = mutableListOf<SmbResource>()
         private val stores =
             listOf(sambaClient::videoStoreNas, sambaClient::originalStoreNas).map { open ->
-                lazy { open().also { opened += it } }
+                // A failed open is remembered, so an unreachable store is not retried for every file.
+                lazy { runCatching { open() }.onSuccess { opened += it } }
             }
 
         fun verify(
@@ -42,14 +43,14 @@ class NasFileVerifier(
                 normalized.isBlank() ||
                 normalized.startsWith('/') ||
                 ':' in normalized ||
-                normalized.split('/').any { it == ".." }
+                normalized.split('/').any { it.isEmpty() || it == "." || it == ".." }
             ) {
                 return Result(VerificationStatus.UNCHECKED, reason = "Invalid NAS path or recorded size")
             }
             // If a higher-priority store cannot be checked, do not claim a fallback is the resolved file.
             return try {
                 for (store in stores) {
-                    store.value.resolve(normalized).use { resource ->
+                    store.value.getOrThrow().resolve(normalized).use { resource ->
                         if (resource.exists()) {
                             if (!resource.isFile) return Result(VerificationStatus.UNCHECKED, reason = "Path is not a regular file")
                             val size = resource.length()

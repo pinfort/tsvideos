@@ -26,7 +26,10 @@ class LibraryVerificationCommand(
         onProgress: (Int, Int) -> Unit = { _, _ -> },
     ): VerificationReport? {
         require(programId == null || programId > 0) { "Program ID must be positive" }
-        // Library runs read programs and files in two queries instead of one per program.
+        // Library runs read programs and files in two queries instead of one per program. Both are held in
+        // memory, which is fine at the current library size (thousands of rows); stream them if that changes.
+        // Like selectByExecutedFileId, the batch query only sees created_file rows that still have their
+        // splitted_file, so an orphaned created_file is skipped by both paths.
         val programs: List<Pair<Long, Long>>
         val filesByExecutedFileId: Map<Long, List<CreatedFileDto>>
         if (programId == null) {

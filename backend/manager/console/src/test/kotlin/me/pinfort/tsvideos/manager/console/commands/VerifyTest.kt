@@ -81,16 +81,15 @@ class VerifyTest :
                     ),
                 )
             val output = captureVerifyOutput { shouldThrow<ProgramResult> { Verify(command).parseManager(emptyList()) } }
-            // Mordant expands the tab separators to spaces, so compare with whitespace runs collapsed.
-            output.replace("\r\n", "\n").replace(Regex("[ \t]+"), " ") shouldBe
-                """
-                VERIFIED program=7 file=8 base/a.mp4
-                 expected=12 actual=12 checkedAt=2026-01-01T00:00:00Z${' '}
-                UNCHECKED program=9 file=- -
-                 expected=- actual=- checkedAt=2026-01-01T00:00:01Z No NAS artifacts registered
-                VERIFIED=1 MISSING=0 SIZE_MISMATCH=0 INACCESSIBLE=0 UNCHECKED=1
-
-                """.trimIndent()
+            // Compare whitespace-separated fields, since the terminal renderer expands the tab separators.
+            output.lines().filter { it.isNotBlank() }.map { it.trim().split(Regex("\\s+")) } shouldBe
+                listOf(
+                    listOf("VERIFIED", "program=7", "file=8", "base/a.mp4"),
+                    listOf("expected=12", "actual=12", "checkedAt=2026-01-01T00:00:00Z"),
+                    listOf("UNCHECKED", "program=9", "file=-", "-"),
+                    listOf("expected=-", "actual=-", "checkedAt=2026-01-01T00:00:01Z", "No", "NAS", "artifacts", "registered"),
+                    listOf("VERIFIED=1", "MISSING=0", "SIZE_MISMATCH=0", "INACCESSIBLE=0", "UNCHECKED=1"),
+                )
         }
         expect("missing selected program exits three") {
             every { command.verify(9, any()) } returns null
