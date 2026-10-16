@@ -56,6 +56,9 @@ class BulkLibraryCommand(
 
     private val fingerprintPattern = Regex("[a-f0-9]{64}")
 
+    // base/index/program/file: DirectoryNameComponent replaces the program directory, so shorter paths are refused.
+    private val minNasPathSegments = 4
+
     fun preview(input: BulkRequest): BulkPlan {
         val request = validate(input)
         return read.execute {
@@ -215,7 +218,7 @@ class BulkLibraryCommand(
                 else -> null
             }
         val eligible = reason == null
-        val fingerprint = fingerprint(request, snapshot, destinations, refs, listOf(shared, duplicate, collision))
+        val fingerprint = fingerprint(request, snapshot, destinations, refs, shared = shared, duplicate = duplicate, collision = collision)
         val reclaimed = if (eligible && request.action == BulkAction.DELETE) files.sumOf { it.size } else 0
         return BulkTarget(id, snapshot, fingerprint, destinations, eligible, reason, reclaimed)
     }
@@ -230,7 +233,9 @@ class BulkLibraryCommand(
         snapshot: BulkSnapshot?,
         destinations: Map<Long, String>,
         refs: List<Long>,
-        flags: List<Boolean>,
+        shared: Boolean,
+        duplicate: Boolean,
+        collision: Boolean,
     ): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val output = DataOutputStream(DigestOutputStream(OutputStream.nullOutputStream(), digest))
@@ -300,7 +305,7 @@ class BulkLibraryCommand(
                 },
                 destinations.toSortedMap().map { (k, v) -> listOf(k, v) },
                 refs,
-                flags,
+                listOf(shared, duplicate, collision),
             )
         encode(fields)
         return digest.digest().joinToString("") { "%02x".format(it) }
@@ -312,7 +317,7 @@ class BulkLibraryCommand(
     // that single-program delete still accepts.
     private fun safePath(path: String): Boolean {
         val segments = path.replace('\\', '/').split('/')
-        return !path.startsWith('/') && !path.startsWith('\\') && segments.size >= 4 && segments.all(::safeSegment)
+        return !path.startsWith('/') && !path.startsWith('\\') && segments.size >= minNasPathSegments && segments.all(::safeSegment)
     }
 
     private fun safeSegment(segment: String): Boolean =
