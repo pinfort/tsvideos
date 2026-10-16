@@ -31,6 +31,10 @@ export interface CreatedFile {
 
 export interface ProgramDetail extends Program {
   createdFiles: CreatedFile[];
+  // Tags attached to the recording by detectors (see lib/api/tags.ts), and the
+  // detectors that have run on it - used to tell "not detected" from "not checked".
+  tags: string[];
+  checks: string[];
 }
 
 export interface SearchProgramsResponse {
@@ -40,4 +44,9 @@ export interface SearchProgramsResponse {
 export interface ProgramDetailResponse {
   program: ProgramDetail;
   videoFiles: CreatedFile[];
+}
+
+/** The subset of program detail the same-origin playback route exposes. */
+export interface PlaybackMetadataResponse {
+  videoFiles: Pick<CreatedFile, "id" | "mp4" | "status">[];
 }
