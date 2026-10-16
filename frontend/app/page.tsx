@@ -1,5 +1,8 @@
+import Link from "next/link";
+import { ContinueWatching } from "@/components/continue-watching";
 import {
   parseProgramQuery,
+  type ParsedProgramQuery,
   type ProgramQueryParams,
 } from "@/lib/program-query";
 import { Pager } from "@/components/pager";
@@ -7,6 +10,7 @@ import { ProgramsTable } from "@/components/programs-table";
 import { SearchForm } from "@/components/search-form";
 import { getPrograms } from "@/lib/api/programs";
 import { ApiError } from "@/lib/api/client";
+import type { SearchProgramsResponse } from "@/lib/api/types";
 
 export default async function HomePage({
   searchParams,
@@ -14,7 +18,7 @@ export default async function HomePage({
   searchParams: Promise<ProgramQueryParams>;
 }) {
   const values = await searchParams;
-  let query;
+  let query: ParsedProgramQuery | undefined;
   let validationError: string | undefined;
   try {
     query = parseProgramQuery(values);
@@ -22,7 +26,7 @@ export default async function HomePage({
     validationError =
       error instanceof Error ? error.message : "検索条件を確認してください。";
   }
-  let result;
+  let result: SearchProgramsResponse | undefined;
   let apiError: string | undefined;
   if (query) {
     try {
@@ -37,8 +41,11 @@ export default async function HomePage({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-10">
       <header>
+        <Link href="/storage" className="mb-4 inline-block underline">ストレージ概要</Link>
+        {/* Keyed on the URL params so the uncontrolled inputs reset their defaults on navigation. */}
         <SearchForm key={JSON.stringify(values)} values={values} />
       </header>
+      <ContinueWatching />
       <main>
         {validationError || apiError ? (
           <p

@@ -23,6 +23,7 @@ import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
 import me.pinfort.tsvideos.core.domain.ProgramSearchPage
+import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.version.ApplicationVersion
 import me.pinfort.tsvideos.manager.console.component.ProgramDetailToTextComponent
 import java.nio.file.Path
@@ -63,7 +64,7 @@ class TsVideosManagerTest :
             delete = Delete(programCommand, userQuestionComponent, createdFileCommand)
             modify = Modify(programCommand, directoryNameComponent, userQuestionComponent)
             duplicates = Duplicates(duplicateProgramCommand, programCommand, terminalTextColorComponent)
-            tsVideosManager = TsVideosManager(search, get, delete, modify, duplicates)
+            tsVideosManager = TsVideosManager(search, get, delete, modify, duplicates, Doctor(mockk()), Stats(mockk()))
         }
 
         val dummyProgram =
@@ -117,10 +118,7 @@ class TsVideosManagerTest :
                 tsVideosManager.main(arrayOf("search", "-n", "test"))
 
                 verify(exactly = 1) {
-                    programCommand.search(
-                        me.pinfort.tsvideos.core.domain
-                            .ProgramSearchQuery(name = "test"),
-                    )
+                    programCommand.search(ProgramSearchQuery(name = "test"))
                 }
             }
 

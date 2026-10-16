@@ -1,8 +1,10 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
+import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
@@ -20,9 +22,8 @@ import java.nio.file.Path
  * Amatsukaze が移動した succeeded ディレクトリに残る分割ファイルも削除する。
  *
  * FileProcessingPipeline と異なりロールバックは行わない。
- * ただし取り返しのつかないローカルファイルの削除は、巻き戻せる DB・NAS の削除
- * （ProgramCommand.delete、失敗時はトランザクションでロールバックされる）が
- * 成功したあとに行う。途中で失敗しても再実行できる。
+ * NAS 操作は DB トランザクションで戻せない。失敗時は台帳と元録画を保持する。
+ * program 削除後の台帳 cleanup 失敗は RESETTING job から再試行する。
  */
 @Component
 class ResetRunner(
@@ -30,16 +31,22 @@ class ResetRunner(
     private val programCommand: ProgramCommand,
     private val splittedFileCommand: SplittedFileCommand,
     private val logger: Logger,
+    private val processingJobCommand: ProcessingJobCommand,
+    private val verifiedUploadCommand: VerifiedUploadCommand,
 ) {
     fun run(
         file: Path,
         dryRun: Boolean = false,
     ) {
-        val target = file.toFile().absolutePath
+        val target = file.toFile().canonicalPath
         logger.info("resetting processing, file=$target, dryRun=$dryRun")
 
-        val executedFile = executedFileCommand.findByFile(target)
+        // 064 より前の行は absolutePath で登録されているため、見つからなければそちらでも探す
+        val executedFile =
+            executedFileCommand.findByFile(target)
+                ?: executedFileCommand.findByFile(file.toFile().absolutePath)
         if (executedFile == null) {
+            if (finishInterruptedReset(target, dryRun)) return
             logger.error("executed file not found, aborting. file=$target")
             return
         }
@@ -55,13 +62,40 @@ class ResetRunner(
         // splitted_file のローカルパスは行が消える前に控えておく
         val splittedFiles = splittedFileCommand.selectByExecutedFileId(executedFile.id)
 
-        // DB・NAS の削除を先に行う。失敗時はトランザクションでロールバックされ、
-        // ローカルファイルには手を付けていないので再実行できる。
+        // NAS effects cannot be rolled back by the database; preserve local files and job evidence on failure.
+        val job = processingJobCommand.findByExecutedFile(executedFile.id)
+        if (!dryRun) processingJobCommand.prepareReset(executedFile.id)
+        if (!dryRun && job != null) verifiedUploadCommand.validateReset(job.id)
         programCommand.delete(program, dryRun)
 
+        if (!dryRun && job != null) verifiedUploadCommand.retireAfterReset(job.id)
         deleteLocalSplittedFiles(splittedFiles, dryRun)
+        if (!dryRun) processingJobCommand.reset(executedFile.id)
 
         logger.info("reset completed, file=$target, programId=${program.id}")
+    }
+
+    private fun finishInterruptedReset(
+        target: String,
+        dryRun: Boolean,
+    ): Boolean {
+        val job = processingJobCommand.findByPath(target) ?: return false
+        if (job.state != "RESETTING") return false
+        val executedId = checkNotNull(job.executedFileId) { "Reset job has no registration identity" }
+        check(
+            job.callbackClaim == null &&
+                executedFileCommand.find(executedId) == null &&
+                programCommand.findByExecutedFileId(executedId) == null &&
+                splittedFileCommand.selectByExecutedFileId(executedId).isEmpty(),
+        ) {
+            "Partial reset still has related records; reconcile before finishing"
+        }
+        logger.warn("Finishing interrupted reset job ${job.id}; unrecorded local split paths are preserved for manual inspection")
+        if (!dryRun) {
+            verifiedUploadCommand.retireAfterReset(job.id)
+            processingJobCommand.reset(executedId)
+        }
+        return true
     }
 
     /**

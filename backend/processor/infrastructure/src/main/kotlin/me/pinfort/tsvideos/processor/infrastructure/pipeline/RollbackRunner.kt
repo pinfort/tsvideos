@@ -4,6 +4,10 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 internal class RollbackRunner {
     private val rollbacks = ArrayDeque<() -> Unit>()
 
+    /** False once any rollback has thrown, i.e. earlier stages may have left state behind. */
+    var rolledBackCleanly = true
+        private set
+
     fun <T> stage(
         rollback: () -> Unit,
         body: () -> T,
@@ -16,6 +20,7 @@ internal class RollbackRunner {
                 try {
                     rollbacks.removeFirst().invoke()
                 } catch (cleanupFailure: Exception) {
+                    rolledBackCleanly = false
                     if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
                 }
             }
