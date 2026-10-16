@@ -31,6 +31,7 @@ class ProgramCommand(
     private val directoryNameComponent: DirectoryNameComponent,
     private val executedFileTagCommand: ExecutedFileTagCommand,
 ) {
+    // One REPEATABLE_READ snapshot keeps total consistent with the page under concurrent writes.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun search(query: ProgramSearchQuery): ProgramSearchPage =
         ProgramSearchPage(programMapper.search(query).map { it.toDomain() }, programMapper.countSearch(query), query.limit, query.offset)

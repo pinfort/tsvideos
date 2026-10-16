@@ -44,6 +44,16 @@ class ReadOutputTest :
             root["total"].asInt() shouldBe 1
         }
 
+        expect("human search sends the page summary to stderr, not the stdout table") {
+            val programs = mockk<ProgramCommand>()
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(program), 7, 1, 3)
+            every { programs.hasTsFile(any()) } returns true
+            val result = Search(programs, mockk()).testRead("--name x")
+            result.statusCode shouldBe 0
+            result.stderr shouldBe "1 of 7 programs (limit=1, offset=3)\n"
+            result.stdout.contains("of 7 programs") shouldBe false
+        }
+
         expect("recordedAt always carries seconds, even when they are zero") {
             val programs = mockk<ProgramCommand>()
             val zeroSeconds = program.copy(recordedAt = LocalDateTime.of(2026, 10, 12, 1, 2))

@@ -32,17 +32,23 @@ class Search(
     private val channel by option("--channel", help = "exact channel identifier")
     private val recordedFrom by option("--recorded-from", help = "inclusive ISO local date or date-time").convert { parseDate(it) }
     private val recordedTo by option("--recorded-to", help = "exclusive ISO local date or date-time").convert { parseDate(it) }
-    private val status by option("--status").enum<Program.Status>()
-    private val minDrops by option("--min-drops").int()
-    private val maxDrops by option("--max-drops").int()
-    private val fileType by option("--file-type", help = "available FILE_MOVED TS or encoded video").enum<ProgramSearchQuery.FileType>()
-    private val sort by option("--sort")
+    private val status by option("--status", help = "registered, completed or error").enum<Program.Status>()
+    private val minDrops by option("--min-drops", help = "inclusive; unknown drops never match").int()
+    private val maxDrops by option("--max-drops", help = "inclusive; unknown drops never match").int()
+    private val fileType by option(
+        "--file-type",
+        help = "ts or encoded; a FILE_MOVED created file of that type exists",
+    ).enum<ProgramSearchQuery.FileType>()
+    private val sort by option("--sort", help = "recorded-at, duration or size")
         .choice(
             "recorded-at" to ProgramSearchQuery.Sort.RECORDED_AT,
             "duration" to ProgramSearchQuery.Sort.DURATION,
             "size" to ProgramSearchQuery.Sort.SIZE,
         ).default(ProgramSearchQuery.Sort.RECORDED_AT)
-    private val direction by option("--direction").enum<ProgramSearchQuery.Direction>().default(ProgramSearchQuery.Direction.DESC)
+    private val direction by option(
+        "--direction",
+        help = "desc or asc; program ID breaks ties",
+    ).enum<ProgramSearchQuery.Direction>().default(ProgramSearchQuery.Direction.DESC)
     private val limit by option("--limit", help = "page size, 1..500").int().default(100)
     private val offset by option("--offset", help = "number of matching programs to skip").int().default(0)
 
@@ -58,23 +64,24 @@ class Search(
         val query =
             try {
                 ProgramSearchQuery(
-                    programSearchName,
-                    channel,
-                    recordedFrom,
-                    recordedTo,
-                    status,
-                    minDrops,
-                    maxDrops,
-                    fileType,
-                    sort,
-                    direction,
-                    limit,
-                    offset,
+                    name = programSearchName,
+                    channel = channel,
+                    recordedFrom = recordedFrom,
+                    recordedTo = recordedTo,
+                    status = status,
+                    minDrops = minDrops,
+                    maxDrops = maxDrops,
+                    fileType = fileType,
+                    sort = sort,
+                    direction = direction,
+                    limit = limit,
+                    offset = offset,
                 )
             } catch (error: IllegalArgumentException) {
                 throw UsageError(error.message ?: "invalid search options")
             }
         val page = programCommand.search(query)
+        // TODO: tsExists is still one query per row; fold it into the search SELECT.
         val programs = page.items
         if (json) {
             outputJson(
