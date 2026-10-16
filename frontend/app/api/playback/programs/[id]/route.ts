@@ -1,5 +1,8 @@
 import { getProgramDetail } from "@/lib/api/programs";
 import type { PlaybackMetadataResponse } from "@/lib/api/types";
+
+// Availability must reflect current backend state, never a cached response.
+export const dynamic = "force-dynamic";
 import { parsePositiveId } from "@/lib/playback";
 
 export async function GET(

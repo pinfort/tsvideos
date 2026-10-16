@@ -149,5 +149,9 @@ describe("VideoPlayer", () => {
     video.currentTime = 30;
     fireEvent(window, new Event("pagehide"));
     expect(readPlayback()[0].position).toBe(30);
+    video.currentTime = 35;
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    fireEvent(document, new Event("visibilitychange"));
+    expect(readPlayback()[0].position).toBe(35);
   });
 });
