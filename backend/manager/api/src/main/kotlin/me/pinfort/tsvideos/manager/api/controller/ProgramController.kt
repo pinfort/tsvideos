@@ -43,14 +43,8 @@ class ProgramController(
                 ProgramSearchQuery(
                     name,
                     channel,
-                    recordedFrom
-                        ?.takeIf {
-                            it.isNotEmpty()
-                        }?.let(LocalDateTime::parse),
-                    recordedTo
-                        ?.takeIf {
-                            it.isNotEmpty()
-                        }?.let(LocalDateTime::parse),
+                    parseLocalDateTime(recordedFrom),
+                    parseLocalDateTime(recordedTo),
                     status,
                     minDrops,
                     maxDrops,
@@ -63,11 +57,14 @@ class ProgramController(
             } catch (_: DateTimeParseException) {
                 throw ResponseStatusException(HttpStatus.BAD_REQUEST, "recording timestamps must be ISO local date-times")
             } catch (error: IllegalArgumentException) {
+                // Only ProgramSearchQuery's init-block `require`s can throw here; their messages are static and safe to return.
                 throw ResponseStatusException(HttpStatus.BAD_REQUEST, error.message)
             }
         val page = programCommand.search(query)
         return SearchResponse(page.items, page.total, page.limit, page.offset)
     }
+
+    private fun parseLocalDateTime(value: String?): LocalDateTime? = value?.takeIf { it.isNotEmpty() }?.let(LocalDateTime::parse)
 
     @GetMapping("/api/v1/programs/{id}")
     fun get(

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  MAX_INT,
   programQueryParams,
   type ParsedProgramQuery,
 } from "@/lib/program-query";
@@ -33,7 +34,7 @@ export function Pager({
         </span>
       )}
       <span>{Math.floor(offset / limit) + 1}</span>
-      {offset + limit < total && offset + limit <= 2_147_483_647 ? (
+      {offset + limit < total && offset + limit <= MAX_INT ? (
         <Link
           href={href(offset + limit)}
           aria-label="次のページ"

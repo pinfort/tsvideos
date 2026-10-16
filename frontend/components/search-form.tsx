@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ProgramQueryParams } from "@/lib/program-query";
+import { MAX_INT, type ProgramQueryParams } from "@/lib/program-query";
 
 export function SearchForm({ values = {} }: { values?: ProgramQueryParams }) {
   const v = (key: string, fallback = "") =>
@@ -79,7 +79,7 @@ export function SearchForm({ values = {} }: { values?: ProgramQueryParams }) {
           <input
             type="number"
             min="0"
-            max="2147483647"
+            max={MAX_INT}
             step="1"
             name="minDrops"
             defaultValue={v("minDrops")}
@@ -91,7 +91,7 @@ export function SearchForm({ values = {} }: { values?: ProgramQueryParams }) {
           <input
             type="number"
             min="0"
-            max="2147483647"
+            max={MAX_INT}
             step="1"
             name="maxDrops"
             defaultValue={v("maxDrops")}

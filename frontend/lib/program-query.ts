@@ -1,5 +1,8 @@
 import type { ProgramSearchQuery } from "./api/types";
 
+/** Largest value the backend accepts for int-typed params (Java Integer.MAX_VALUE). */
+export const MAX_INT = 2_147_483_647;
+
 export type ProgramQueryParams = Record<string, string | string[] | undefined>;
 export type ParsedProgramQuery = ProgramSearchQuery & {
   limit: number;
@@ -80,8 +83,8 @@ export function parseProgramQuery(
     recordedFrom: date("recordedFrom"),
     recordedTo: date("recordedTo"),
     status: option("status", ["REGISTERED", "COMPLETED", "ERROR"] as const),
-    minDrops: integer("minDrops", 0, 2_147_483_647),
-    maxDrops: integer("maxDrops", 0, 2_147_483_647),
+    minDrops: integer("minDrops", 0, MAX_INT),
+    maxDrops: integer("maxDrops", 0, MAX_INT),
     fileType: option("fileType", ["TS", "ENCODED"] as const),
     sort: option(
       "sort",
@@ -90,7 +93,7 @@ export function parseProgramQuery(
     ),
     direction: option("direction", ["ASC", "DESC"] as const, "DESC"),
     limit: integer("limit", 1, 500, 10)!,
-    offset: integer("offset", 0, 2_147_483_647, 0)!,
+    offset: integer("offset", 0, MAX_INT, 0)!,
   };
   // Compare local time at nanosecond precision without server/browser timezone conversion.
   const canonical = (v: string) =>
