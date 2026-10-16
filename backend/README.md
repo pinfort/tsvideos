@@ -88,21 +88,7 @@ EOF 時点で未完成の PES は破棄します。長さ 0 の PES は次の開
 
 既存の DB には次のテーブルを一度だけ作成してください。**この機能を含むビルドをデプロイする前に**作成する必要があります。番組詳細の取得（`ProgramCommand.findDetail`）が両テーブルを参照するため、テーブルが無いと manager の API・CLI の詳細表示が失敗します（processor 側は処理を止めず、録画が「未検査」になるだけです）。
 
-```sql
-CREATE TABLE executed_file_tag (
-    executed_file_id bigint(20) NOT NULL,
-    tag varchar(64) NOT NULL,
-    PRIMARY KEY (executed_file_id, tag),
-    KEY tag (tag)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
-
-CREATE TABLE executed_file_check (
-    executed_file_id bigint(20) NOT NULL,
-    checker varchar(64) NOT NULL,
-    checked_at datetime NOT NULL,
-    PRIMARY KEY (executed_file_id, checker)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
-```
+DDL は `core/src/main/resources/db/migrations/002_executed_file_tag.sql` を適用してください（`IF NOT EXISTS` なので再実行しても安全です）。
 
 ## CLI のバージョン確認
 
@@ -115,24 +101,8 @@ CREATE TABLE executed_file_check (
 
 Processor deployment and recovery: [processing identity and reconciliation](docs/processing-idempotency.md). Apply migration 064 before upgrading.
 
-既存の DB には次のテーブルを一度だけ作成してください（`core/src/main/resources/db/migrations/064_processing_job.sql` と同じ内容です）。**processor を停止してから、この機能を含むビルドをデプロイする前に**作成する必要があります。
+既存の DB には次のテーブルを一度だけ作成してください（DDL は `core/src/main/resources/db/migrations/064_processing_job.sql` を適用してください）。**processor を停止してから、この機能を含むビルドをデプロイする前に**作成する必要があります。
 
-```sql
-CREATE TABLE IF NOT EXISTS processing_job (
- id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
- identity_key CHAR(64) CHARACTER SET ascii NOT NULL UNIQUE,
- input_path TEXT COLLATE utf8mb4_bin NOT NULL,
- input_size BIGINT NOT NULL,
- modified_millis BIGINT NOT NULL,
- state VARCHAR(40) NOT NULL,
- executed_file_id BIGINT NULL,
- callback_claim VARCHAR(36) NULL,
- callback_manifest CHAR(64) CHARACTER SET ascii NULL,
- created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
- updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
- -- At most one job per executed file: retry() clears the link and reset removes the job.
- KEY executed_file_id (executed_file_id),
- -- Lookup hint for findByPath only; identity_key is what enforces uniqueness.
- KEY input_path (input_path(255))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
-```
+### DDL の管理
+
+スキーマの単一の情報源は `core/src/main/resources/db/migrations/` の番号付き SQL ファイルです（ファイル名順に適用、すべて `IF NOT EXISTS` で再実行可能）。テスト用の初期化 SQL（Testcontainers の `ddl/01_create_database.sql`）は Gradle の `core:generateTestDdl` がこれらを連結して生成し、`docker-compose.test.yml` も同じファイルをマウントします。スキーマを変更するときは新しい番号のファイルを追加し、`docker-compose.test.yml` のマウントに 1 行足してください。
