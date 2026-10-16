@@ -249,6 +249,11 @@ class BulkLibraryCommandTest :
                 .single()
                 .destinations shouldBe mapOf(30L to "base\\B\\Beta\\video.mp4")
             command
+                .preview(move)
+                .targets
+                .single()
+                .estimatedMetadataBytes shouldBe 12
+            command
                 .preview(BulkRequest(listOf(1), BulkAction.MOVE, "alpha"))
                 .targets
                 .single()

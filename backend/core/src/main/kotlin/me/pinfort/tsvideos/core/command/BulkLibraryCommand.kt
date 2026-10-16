@@ -228,8 +228,9 @@ class BulkLibraryCommand(
             }
         val eligible = reason == null
         val fingerprint = fingerprint(request, snapshot, destinations, refs, shared = shared, duplicate = duplicate, collision = collision)
-        val reclaimed = if (eligible && request.action == BulkAction.DELETE) files.sumOf { it.size } else 0
-        return BulkTarget(id, snapshot, fingerprint, destinations, eligible, reason, reclaimed)
+        // Registered bytes this target would delete (DELETE) or transfer (MOVE); ineligible targets contribute nothing.
+        val registeredBytes = if (eligible) files.sumOf { it.size } else 0
+        return BulkTarget(id, snapshot, fingerprint, destinations, eligible, reason, registeredBytes)
     }
 
     /**
