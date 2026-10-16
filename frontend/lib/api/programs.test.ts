@@ -32,6 +32,32 @@ describe("getPrograms", () => {
     await getPrograms({ name: "" });
     expect(fetchJson).toHaveBeenCalledWith("/api/v1/programs?");
   });
+
+  it("sends every combined filter and preserves zero bounds", async () => {
+    const params = {
+      name: "番組",
+      channel: "BS1",
+      recordedFrom: "2026-10-01T00:00",
+      recordedTo: "2026-11-01T00:00",
+      status: "ERROR" as const,
+      minDrops: 0,
+      maxDrops: 2,
+      fileType: "TS" as const,
+      sort: "SIZE" as const,
+      direction: "ASC" as const,
+      limit: 50,
+      offset: 10,
+    };
+    const response = { programs: [], total: 4, limit: 50, offset: 10 };
+    fetchJson.mockResolvedValue(response);
+    expect(await getPrograms(params)).toEqual(response);
+    const url = new URL(fetchJson.mock.calls[0][0], "http://localhost");
+    expect(Object.fromEntries(url.searchParams)).toEqual(
+      Object.fromEntries(
+        Object.entries(params).map(([key, value]) => [key, String(value)]),
+      ),
+    );
+  });
 });
 
 describe("getProgramDetail", () => {

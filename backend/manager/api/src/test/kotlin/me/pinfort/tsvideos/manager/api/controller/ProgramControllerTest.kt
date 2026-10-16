@@ -7,12 +7,15 @@ import io.mockk.every
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
+import me.pinfort.tsvideos.core.domain.ProgramSearchPage
+import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultHandlers.print
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import java.time.LocalDateTime
 
@@ -60,7 +63,7 @@ class ProgramControllerTest : DescribeSpec() {
     init {
         describe("index") {
             it("success") {
-                every { programCommand.selectByName("", 100, 0) } returns listOf()
+                every { programCommand.search(ProgramSearchQuery()) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
                 mockMvc
                     .perform(get("/api/v1/programs"))
                     .andDo(print())
@@ -68,11 +71,88 @@ class ProgramControllerTest : DescribeSpec() {
             }
 
             it("success with parameters") {
-                every { programCommand.selectByName("foo", 10, 5) } returns listOf()
+                every { programCommand.search(ProgramSearchQuery(name = "foo", limit = 10, offset = 5)) } returns
+                    ProgramSearchPage(emptyList(), 3, 10, 5)
                 mockMvc
                     .perform(get("/api/v1/programs").param("name", "foo").param("limit", "10").param("offset", "5"))
                     .andDo(print())
                     .andExpect(status().isOk)
+                    .andExpect(jsonPath("$.total").value(3))
+                    .andExpect(jsonPath("$.limit").value(10))
+                    .andExpect(jsonPath("$.offset").value(5))
+            }
+            it("combines every shared filter and preserves typed sorting") {
+                val query =
+                    ProgramSearchQuery(
+                        name = "news",
+                        channel = "BS1",
+                        recordedFrom = LocalDateTime.parse("2026-10-01T00:00:00"),
+                        recordedTo = LocalDateTime.parse("2026-11-01T00:00:00"),
+                        status = Program.Status.COMPLETED,
+                        minDrops = 0,
+                        maxDrops = 2,
+                        fileType = ProgramSearchQuery.FileType.ENCODED,
+                        sort = ProgramSearchQuery.Sort.SIZE,
+                        direction = ProgramSearchQuery.Direction.ASC,
+                        limit = 500,
+                        offset = 2,
+                    )
+                every { programCommand.search(query) } returns ProgramSearchPage(listOf(program), 10, 500, 2)
+                mockMvc
+                    .perform(
+                        get("/api/v1/programs")
+                            .param("name", "news")
+                            .param("channel", "BS1")
+                            .param("recordedFrom", "2026-10-01T00:00:00")
+                            .param("recordedTo", "2026-11-01T00:00:00")
+                            .param("status", "COMPLETED")
+                            .param("minDrops", "0")
+                            .param("maxDrops", "2")
+                            .param("fileType", "ENCODED")
+                            .param("sort", "SIZE")
+                            .param("direction", "ASC")
+                            .param("limit", "500")
+                            .param("offset", "2"),
+                    ).andExpect(status().isOk)
+                    .andExpect(jsonPath("$.programs[0].id").value(1))
+                    .andExpect(jsonPath("$.total").value(10))
+            }
+            it("treats an empty recordedFrom as absent") {
+                every { programCommand.search(ProgramSearchQuery()) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
+                mockMvc
+                    .perform(get("/api/v1/programs").param("recordedFrom", ""))
+                    .andExpect(status().isOk)
+            }
+
+            it("accepts recordedTo without recordedFrom") {
+                val query = ProgramSearchQuery(recordedTo = LocalDateTime.parse("2026-11-01T00:00:00"))
+                every { programCommand.search(query) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
+                mockMvc
+                    .perform(get("/api/v1/programs").param("recordedTo", "2026-11-01T00:00:00"))
+                    .andExpect(status().isOk)
+            }
+
+            listOf(
+                mapOf("limit" to "0"),
+                mapOf("limit" to "501"),
+                mapOf("limit" to "1.5"),
+                mapOf("offset" to "-1"),
+                mapOf("minDrops" to "-1"),
+                mapOf("maxDrops" to "-1"),
+                mapOf("minDrops" to "3", "maxDrops" to "2"),
+                mapOf("recordedFrom" to "2026-02-30T00:00:00"),
+                mapOf("recordedFrom" to "2026-10-12T00:00:00Z"),
+                mapOf("recordedFrom" to "2026-10-12T00:00:00", "recordedTo" to "2026-10-12T00:00:00"),
+                mapOf("status" to "wrong"),
+                mapOf("fileType" to "jpg"),
+                mapOf("sort" to "name"),
+                mapOf("direction" to "up"),
+            ).forEach { params ->
+                it("rejects $params with 400") {
+                    val request = get("/api/v1/programs")
+                    params.forEach { (key, value) -> request.param(key, value) }
+                    mockMvc.perform(request).andExpect(status().isBadRequest)
+                }
             }
         }
 

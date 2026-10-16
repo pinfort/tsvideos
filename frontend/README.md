@@ -19,6 +19,32 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 `NEXT_PUBLIC_API_BASE_URL` — base URL of the `manager:api` backend. Defaults to `http://localhost:8080` if unset, so no `.env` file is needed to run against a locally running backend on its default port. This must be a browser-reachable URL, since the video playback/download page fetches video bytes directly from the backend rather than through the Next.js server.
 
+## Recording search
+
+The home page combines a literal name substring, exact channel ID, local
+recording timestamps, processing status, drop-count bounds and available file
+type. All fields are optional. The end timestamp is exclusive; for a whole day
+choose the next midnight. Timestamps use the recording environment's local
+time without timezone conversion. Numeric drop filters exclude unknown drops.
+TS/encoded availability uses `FILE_MOVED` file metadata, not a live NAS check;
+encoded means `video/*` except `video/vnd.dlna.mpeg-tts`.
+
+Sorting supports recording time, original duration and original byte size in
+either direction, with a stable program-ID tie-break. Search defaults to 10
+items per page. Filters, sorting and page size are kept in the URL and restored
+on reload; submitting the form resets the offset to zero. Invalid conditions
+show an editable error instead of silently changing the query. Empty results
+and service failures have separate messages.
+
+`GET /api/v1/programs` accepts `name`, `channel`, `recordedFrom`, `recordedTo`,
+`status`, `minDrops`, `maxDrops`, `fileType`, `sort`, `direction`, `limit`, and
+`offset`, and returns `{ programs, total, limit, offset }`. Enum values are
+uppercase: `REGISTERED|COMPLETED|ERROR`, `TS|ENCODED`,
+`RECORDED_AT|DURATION|SIZE`, `ASC|DESC`. The API defaults to limit 100, offset 0,
+recorded-time descending; limit must be 1–500. Invalid values or reversed
+bounds return HTTP 400. Existing name-only queries still work. Query semantics
+are shared with the manager CLI's `ProgramSearchQuery` in core.
+
 ## Scripts
 
 - `pnpm dev` - start the development server
@@ -36,3 +62,17 @@ To learn more about Next.js, take a look at the following resources:
 
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+The `/storage` page shows registered original TS/encoded/other storage, the largest recordings and duplicate cleanup candidates. It uses the read-only `/api/v1/storage` endpoint and links to recording details; no deletion action is offered. Physical usage and actual reclaimable capacity remain unknown until verified. Pending metadata and excluded shared paths are labeled explicitly.
+
+## Browser-local playback history
+
+The responsive player supports 0.5–2× speed and a restart button. Position is stored per video in this browser's localStorage (`tsvideos.playback.v1`), at most every five seconds during playback and on pause, seek, page hide, or navigation. No account/server storage or cross-device synchronization is used. Up to 50 unfinished videos are kept; clearing browser data removes this history. Disabled or malformed storage does not prevent playback.
+
+A video is complete at 95% or within its final 10 seconds; completed and restarted entries are removed. Saved positions beyond a newly shortened duration restart at zero. The home page offers continue-watching links, checks known program/file metadata, distinguishes deleted files from unavailable checks, and allows history removal. Direct video links without program metadata remain usable and are labeled unchecked. Media bytes still stream directly from the configured backend URL.
+
+Continue-watching metadata checks use a same-origin Next.js route to avoid requiring cross-origin browser API access. Only program/file JSON is proxied; media streaming remains direct. API failures remain unchecked, while confirmed HTTP 404 means removed. The route (`/api/playback/programs/[id]`) returns only each video file's `id`, `mp4` and `status`, is unauthenticated like the backend it proxies, and each program is checked once per page load (a failed check is retried only after reload).
+
+The `title` and `programId` query parameters on `/video/[id]/view` are not verified against the backend; a hand-crafted link can store a misleading title or program in local history (display only, React-escaped, capped at 300 characters).
+
+History writes are read-modify-write on one localStorage key without locking, so two tabs saving different videos at the same instant can drop one update.

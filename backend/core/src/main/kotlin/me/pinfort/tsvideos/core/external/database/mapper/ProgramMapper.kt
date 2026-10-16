@@ -1,17 +1,25 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
+import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.external.database.dto.ProgramDto
 import org.apache.ibatis.annotations.Delete
 import org.apache.ibatis.annotations.Insert
 import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Options
 import org.apache.ibatis.annotations.Select
+import org.apache.ibatis.annotations.SelectProvider
 import org.apache.ibatis.annotations.Update
 
 @Mapper
 interface ProgramMapper {
     @Select("SELECT id FROM program ORDER BY id")
     fun selectAllIds(): List<Long>
+
+    @SelectProvider(type = ProgramSearchSql::class, method = "search")
+    fun search(query: ProgramSearchQuery): List<ProgramDto>
+
+    @SelectProvider(type = ProgramSearchSql::class, method = "count")
+    fun countSearch(query: ProgramSearchQuery): Long
 
     @Insert(
         """
