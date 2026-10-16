@@ -139,4 +139,12 @@ class NasDiagnosticProbeTest :
             shouldThrow<InterruptedException> { run(true) }
             Thread.interrupted() shouldBe true
         }
+        expect("a failure after a successful read is a separate operation failure") {
+            every { directory.close() } throws IOException("secret")
+            val checks = run()
+            checks.single { it.id.endsWith(".read") }.status shouldBe DiagnosticStatus.PASS
+            checks.single { it.id.endsWith(".operation") }.status shouldBe DiagnosticStatus.FAIL
+            checks.single { it.id.endsWith(".write") }.status shouldBe DiagnosticStatus.UNCHECKED
+            checks.toString() shouldNotContain "secret"
+        }
     })

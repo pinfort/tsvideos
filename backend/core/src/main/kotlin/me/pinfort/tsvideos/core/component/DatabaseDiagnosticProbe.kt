@@ -6,7 +6,12 @@ import java.util.Properties
 
 @Component
 class DatabaseDiagnosticProbe {
-    /** A separate, short-lived connection: no pool initialization, schema changes or library writes. */
+    /**
+     * A separate, short-lived connection: no pool initialization, schema changes or library writes.
+     *
+     * @return whether `SELECT 1` returned 1
+     * @throws java.sql.SQLException when connecting, authenticating or querying fails
+     */
     fun check(
         url: String,
         username: String,
