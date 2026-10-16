@@ -21,5 +21,6 @@ import org.springframework.boot.runApplication
 class ConsoleApplication
 
 fun main(args: Array<String>) {
+    if ("--json" in args) System.setOut(java.io.PrintStream(System.out, true, Charsets.UTF_8))
     runApplication<ConsoleApplication>(*args)
 }
