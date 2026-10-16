@@ -19,6 +19,7 @@ class NasFileVerifier(
     /** Opens each store root at most once for all checks made inside [block]. */
     fun <T> session(block: (Session) -> T): T = Session().use(block)
 
+    /** One-shot check that opens its own session; use [session] when checking many files. */
     fun verify(
         file: String,
         expectedBytes: Long,
