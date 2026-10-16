@@ -15,7 +15,7 @@ class StorageOverviewCommand(
     private val duplicates: DuplicateProgramCommand,
     private val mapper: StorageOverviewMapper,
 ) {
-    // Nested commands carry no isolation/readOnly of their own, so they join this snapshot.
+    // summarize() declares these same settings and detect() none, so both join this snapshot.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun overview(): StorageOverview {
         val totals = stats.summarize().totals
