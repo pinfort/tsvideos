@@ -14,13 +14,15 @@ class ProcessingJobClaimCommand(
 ) {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun insert(identity: ProcessingIdentity): ProcessingJob {
-        check(mapper.claim(identity.key, identity.path, identity.size, identity.modifiedMillis) == 1)
-        return checkNotNull(mapper.find(identity.key))
+        check(mapper.claim(identity.key, identity.path, identity.size, identity.modifiedMillis) == 1) {
+            "Claim insert affected no row, path=${identity.path}"
+        }
+        return checkNotNull(mapper.find(identity.key)) { "Claimed job disappeared, path=${identity.path}" }
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun retry(identity: ProcessingIdentity): ProcessingJob? {
         if (mapper.retry(identity.key) != 1) return null
-        return checkNotNull(mapper.find(identity.key))
+        return checkNotNull(mapper.find(identity.key)) { "Retried job disappeared, path=${identity.path}" }
     }
 }

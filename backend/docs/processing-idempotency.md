@@ -10,9 +10,21 @@ A job key is SHA-256 of canonical absolute input path, a NUL separator, byte len
 another NUL separator and last-modified milliseconds. It is a version fingerprint,
 not a content hash: identical size and timestamp cannot detect changed contents.
 Use the same filesystem path spelling and preserve metadata when restoring files.
+Recordings are identified by canonical path. Rows registered before 064 store the path
+as it was passed (absolute, possibly through a symlink); `reset` and callbacks fall back
+to that spelling, but `process` sees a different path and relies on the program name check.
 A changed fingerprint is a new job, but existing path/name registrations require an
 explicit reset; they are never silently reused or overwritten. Inspect/drop-check
 failures create no job. A proven rollback before any upload permits RETRYABLE claims.
+If any rollback step fails, or recording RETRYABLE itself fails, the job stays CLAIMED.
+Failures up to and including compression (registration, job linkage, split, gzip) are
+rolled back, including the partial local archive, and become RETRYABLE. Once the upload
+to the original-store NAS has started the job stays CLAIMED, even if rollback succeeds,
+because a partial or complete NAS copy may exist.
+A recording that is already registered without a matching job (pre-upgrade registrations,
+adopted legacy jobs, a changed fingerprint) or whose job awaits reconciliation fails on
+every `process` run, so directory rescans alert to Slack each time. This is deliberate:
+the alert repeats until an operator resets or reconciles the recording.
 Crashes and uncertain external effects are never automatically reclaimed.
 
 Job states: CLAIMED (active or interrupted), RETRYABLE (known safe retry),
@@ -55,6 +67,8 @@ to RETRYABLE: its registrations and uploads may already exist. For acknowledged
 SUBMITTED jobs cancelled by the operator, verify the encoder has terminated before
 using the same guarded transition from SUBMITTED to REJECTED, then reset.
 
+A callback that cannot claim its job (legacy job, claim already held, DB error) or cannot
+release its claim reports to Slack and exits without changing the program status.
 For an interrupted callback, verify no callback process is alive, record its exact
 `callback_claim` value, then release only that claim and replay the original callback:
 
@@ -64,6 +78,11 @@ WHERE id=@job_id AND callback_claim='the-inspected-owner-token';
 ```
 
 Do not clear callback_manifest or delete FILE_MOVED rows to force a changed callback.
+A callback refuses to upload over a video NAS target that has no created_file row ("Unowned
+NAS target exists"). This happens when an upload finished but the process died before
+inserting its row. Under stopped callbacks, compare the NAS file with the local output
+(same name, same length). If they match and no other created_file row points at that target,
+delete the NAS file and replay the original callback. Otherwise keep both and investigate.
 Preserve local artifacts if a pending upload is missing or NAS verification fails.
 For CLAIMED with no possible encoder task, inspect all registrations and generated
 artifacts. With an executed_file row, transition the inspected CLAIMED job to REJECTED

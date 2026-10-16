@@ -116,7 +116,7 @@ class TsVideosManagerTest :
                 tsVideosManager.main(arrayOf("search", "-n", "test"))
 
                 verify(exactly = 1) {
-                    programCommand.selectByName("test", 500, 0)
+                    programCommand.selectByName("test", 501, 0)
                 }
             }
 

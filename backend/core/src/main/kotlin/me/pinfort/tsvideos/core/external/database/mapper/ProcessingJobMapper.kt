@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
 import me.pinfort.tsvideos.core.domain.ProcessingJob
+import org.apache.ibatis.annotations.Delete
 import org.apache.ibatis.annotations.Insert
 import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Select
@@ -19,12 +20,12 @@ interface ProcessingJobMapper {
     ): Int
 
     @Select(
-        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest FROM processing_job WHERE identity_key=#{key}",
+        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest,updated_at FROM processing_job WHERE identity_key=#{key}",
     )
     fun find(key: String): ProcessingJob?
 
     @Select(
-        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest FROM processing_job WHERE executed_file_id=#{id} ORDER BY id DESC LIMIT 1",
+        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest,updated_at FROM processing_job WHERE executed_file_id=#{id} ORDER BY id DESC LIMIT 1",
     )
     fun findByExecutedFile(id: Long): ProcessingJob?
 
@@ -75,13 +76,13 @@ interface ProcessingJobMapper {
         next: String,
     ): Int
 
-    @org.apache.ibatis.annotations.Delete(
+    @Delete(
         "DELETE FROM processing_job WHERE executed_file_id=#{id} AND callback_claim IS NULL AND state IN ('REJECTED','COMPLETED','RETRYABLE','RESETTING')",
     )
     fun removeReset(id: Long): Int
 
     @Update(
-        "UPDATE processing_job SET state='CLAIMED',executed_file_id=NULL, updated_at=UTC_TIMESTAMP(6) WHERE identity_key=#{key} AND state='RETRYABLE' AND callback_claim IS NULL",
+        "UPDATE processing_job SET state='CLAIMED',executed_file_id=NULL,callback_manifest=NULL, updated_at=UTC_TIMESTAMP(6) WHERE identity_key=#{key} AND state='RETRYABLE' AND callback_claim IS NULL",
     )
     fun retry(key: String): Int
 
@@ -91,7 +92,7 @@ interface ProcessingJobMapper {
     fun prepareReset(id: Long): Int
 
     @Select(
-        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest FROM processing_job WHERE input_path=#{path} ORDER BY id DESC LIMIT 1",
+        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest,updated_at FROM processing_job WHERE input_path=#{path} ORDER BY id DESC LIMIT 1",
     )
     fun findByPath(path: String): ProcessingJob?
 }

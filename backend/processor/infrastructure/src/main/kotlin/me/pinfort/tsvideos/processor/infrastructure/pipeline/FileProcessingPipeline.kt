@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
@@ -10,14 +11,17 @@ import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ExecutedFile
+import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.core.domain.FileName
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
+import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient
 import me.pinfort.tsvideos.core.external.tool.TsSplitterClient
+import me.pinfort.tsvideos.processor.infrastructure.external.ts.EmergencyBroadcastDetector
 import me.pinfort.tsvideos.processor.infrastructure.external.tsselect.TsSelectClient
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
@@ -25,15 +29,17 @@ import java.io.File
 import kotlin.math.ceil
 
 /**
- * DropCheck(tsselect) -> TsSplitter -> CompressAndSave -> AmatsukazeAddTask の4段パイプライン。
- * 登録・分割段階の失敗は逆順にロールバックする。アップロード開始後は復旧用の記録とローカルデータを保持する。
+ * DropCheck(tsselect + 緊急警報放送/文字スーパー検出) -> TsSplitter -> CompressAndSave -> AmatsukazeAddTask の4段パイプライン。
+ * 登録・分割・圧縮段階の失敗は逆順にロールバックする。アップロード開始後は復旧用の記録とローカルデータを保持する。
  */
 @Component
 class FileProcessingPipeline(
     private val executedFileCommand: ExecutedFileCommand,
+    private val executedFileTagCommand: ExecutedFileTagCommand,
     private val splittedFileCommand: SplittedFileCommand,
     private val programCommand: ProgramCommand,
     private val tsSelectClient: TsSelectClient,
+    private val emergencyBroadcastDetector: EmergencyBroadcastDetector,
     private val tsSplitterClient: TsSplitterClient,
     private val amatsukazeAddTaskClient: AmatsukazeAddTaskClient,
     private val durationProbeClient: DurationProbeClient,
@@ -55,83 +61,129 @@ class FileProcessingPipeline(
         val fileName: FileName,
         val drops: Int,
         val duration: Double,
+        // null when emergency broadcast detection failed: the recording is left "not checked"
+        val emergencyTags: Set<String>?,
     )
 
     fun processFile(
         file: File,
         dryRun: Boolean = false,
         onDropCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> },
+        onEmergencyCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ): Result {
         if (!file.isFile) throw TsVideosException("file not found or not a regular file, file=$file")
         val identity = ProcessingIdentity.from(file)
         if (dryRun) {
-            val inspection = inspect(file, onDropCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
+            val inspection = inspect(file, onDropCheckProgress, onEmergencyCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
             logger.info(
-                "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}; " +
+                "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}, " +
+                    "tags=${inspection.emergencyTags}; " +
                     "would register, split, compress, upload and submit encoding",
             )
             return Result.DRY_RUN
         }
         val existing = processingJobCommand.find(identity)
         if (existing != null && existing.state != "RETRYABLE") {
-            check(existing.state in setOf("SUBMITTED", "COMPLETED")) {
-                "Job ${existing.id} is ${existing.state}; reconcile before retrying (encoder submission may have succeeded)"
-            }
+            check(existing.state in setOf("SUBMITTED", "COMPLETED")) { blockedJobMessage(existing) }
             return Result.SKIPPED_ALREADY_REGISTERED
         }
         processingJobCommand.findByPath(identity.path)?.let {
             check(it.identityKey == identity.key || it.state == "RETRYABLE") {
-                "Changed recording version requires reconciliation/reset of job ${it.id} (${it.state})"
+                "Changed recording version requires reconciliation of job ${it.id} (${it.state}); " +
+                    "see docs/processing-idempotency.md, then run `tvpcli reset ${identity.path}`"
             }
         }
         executedFileCommand.findByFile(identity.path)?.let {
-            error("Recording path already registered: changed or legacy input requires reset before processing")
+            error("Recording path already registered without a matching job; run `tvpcli reset ${identity.path}` before processing")
         }
         val inspection =
-            inspect(file, onDropCheckProgress)
-                ?: error("Recording name already registered; reconcile or reset before processing")
+            inspect(file, onDropCheckProgress, onEmergencyCheckProgress)
+                ?: error("Recording name ${file.name} already registered; run `tvpcli reset` on that recording before processing")
         check(ProcessingIdentity.from(file) == identity) { "Recording changed during inspection; retry when stable" }
         val job =
             processingJobCommand.claim(identity)
                 ?: error("Recording already claimed by another invocation")
+        val runner = RollbackRunner()
         var uploadStarted = false
         try {
-            val runner = RollbackRunner()
             var registered: ExecutedFile? = null
             val executedFile =
                 runner.stage({ registered?.let { rollbackRegistration(it) } }) {
-                    registerRecording(File(identity.path), inspection).also { registered = it }
+                    registerRecording(File(identity.path), inspection).also {
+                        registered = it
+                        // Inside the stage so that a failed link rolls the registration back.
+                        processingJobCommand.link(job, it.id)
+                    }
                 }
-            processingJobCommand.link(job, executedFile.id)
             var splitInvoked = false
             val mainSplittedFile =
                 runner.stage({ if (splitInvoked) rollbackTsSplit(executedFile) }) {
                     tsSplit(executedFile) { splitInvoked = true }
                 }
+            var createdArchive: File? = null
+            val archive =
+                runner.stage({
+                    // A retry would upload a leftover partial archive as-is, so remove the one this attempt created.
+                    createdArchive?.let { check(it.delete() || !it.exists()) { "Cannot delete partial archive $it" } }
+                }) {
+                    compressArchive(mainSplittedFile, onCompressProgress) { createdArchive = it }
+                }
             uploadStarted = true
             // Preserve registration, split and upload evidence after any external upload starts.
-            compressAndSave(mainSplittedFile, onCompressProgress, onUploadProgress)
+            saveArchive(mainSplittedFile, archive, onUploadProgress)
             // Once submission starts rollback would destroy input possibly already consumed by the encoder.
             processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
             amatsukazeAddTask(mainSplittedFile)
             processingJobCommand.acknowledgeSubmission(job)
         } catch (e: Exception) {
-            if (!uploadStarted && e.suppressed.isEmpty() && executedFileCommand.findByFile(identity.path) == null) {
-                processingJobCommand.transition(job, "CLAIMED", "RETRYABLE")
+            // Retry is only safe when nothing reached the NAS and every rollback finished.
+            if (!uploadStarted && runner.rolledBackCleanly && markRetryable(job, identity, e)) {
+                logger.error("Processing job ${job.id} failed and was rolled back; it can be retried", e)
+            } else {
+                // Keep durable evidence even after an external effect succeeded but its DB update failed.
+                logger.error("Processing job ${job.id} requires reconciliation", e)
             }
-            // Keep durable evidence even after an external effect succeeded but its DB update failed.
-            logger.error("Processing job ${job.id} requires reconciliation", e)
             throw e
         }
         return Result.PROCESSED
     }
 
-    // Read-only checks shared by normal processing and dry-run, before any rollback is needed.
+    private fun blockedJobMessage(job: ProcessingJob): String {
+        val reason =
+            when (job.state) {
+                "CLAIMED" ->
+                    "another invocation is processing it, or an earlier one stopped after its upload started " +
+                        "or without finishing rollback"
+                "SUBMISSION_UNKNOWN" -> "encoder submission may have succeeded; check the encoder queue before reconciling"
+                else -> "finish its reset (`tvpcli reset ${job.inputPath}`) before processing"
+            }
+        return "Job ${job.id} is ${job.state} (last updated ${job.updatedAt} UTC): $reason. See docs/processing-idempotency.md"
+    }
+
+    // Must not replace the processing failure being reported: a failure here leaves the job CLAIMED.
+    private fun markRetryable(
+        job: ProcessingJob,
+        identity: ProcessingIdentity,
+        failure: Exception,
+    ): Boolean {
+        try {
+            if (executedFileCommand.findByFile(identity.path) != null) return false
+            processingJobCommand.transition(job, "CLAIMED", "RETRYABLE")
+            return true
+        } catch (e: Exception) {
+            failure.addSuppressed(e)
+            return false
+        }
+    }
+
+    // Read-only checks (drop-frame count, emergency broadcast detection, duration) shared by
+    // normal processing and dry-run, before any rollback is needed.
     private fun inspect(
         file: File,
         onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
+        onEmergencyCheckProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
     ): RecordingInspection? {
         if (!file.isFile) {
             throw TsVideosException("file not found or not a regular file, file=$file")
@@ -142,8 +194,28 @@ class FileProcessingPipeline(
         }
         val fileName = FileName.fromFileNameString(file.name)
         val drops = tsSelectClient.check(file, onProgress)
+        val emergencyTags = detectEmergencyBroadcast(file, onEmergencyCheckProgress)
         val duration = durationProbeClient.probe(file)
-        return RecordingInspection(fileName, drops, duration)
+        return RecordingInspection(fileName, drops, duration, emergencyTags)
+    }
+
+    // Detection is supplementary, so a failure must not stop processing: log it and return null so
+    // the check is not recorded and the recording shows as "not checked".
+    private fun detectEmergencyBroadcast(
+        file: File,
+        onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
+    ): Set<String>? {
+        val emergency =
+            try {
+                emergencyBroadcastDetector.detect(file, onProgress)
+            } catch (e: Exception) {
+                logger.warn("Emergency broadcast detection failed, leave it unchecked, file=$file", e)
+                return null
+            }
+        if (emergency.ewsDetected || emergency.superimposeDetected) {
+            logger.warn("Emergency broadcast detected, file=$file, result=$emergency")
+        }
+        return emergency.tags()
     }
 
     // Stage 1: register the inspected recording as executed_file + program.
@@ -169,8 +241,22 @@ class FileProcessingPipeline(
             executedFileCommand.delete(executedFile)
             throw e
         }
+        inspection.emergencyTags?.let { recordEmergencyCheck(executedFile, it) }
 
         return executedFile
+    }
+
+    // Like detection itself, saving its result is supplementary: if it fails (e.g. the tag tables have
+    // not been created yet), keep the registration and leave the recording "not checked".
+    private fun recordEmergencyCheck(
+        executedFile: ExecutedFile,
+        tags: Set<String>,
+    ) {
+        try {
+            executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, tags)
+        } catch (e: Exception) {
+            logger.warn("Recording emergency broadcast tags failed, leave it unchecked, executedFile=$executedFile", e)
+        }
     }
 
     private fun rollbackRegistration(executedFile: ExecutedFile) {
@@ -237,22 +323,31 @@ class FileProcessingPipeline(
             ?: emptyList()
     }
 
-    // Stage 3: gzip-compress the main split file and upload it to the original-store NAS
-    private fun compressAndSave(
+    // Stage 3a: gzip-compress the main split file next to it
+    private fun compressArchive(
         splittedFile: SplittedFile,
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
-        onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
-    ) {
+        onArchiveCreating: (File) -> Unit,
+    ): File {
         val splitFile = File(splittedFile.file)
         val compressedFile = File(splitFile.parentFile, "${splitFile.name}.gz")
 
+        if (!compressedFile.exists()) onArchiveCreating(compressedFile)
         if (!compressComponent.compress(splitFile, compressedFile, false, onCompressProgress)) {
             error("Compressed file already exists; reconcile before processing")
         }
+        return compressedFile
+    }
 
+    // Stage 3b: verified upload of the archive to the original-store NAS; the local archive is removed only once registered
+    private fun saveArchive(
+        splittedFile: SplittedFile,
+        compressedFile: File,
+        onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
+    ) {
         val targetFile =
             nasDestinationResolver.resolve(
-                splitFile.parentFile.parentFile.toPath(),
+                File(splittedFile.file).parentFile.parentFile.toPath(),
                 compressedFile.name,
                 SambaClient.NasType.ORIGINAL_STORE_NAS,
             )
@@ -287,10 +382,6 @@ class FileProcessingPipeline(
         check(amatsukazeAddTaskClient.addTask(splitFile, outDir, decideProfile(executedFile)) == 0) {
             "Encoder submission returned failure; outcome must be reconciled"
         }
-    }
-
-    private fun rollbackAmatsukazeAddTask(splittedFile: SplittedFile) {
-        logger.info("Nothing to rollback for AmatsukazeAddTask, splittedFile=$splittedFile")
     }
 
     private val atxDivTitleRegex = Regex("#[0-9]{1,3}-#[0-9]{1,3}")

@@ -1,3 +1,4 @@
+import { ContinueWatching } from "@/components/continue-watching";
 import { parseProgramQuery } from "@/lib/program-query";
 import { Pager } from "@/components/pager";
 import { ProgramsTable } from "@/components/programs-table";
@@ -29,6 +30,7 @@ export default async function HomePage({
       <header>
         <SearchForm defaultValue={name} />
       </header>
+      <ContinueWatching />
       <main>
         <ProgramsTable programs={programs} />
       </main>

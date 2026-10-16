@@ -23,15 +23,19 @@ import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.domain.VerifiedUploadReceipt
 import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
+import org.slf4j.Logger
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.Path
 import java.time.LocalDateTime
 
 class AfterEncodeRunnerTest :
     ExpectSpec({
-        class Fixture {
+        class Fixture(
+            directoryName: String = "myprogram",
+        ) {
             val root = Files.createTempDirectory("after-encode-").toFile()
-            val recording = File(root, "myprogram").apply { mkdirs() }
+            val recording = File(root, directoryName).apply { mkdirs() }
             val splitDirectory = File(recording, "tssplitter").apply { mkdirs() }
             val output = File(File(splitDirectory, "encoded").apply { mkdirs() }, "video.mp4").apply { writeText("video") }
             val original = File(recording, "raw.m2ts").apply { writeText("original") }
@@ -44,6 +48,7 @@ class AfterEncodeRunnerTest :
             val uploads = mockk<VerifiedUploadCommand>(relaxed = true)
             val validation = mockk<ValidateCompletedComponent>()
             val slack = mockk<SlackClient>(relaxed = true)
+            val logger = mockk<Logger>(relaxed = true)
             val samba = mockk<SambaClient>()
             val identity = ProcessingIdentity.from(original)
             val job = ProcessingJob(1, identity.key, identity.path, identity.size, identity.modifiedMillis, "SUBMITTED", 10, null)
@@ -87,7 +92,7 @@ class AfterEncodeRunnerTest :
                         MimeTypeComponent(),
                         validation,
                         slack,
-                        mockk(relaxed = true),
+                        logger,
                         jobs,
                         uploads,
                     )
@@ -97,7 +102,8 @@ class AfterEncodeRunnerTest :
                 success: Boolean = true,
                 dryRun: Boolean = false,
                 files: List<File> = listOf(output),
-            ) = runner.run(AfterEncodeRunner.Input(1, input.toPath(), files.map { it.toPath() }, success, "encoder failed"), dryRun)
+                inPath: Path = input.toPath(),
+            ) = runner.run(AfterEncodeRunner.Input(1, inPath, files.map { it.toPath() }, success, "encoder failed"), dryRun)
 
             fun cleanup() {
                 root.deleteRecursively()
@@ -238,7 +244,154 @@ class AfterEncodeRunnerTest :
                 listOf(f.output, f.original, f.input, f.split).forEach { it.exists() shouldBe true }
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
                 verify(exactly = 0) { f.jobs.claimCallback(any()) }
+                verify { f.logger.info(match<String> { it.contains("base/m/myprogram/video.mp4") }) }
+                verify(exactly = 0) { f.slack.notify(any()) }
             } finally {
+                f.cleanup()
+            }
+        }
+        expect("dry run reports a missing callback output without uploading") {
+            val f = Fixture()
+            try {
+                f.output.delete()
+                f.run(dryRun = true)
+                verify { f.slack.notify(match { it.contains("Callback output missing") }) }
+                verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
+                listOf(f.original, f.input, f.split).forEach { it.exists() shouldBe true }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("uploads under the normalized recording directory") {
+            val f = Fixture("Ａnime:０１")
+            try {
+                f.run()
+                verify { f.uploads.upload(1, any(), f.output, SambaClient.NasType.VIDEO_STORE_NAS, "base/A/Anime：01/video.mp4", any()) }
+            } finally {
+                f.cleanup()
+            }
+        }
+        listOf<Pair<String, (Fixture) -> Unit>>(
+            "legacy callback" to { f -> every { f.jobs.findByExecutedFile(10) } returns null },
+            "callback already claimed" to { f -> every { f.jobs.claimCallback(any()) } returns null },
+            "claim query fails" to { f -> every { f.jobs.claimCallback(any()) } throws RuntimeException("db down") },
+        ).forEach { (case, stub) ->
+            expect("claim failure notifies without touching the program or uploads, case=$case") {
+                val f = Fixture()
+                try {
+                    stub(f)
+                    f.run()
+                    verify { f.slack.notify(match { it.contains("claiming encode callback failed") }) }
+                    verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(any(), any(), any()) }
+                    verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
+                    verify(exactly = 0) { f.jobs.releaseCallback(any(), any()) }
+                    f.output.exists() shouldBe true
+                } finally {
+                    f.cleanup()
+                }
+            }
+        }
+        expect("names the current claim and its age when the callback is already claimed") {
+            val f = Fixture()
+            try {
+                every { f.jobs.findByExecutedFile(10) } returns
+                    f.job.copy(callbackClaim = "other-owner", updatedAt = LocalDateTime.of(2026, 10, 1, 3, 4))
+                every { f.jobs.claimCallback(any()) } returns null
+                f.run()
+                verify { f.slack.notify(match { it.contains("other-owner") && it.contains("2026-10-01T03:04") }) }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("a failed claim release after success is reported without undoing the completion") {
+            val f = Fixture()
+            try {
+                every { f.jobs.releaseCallback(any(), "token") } throws IllegalStateException("claim lost")
+                f.run()
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, any()) }
+                verify { f.slack.notify(match { it.contains("releasing callback claim of job 1 failed") }) }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("a failed claim release does not mask the processing failure") {
+            val f = Fixture()
+            try {
+                every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws RuntimeException("smb timeout")
+                every { f.jobs.releaseCallback(any(), "token") } throws IllegalStateException("claim lost")
+                f.run()
+                verify { f.slack.notify(match { it.contains("smb timeout") }) }
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
+                verify { f.slack.notify(match { it.contains("releasing callback claim of job 1 failed") }) }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("completes a job whose submission acknowledgement has not been recorded yet") {
+            val f = Fixture()
+            try {
+                every { f.jobs.findByExecutedFile(10) } returns f.job.copy(state = "SUBMISSION_UNKNOWN")
+                f.run()
+                verify { f.jobs.complete(match { it.state == "SUBMISSION_UNKNOWN" }) }
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("marks the program as ERROR when completion fails after the originals were removed") {
+            val f = Fixture()
+            try {
+                every { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) } throws RuntimeException("db down")
+                f.run()
+                f.input.exists() shouldBe false
+                f.original.exists() shouldBe false
+                verify { f.slack.notify(match { it.contains("db down") }) }
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
+                verify(exactly = 0) { f.jobs.complete(any()) }
+                verify(exactly = 0) { f.logger.info(match<String> { it.contains("uploading file completed") }) }
+                verify { f.jobs.releaseCallback(any(), "token") }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("keeps a completed program when recording the job completion fails") {
+            val f = Fixture()
+            try {
+                every { f.jobs.complete(any()) } throws IllegalStateException("job is RESETTING")
+                f.run()
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, any()) }
+                verify { f.slack.notify(match { it.contains("marking processing job completed failed") }) }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("a failing replay of a completed job keeps the existing outcome") {
+            val f = Fixture()
+            try {
+                every { f.jobs.findByExecutedFile(10) } returns f.job.copy(state = "COMPLETED")
+                every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws IllegalStateException("source gone")
+                f.run()
+                verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(any(), any(), any()) }
+                verify { f.jobs.releaseCallback(any(), "token") }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("finds a pre-064 splitted file registered through a symlinked path") {
+            val f = Fixture()
+            val linkRoot = Files.createTempDirectory("after-encode-link").toFile()
+            try {
+                val link = Files.createSymbolicLink(File(linkRoot, "link").toPath(), f.root.toPath())
+                val linkedSplit = link.resolve("myprogram/tssplitter/split.m2ts").toFile()
+                every { f.splits.findByFile(linkedSplit.canonicalPath) } returns null
+                every { f.splits.findByFile(linkedSplit.absolutePath) } returns f.splitRow
+                f.run(inPath = link.resolve("myprogram/tssplitter/succeeded/split.m2ts"))
+                verify { f.splits.findByFile(linkedSplit.absolutePath) }
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+            } finally {
+                linkRoot.deleteRecursively()
                 f.cleanup()
             }
         }
