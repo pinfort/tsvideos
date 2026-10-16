@@ -11,6 +11,7 @@ import me.pinfort.tsvideos.processor.infrastructure.pipeline.PathProcessingRunne
 import org.springframework.stereotype.Component
 import java.nio.file.Path
 
+/** PreflightCommand's process gate parses these same arguments first; add new options there too. */
 @Component
 class ProcessCommand(
     private val pathProcessingRunner: PathProcessingRunner,

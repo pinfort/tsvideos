@@ -27,6 +27,12 @@ import org.springframework.core.env.StandardEnvironment
 import tools.jackson.databind.json.JsonMapper
 import java.nio.file.Path
 
+/** A usage error whose message is authored here and never echoes user input, so it can be shown verbatim. */
+internal class SafeUsageError(
+    message: String,
+) : UsageError(message)
+
+/** The process gate mirrors [me.pinfort.tsvideos.processor.console.commands.ProcessCommand]'s paths and -d; keep them in sync. */
 class PreflightCommand(
     private val diagnostics: ProcessingPreflightCommand,
     private val processGate: Boolean = false,
@@ -37,13 +43,17 @@ class PreflightCommand(
     private val dryRun by option("-d", "--dry-run", help = "read-only checks; incompatible with --check-write").flag()
 
     override fun run() {
-        if (checkWrite && (dryRun || processGate)) throw UsageError("--check-write is only available for explicit non-dry-run preflight")
-        if (processGate && json) throw UsageError("Use preflight --json for a structured report")
+        if (checkWrite &&
+            (dryRun || processGate)
+        ) {
+            throw SafeUsageError("--check-write is only available for explicit non-dry-run preflight")
+        }
+        if (processGate && json) throw SafeUsageError("Use preflight --json for a structured report")
         val parsed =
             try {
                 paths.map(Path::of)
             } catch (_: Exception) {
-                throw UsageError("Invalid input path")
+                throw SafeUsageError("Invalid input path")
             }
         val report = diagnostics.diagnose(parsed, checkWrite)
         if (!processGate || report.hasFailures) {
@@ -86,6 +96,8 @@ object PreflightBootstrap {
     ): Int {
         val log = (LoggerFactory.getILoggerFactory() as? LoggerContext)?.getLogger(Logger.ROOT_LOGGER_NAME)
         val previous = log?.level
+        // Boot/Hikari/jcifs log URLs and exception messages that preflight promises never to echo.
+        // Under a non-logback SLF4J binding this is a no-op.
         log?.level = Level.OFF
         try {
             val environment =
@@ -127,7 +139,11 @@ object PreflightBootstrap {
             return try {
                 command.parse(DiagnosticEnvironment.commandArguments(args).drop(1))
                 0
+            } catch (error: SafeUsageError) {
+                command.echoFormattedHelp(CliktError("Invalid preflight arguments: ${error.message}", statusCode = 2))
+                2
             } catch (error: UsageError) {
+                // Clikt's own messages can echo raw argument values, so they stay generic.
                 command.echoFormattedHelp(CliktError("Invalid preflight arguments: check paths and option combinations", statusCode = 2))
                 2
             } catch (error: CliktError) {

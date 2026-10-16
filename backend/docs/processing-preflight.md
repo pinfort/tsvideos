@@ -17,3 +17,5 @@ JSON stdout is UTF-8 with `schemaVersion: 1` and `checks` containing `id`, `stat
 Tool PASS for Windows-only tools (and every tool on Windows) means the file is readable; execution permission is not checked. The space estimate uses the filesystem holding each input because TsSplitter and compression write their outputs next to it.
 
 `--json`/`--help` are recognised only before a `--` separator, so `tvpcli process -- --json` treats `--json` as a path. When preflight itself fails unexpectedly, stderr names only the exception class (never its message) so bugs stay diagnosable without leaking settings.
+
+`scripts/preflight-cli-smoke.py` exercises the packaged CLI end to end against dedicated MariaDB and Samba instances. It is a manual check and is not run by CI or `./gradlew test`.

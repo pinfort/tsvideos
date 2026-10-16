@@ -78,6 +78,24 @@ class PreflightCommandTest :
             json["checks"][0]["id"].asString() shouldBe "config.load"
             json["checks"][0]["status"].asString() shouldBe "FAIL"
         }
+        expect("authored option-conflict messages are shown verbatim with exit 2") {
+            val out = ByteArrayOutputStream()
+            val originalOut = System.out
+            val originalErr = System.err
+            val status =
+                try {
+                    PrintStream(out, true, Charsets.UTF_8).let {
+                        System.setOut(it)
+                        System.setErr(it)
+                    }
+                    PreflightBootstrap.run(arrayOf("preflight", "--dry-run", "--check-write", "/recording"))
+                } finally {
+                    System.setOut(originalOut)
+                    System.setErr(originalErr)
+                }
+            status shouldBe 2
+            out.toString(Charsets.UTF_8).contains("--check-write is only available for explicit non-dry-run preflight") shouldBe true
+        }
         expect("help skips configuration loading and exits 0") {
             PreflightBootstrap.run(arrayOf("preflight", "--help", "--spring.config.location=file:/nonexistent/x.yaml")) shouldBe 0
         }
