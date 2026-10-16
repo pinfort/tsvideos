@@ -1,37 +1,80 @@
-package me.pinfort.tsvideos.core.external.database.mapper
+package me.pinfort.tsvideos.core.command
 
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.command.LibraryStatsCommand
 import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
+import me.pinfort.tsvideos.core.external.database.mapper.LibraryStatsMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
+import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.testcontainers.context.ImportTestcontainers
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Import
+import org.springframework.context.annotation.Primary
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig
+import org.springframework.transaction.annotation.Isolation
+import org.springframework.transaction.annotation.Propagation
+import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.LocalDateTime
 import javax.sql.DataSource
 
 @ImportTestcontainers
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 @MybatisTest
+@Import(LibraryStatsCommand::class, LibraryStatsCommandTest.ObservedMapper::class)
 @SpringJUnitConfig
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
-class LibraryStatsMapperTest : ExpectSpec() {
+class LibraryStatsCommandTest : ExpectSpec() {
     @Autowired private lateinit var dataSource: DataSource
 
-    @Autowired private lateinit var mapper: LibraryStatsMapper
+    @Autowired private lateinit var command: LibraryStatsCommand
+
+    /** Wraps the MyBatis mapper so a test can act between the two queries of one summarize call. */
+    @TestConfiguration
+    class ObservedMapper {
+        @Bean
+        @Primary
+        fun observedLibraryStatsMapper(
+            @Qualifier("libraryStatsMapper") delegate: LibraryStatsMapper,
+        ): LibraryStatsMapper =
+            object : LibraryStatsMapper by delegate {
+                override fun programs(query: LibraryStatsQuery) = delegate.programs(query).also { afterPrograms() }
+            }
+    }
 
     init {
         beforeTest {
+            afterPrograms = {}
             execute(listOf("created_file", "splitted_file", "program", "executed_file").map { "DELETE FROM $it" })
         }
+        expect("both queries read one read-only repeatable-read snapshot") {
+            seed()
+            var observed: Triple<Boolean, Boolean, Int?>? = null
+            afterPrograms = {
+                afterPrograms = {}
+                observed =
+                    Triple(
+                        TransactionSynchronizationManager.isActualTransactionActive(),
+                        TransactionSynchronizationManager.isCurrentTransactionReadOnly(),
+                        TransactionSynchronizationManager.getCurrentTransactionIsolationLevel(),
+                    )
+                execute(listOf("INSERT INTO created_file VALUES (6,1,'late',1000,'video/mp4',NULL,'REGISTERED')"))
+            }
+            val totals = command.summarize().totals
+            observed shouldBe Triple(true, true, Isolation.REPEATABLE_READ.value())
+            totals.registeredBytes shouldBe 150L
+            command.summarize().totals.registeredBytes shouldBe 1150L
+        }
         expect("empty totals are zero with unknown physical usage") {
-            val result = LibraryStatsCommand(mapper).summarize()
+            val result = command.summarize()
             result.totals.programCount shouldBe 0L
             result.totals.registeredBytes shouldBe 0L
             result.totals.verifiedPhysicalBytes shouldBe null
@@ -39,7 +82,7 @@ class LibraryStatsMapperTest : ExpectSpec() {
         }
         expect("counts programs once and files once across shared executed records") {
             seed()
-            val t = LibraryStatsCommand(mapper).summarize().totals
+            val t = command.summarize().totals
             t.programCount shouldBe 4L
             t.failedProgramCount shouldBe 1L
             t.droppedFrameCount shouldBe 14L
@@ -55,22 +98,27 @@ class LibraryStatsMapperTest : ExpectSpec() {
         }
         expect("groups retain unknown date and channel while deduplicating files") {
             seed()
-            val command = LibraryStatsCommand(mapper)
             val channels = command.summarize(LibraryStatsQuery(LibraryStatsQuery.Group.CHANNEL)).groups
             channels.map { it.key } shouldBe listOf(null, "日本語", "空")
             channels[1].totals.registeredBytes shouldBe 150L
-            command.summarize(LibraryStatsQuery(LibraryStatsQuery.Group.MONTH)).groups.map { it.key } shouldBe
-                listOf(null, "2026-01", "2026-02")
+            val months = command.summarize(LibraryStatsQuery(LibraryStatsQuery.Group.MONTH)).groups
+            months.map { it.key } shouldBe listOf(null, "2026-01", "2026-02")
+            months.map { it.totals.programCount } shouldBe listOf(1L, 2L, 1L)
+            months.map { it.totals.registeredBytes } shouldBe listOf(0L, 150L, 0L)
+            months[1].totals.failedProgramCount shouldBe 1L
         }
         expect("date bounds include start exclude end and exclude orphan dates") {
             seed()
-            val command = LibraryStatsCommand(mapper)
             val start = LocalDateTime.parse("2026-01-01T00:00:00")
             val end = LocalDateTime.parse("2026-02-01T00:00:00")
             val result = command.summarize(LibraryStatsQuery(recordedFrom = start, recordedTo = end))
             result.totals.programCount shouldBe 2L
             result.totals.registeredBytes shouldBe 150L
             command.summarize(LibraryStatsQuery(recordedFrom = end)).totals.programCount shouldBe 1L
+            command.summarize(LibraryStatsQuery(recordedTo = end)).totals.let {
+                it.programCount shouldBe 2L
+                it.registeredBytes shouldBe 150L
+            }
         }
     }
 
@@ -79,6 +127,10 @@ class LibraryStatsMapperTest : ExpectSpec() {
             sql.forEach { query -> c.createStatement().use { it.execute(query) } }
             c.commit()
         }
+    }
+
+    private companion object {
+        var afterPrograms: () -> Unit = {}
     }
 
     private fun seed() =

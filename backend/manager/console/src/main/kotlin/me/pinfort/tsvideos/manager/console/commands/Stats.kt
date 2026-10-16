@@ -8,7 +8,10 @@ import me.pinfort.tsvideos.core.command.LibraryStatsCommand
 import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
 import me.pinfort.tsvideos.core.domain.LibraryStatsTotals
 import org.springframework.stereotype.Component
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.format.DateTimeParseException
+import java.util.Locale
 
 @Component
 class Stats(
@@ -18,13 +21,20 @@ class Stats(
 
     private val groupBy by option("--group-by", help = "CHANNEL or MONTH").convert {
         try {
-            LibraryStatsQuery.Group.valueOf(it.uppercase())
+            LibraryStatsQuery.Group.valueOf(it.uppercase(Locale.ROOT))
         } catch (_: IllegalArgumentException) {
             throw UsageError("--group-by must be CHANNEL or MONTH")
         }
     }
-    private val recordedFrom by option("--recorded-from", help = "inclusive local ISO recording time").convert { date(it) }
-    private val recordedTo by option("--recorded-to", help = "exclusive local ISO recording time").convert { date(it) }
+    private val recordedFrom by option(
+        "--recorded-from",
+        help = "inclusive local ISO date or date-time (date means start of day)",
+    ).convert {
+        date(it)
+    }
+    private val recordedTo by option("--recorded-to", help = "exclusive local ISO date or date-time (date means start of day)").convert {
+        date(it)
+    }
 
     override fun read() {
         if (idsOnly) throw UsageError("stats does not support --ids-only")
@@ -58,18 +68,20 @@ class Stats(
         totals: LibraryStatsTotals,
     ) {
         echo(
-            "$label: programs=${totals.programCount}, failed=${totals.failedProgramCount}, drops=${totals.droppedFrameCount}, unknownDrops=${totals.unknownDropsProgramCount}",
+            "$label: programs=${totals.programCount}, failed=${totals.failedProgramCount}, " +
+                "drops=${totals.droppedFrameCount}, unknownDrops=${totals.unknownDropsProgramCount}",
         )
         echo(
-            "  files=${totals.registeredFileCount}, bytes=${totals.registeredBytes}, originalTs=${totals.originalTsBytes}, encoded=${totals.encodedBytes}, other=${totals.otherBytes}",
+            "  files=${totals.registeredFileCount}, bytes=${totals.registeredBytes}, " +
+                "originalTs=${totals.originalTsBytes}, encoded=${totals.encodedBytes}, other=${totals.otherBytes}",
         )
         echo("  moved=${totals.movedFileBytes}, pending=${totals.pendingFileBytes}, verifiedPhysical=unverified")
     }
 
     private fun date(value: String): LocalDateTime =
         try {
-            LocalDateTime.parse(value)
-        } catch (_: Exception) {
-            throw UsageError("Recording time must be an ISO local date-time without offset")
+            if (value.contains('T')) LocalDateTime.parse(value) else LocalDate.parse(value).atStartOfDay()
+        } catch (_: DateTimeParseException) {
+            throw UsageError("Recording time must be an ISO local date or date-time without offset, e.g. 2026-01-01 or 2026-01-01T00:00:00")
         }
 }

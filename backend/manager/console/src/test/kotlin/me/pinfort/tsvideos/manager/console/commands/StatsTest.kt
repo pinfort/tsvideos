@@ -53,6 +53,57 @@ class StatsTest :
                 .readTree(result.stdout)["stats"]["groups"][0]["key"]
                 .asString() shouldBe "日本語"
         }
+        expect("JSON key set is pinned for schemaVersion 1") {
+            val command = mockk<LibraryStatsCommand>()
+            every { command.summarize(any()) } returns LibraryStats(empty, listOf(LibraryStatsGroup("2026-01", empty)))
+            val stats = JsonMapper.builder().build().readTree(Stats(command).invoke("--group-by month --json").stdout)["stats"]
+            val totalsKeys =
+                setOf(
+                    "programCount",
+                    "failedProgramCount",
+                    "droppedFrameCount",
+                    "unknownDropsProgramCount",
+                    "registeredFileCount",
+                    "registeredBytes",
+                    "originalTsBytes",
+                    "encodedBytes",
+                    "otherBytes",
+                    "movedFileBytes",
+                    "pendingFileBytes",
+                    "verifiedPhysicalBytes",
+                )
+            stats.propertyNames().toSet() shouldBe setOf("groupBy", "recordedFrom", "recordedTo", "totals", "groups")
+            stats["totals"].propertyNames().toSet() shouldBe totalsKeys
+            stats["groups"][0].propertyNames().toSet() shouldBe setOf("key", "totals")
+            stats["groups"][0]["totals"].propertyNames().toSet() shouldBe totalsKeys
+        }
+        expect("date-only bounds mean start of day") {
+            val command = mockk<LibraryStatsCommand>()
+            every { command.summarize(any()) } returns LibraryStats(empty, emptyList())
+            Stats(command).invoke("--recorded-from 2026-01-01 --recorded-to 2026-02-01").statusCode shouldBe 0
+            verify {
+                command.summarize(
+                    LibraryStatsQuery(null, LocalDateTime.parse("2026-01-01T00:00:00"), LocalDateTime.parse("2026-02-01T00:00:00")),
+                )
+            }
+        }
+        expect("human month output prints one block per group with unknown label") {
+            val command = mockk<LibraryStatsCommand>()
+            val month = empty.copy(programCount = 2, registeredBytes = 150)
+            every { command.summarize(any()) } returns
+                LibraryStats(month, listOf(LibraryStatsGroup(null, empty), LibraryStatsGroup("2026-01", month)))
+            val result = Stats(command).invoke("--group-by month")
+            result.statusCode shouldBe 0
+            verify { command.summarize(LibraryStatsQuery(LibraryStatsQuery.Group.MONTH)) }
+            val labels =
+                result.stdout
+                    .lines()
+                    .filter { it.isNotEmpty() && !it.startsWith(" ") }
+                    .drop(1)
+                    .map { it.substringBefore(':') }
+            labels shouldBe listOf("TOTAL", "(unknown)", "2026-01")
+            result.stdout.contains("2026-01: programs=2") shouldBe true
+        }
         expect("human output labels metadata and unverified physical usage") {
             val command = mockk<LibraryStatsCommand>()
             every { command.summarize(any()) } returns LibraryStats(empty, emptyList())
@@ -73,6 +124,7 @@ class StatsTest :
                 Stats(mockk()).invoke(it).statusCode shouldBe 2
             }
         }
+        // Exit code and secret-free stderr come from ReadCommand's shared error handling.
         expect("database failure gives sanitized stderr and no partial JSON") {
             val command = mockk<LibraryStatsCommand>()
             every { command.summarize(any()) } throws IllegalStateException("password=secret")
