@@ -91,6 +91,30 @@ class VerifyTest :
                     listOf("VERIFIED=1", "MISSING=0", "SIZE_MISMATCH=0", "INACCESSIBLE=0", "UNCHECKED=1"),
                 )
         }
+        expect("progress goes to stderr, leaving JSON stdout a single object") {
+            every { command.verify(null, any()) } answers {
+                val onProgress = secondArg<(Int, Int) -> Unit>()
+                (1..250).forEach { onProgress(it, 250) }
+                VerificationReport(emptyList())
+            }
+            val previousErr = System.err
+            val err = ByteArrayOutputStream()
+            val output =
+                try {
+                    System.setErr(PrintStream(err, true, Charsets.UTF_8))
+                    captureVerifyOutput { Verify(command).parseManager(listOf("--json")) }
+                } finally {
+                    System.setErr(previousErr)
+                }
+            JsonMapper
+                .builder()
+                .build()
+                .readTree(output)["schemaVersion"]
+                .intValue() shouldBe 1
+            output.trim().lines().size shouldBe 1
+            err.toString(Charsets.UTF_8).lines().filter { it.isNotBlank() } shouldBe
+                listOf("Checked 100/250 programs", "Checked 200/250 programs", "Checked 250/250 programs")
+        }
         expect("missing selected program exits three") {
             every { command.verify(9, any()) } returns null
             shouldThrow<CliktError> { Verify(command).parseManager(listOf("--program", "9")) }.statusCode shouldBe 3

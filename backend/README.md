@@ -100,7 +100,7 @@ DDL は `core/src/main/resources/db/migrations/002_executed_file_tag.sql` を適
 java -jar manager/console/build/libs/console.jar verify --json > verification.json
 ```
 
-自動処理では Gradle の出力を含まない実行可能 jar を使用してください。`--json` の stdout は UTF-8 の単一 JSON オブジェクト（`schemaVersion: 1`, `summary`, `findings`）です。ログ・エラーは stderr に出力します。各 finding は `programId`, `fileId`, `file`, `status`, UTC の `checkedAt`, バイト単位の `expectedBytes` / `actualBytes`, `reason` を含みます。番組に成果物が未登録の場合は `fileId` / `file` / サイズを null にした `UNCHECKED` を一件出します。summary は全ステータスの件数で、これらの未登録番組も含みます。
+自動処理では Gradle の出力を含まない実行可能 jar を使用してください。`--json` の stdout は UTF-8 の単一 JSON オブジェクト（`schemaVersion: 1`, `summary`, `findings`）です。ログ・エラーは stderr に出力します。各 finding は `programId`, `fileId`, `file`, `status`, UTC の `checkedAt`（その finding を確定した時刻。`UNCHECKED` では NAS に問い合わせていない）, バイト単位の `expectedBytes` / `actualBytes`, `reason` を含みます。番組に成果物が未登録の場合は `fileId` / `file` / サイズを null にした `UNCHECKED` を一件出します。summary は全ステータスの件数で、これらの未登録番組も含みます。
 
 | 状態 | 意味 |
 | --- | --- |

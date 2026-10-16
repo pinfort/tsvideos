@@ -23,7 +23,7 @@ class LibraryVerificationCommandTest :
         val program = ProgramDto(1, "program", 10, ProgramDto.Status.COMPLETED, null, null, null, null, null, null, null)
         val file = CreatedFileDto(2, 3, "base/file.mp4", 12, "video/mp4", null, CreatedFileDto.Status.FILE_MOVED)
 
-        fun ExecutedCreatedFileDto(
+        fun executedCreated(
             executedFileId: Long,
             dto: CreatedFileDto,
         ) = ExecutedCreatedFileDto(executedFileId, dto.id, dto.splittedFileId, dto.file, dto.size, dto.mime, dto.encoding, dto.status)
@@ -52,7 +52,7 @@ class LibraryVerificationCommandTest :
         }
         expect("library reads programs and files in batch, in one NAS session, and reports progress") {
             every { programs.selectAllOrderById() } returns listOf(program, program.copy(id = 2, executedFileId = 20))
-            every { files.selectAllWithExecutedFileId() } returns listOf(ExecutedCreatedFileDto(10, file))
+            every { files.selectAllWithExecutedFileId() } returns listOf(executedCreated(10, file))
             every { session.verify(any(), any()) } returns NasFileVerifier.Result(VerificationStatus.VERIFIED, 12)
             val progress = mutableListOf<Pair<Int, Int>>()
             val report = command.verify { checked, total -> progress += checked to total }!!

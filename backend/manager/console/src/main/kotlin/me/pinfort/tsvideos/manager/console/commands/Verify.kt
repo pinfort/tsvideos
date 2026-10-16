@@ -54,11 +54,8 @@ class Verify(
         } else {
             report.findings.forEach {
                 echo("${it.status}\tprogram=${it.programId}\tfile=${it.fileId ?: "-"}\t${it.file ?: "-"}")
-                echo(
-                    "  expected=${it.expectedBytes ?: "-"} actual=${it.actualBytes ?: "-"} checkedAt=${it.checkedAt}${it.reason?.let { r ->
-                        " $r"
-                    } ?: ""}",
-                )
+                val reason = it.reason?.let { text -> " $text" } ?: ""
+                echo("  expected=${it.expectedBytes ?: "-"} actual=${it.actualBytes ?: "-"} checkedAt=${it.checkedAt}$reason")
             }
             echo(report.summary.entries.joinToString(" ") { "${it.key}=${it.value}" })
         }
