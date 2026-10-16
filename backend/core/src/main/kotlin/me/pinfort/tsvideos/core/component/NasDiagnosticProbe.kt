@@ -114,6 +114,9 @@ class NasDiagnosticProbe(
                     try {
                         probe.delete()
                         checks += DiagnosticCheck("$id.cleanup", DiagnosticStatus.PASS, "Temporary probe removed")
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw e
                     } catch (_: Exception) {
                         checks +=
                             DiagnosticCheck(

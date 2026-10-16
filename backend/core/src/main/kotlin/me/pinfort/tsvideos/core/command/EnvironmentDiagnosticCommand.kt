@@ -29,7 +29,8 @@ class EnvironmentDiagnosticCommand(
                     "Set a jdbc:mariadb://host[:port]/database URL without embedded credentials",
                 ),
                 validate(checks, "spring.datasource.username", !databaseUser.isNullOrBlank(), "Set the database username"),
-                // Blank is allowed for passwordless local users; the connectivity probe still verifies authentication.
+                // Blank is allowed for passwordless local MariaDB users; the connectivity probe still verifies
+                // authentication. NAS passwords stay required: the stores use NTLM accounts, not guest access.
                 validate(checks, "spring.datasource.password", databasePassword != null, "Set the database password"),
             ).all { it }
         checks +=
@@ -67,7 +68,7 @@ class EnvironmentDiagnosticCommand(
                         checks,
                         "$prefix.base-dir",
                         validBaseDir(baseDir),
-                        "Set a relative NAS base directory, or an empty value for the share root",
+                        "Set a relative NAS base directory without .., :, %, ?, # or control characters, or empty for the share root",
                     ),
                 ).all { it }
             if (valid) {

@@ -134,4 +134,9 @@ class NasDiagnosticProbeTest :
             Thread.interrupted() shouldBe true
             verify { file.delete() }
         }
+        expect("interruption during cleanup is propagated, not reported as a cleanup failure") {
+            every { file.delete() } throws InterruptedException()
+            shouldThrow<InterruptedException> { run(true) }
+            Thread.interrupted() shouldBe true
+        }
     })
