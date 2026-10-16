@@ -68,15 +68,17 @@ class VerifiedUploadNas(
                         onOwned()
                         val digest = MessageDigest.getInstance("SHA-256")
                         DigestInputStream(source.inputStream(), digest).use { input ->
-                            val buffer = ByteArray(65536)
+                            // Large writes amortize SMB round trips for multi-GB recordings.
+                            val buffer = ByteArray(1 shl 20)
+                            val total = source.length()
                             var transferred = 0L
-                            progress(0, source.length())
+                            progress(0, total)
                             while (true) {
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 output.write(buffer, 0, count)
                                 transferred += count
-                                progress(transferred, source.length())
+                                progress(transferred, total)
                             }
                         }
                         digest.hex()
