@@ -164,6 +164,31 @@ class BulkLibraryMapperTest : ExpectSpec() {
             mapper.createdFilesOfPrograms(listOf(4, 7, 404)).map { it.id } shouldBe listOf(1L, 1L)
             mapper.lockFiles().map { it.id } shouldBe listOf(1L)
         }
+        expect("a second bulk lock gives up after the bounded wait with a locking failure") {
+            seed()
+            val locked = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val executor = Executors.newSingleThreadExecutor()
+            try {
+                val holding =
+                    executor.submit {
+                        TransactionTemplate(transactionManager).execute {
+                            mapper.lockFiles()
+                            locked.countDown()
+                            check(release.await(30, TimeUnit.SECONDS))
+                        }
+                    }
+                check(locked.await(10, TimeUnit.SECONDS))
+                io.kotest.assertions.throwables.shouldThrow<org.springframework.dao.PessimisticLockingFailureException> {
+                    TransactionTemplate(transactionManager).execute { mapper.lockFiles() }
+                }
+                release.countDown()
+                holding.get(10, TimeUnit.SECONDS)
+            } finally {
+                release.countDown()
+                executor.shutdownNow()
+            }
+        }
         expect("apply locks prevent concurrent aliases or split additions until transaction completes") {
             seed()
             val locked = CountDownLatch(1)

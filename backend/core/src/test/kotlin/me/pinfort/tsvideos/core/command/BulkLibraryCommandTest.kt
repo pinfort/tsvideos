@@ -22,6 +22,7 @@ import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ExecutedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.SplittedFileMapper
 import org.slf4j.Logger
+import org.springframework.dao.CannotAcquireLockException
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
 import java.time.LocalDateTime
@@ -303,6 +304,14 @@ class BulkLibraryCommandTest :
                 mapper.createdFilesOfPrograms(ids)
             }
             verify(exactly = 100) { created.selectByExecutedFileId(10) }
+        }
+        expect("a lock wait timeout reports a busy library without mutating anything") {
+            val plan = command.preview(request)
+            every { mapper.lockFiles() } throws CannotAcquireLockException("Lock wait timeout exceeded")
+            val outcome = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))).outcomes.single()
+            outcome.status shouldBe BulkOutcomeStatus.FAILED
+            outcome.message.contains("nothing was changed") shouldBe true
+            verify(exactly = 0) { programs.delete(any(), any()) }
         }
         expect("missing target is a per-target result") {
             val plan = command.preview(request)

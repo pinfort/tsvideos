@@ -18,6 +18,7 @@ import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ExecutedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.SplittedFileMapper
 import org.slf4j.Logger
+import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.stereotype.Component
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
@@ -105,7 +106,12 @@ class BulkLibraryCommand(
                     }
                 }
             }!!
+        } catch (error: PessimisticLockingFailureException) {
+            // Nothing was changed: the lock wait timed out before any NAS or DB mutation.
+            logger.warn("Bulk ${request.action} skipped, library busy, programId=$id", error)
+            BulkOutcome(id, BulkOutcomeStatus.FAILED, "Library is busy (processing may be running); nothing was changed. Retry later.")
         } catch (error: Exception) {
+            if (error is InterruptedException) Thread.currentThread().interrupt()
             logger.error("Bulk ${request.action} failed, programId=$id, directory=${request.directory}", error)
             BulkOutcome(
                 id,
