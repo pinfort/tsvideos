@@ -37,6 +37,7 @@ class ProgramSearchSql {
         if (query.recordedFrom != null) conditions += "ex.recorded_at >= #{recordedFrom}"
         if (query.recordedTo != null) conditions += "ex.recorded_at < #{recordedTo}"
         if (query.status != null) conditions += "pg.status = #{status}"
+        // Negative drops (-1) mean the drop check never ran; such recordings never satisfy a numeric limit.
         if (query.minDrops != null || query.maxDrops != null) conditions += "ex.drops >= 0"
         if (query.minDrops != null) conditions += "ex.drops >= #{minDrops}"
         if (query.maxDrops != null) conditions += "ex.drops <= #{maxDrops}"

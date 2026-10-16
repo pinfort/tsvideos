@@ -51,7 +51,7 @@ class Search(
         try {
             if ('T' in value) LocalDateTime.parse(value) else LocalDate.parse(value).atStartOfDay()
         } catch (_: DateTimeParseException) {
-            throw UsageError("use an ISO local date or date-time, e.g. 2026-10-12 or 2026-10-12T00:00:00")
+            throw UsageError("use an ISO local date or date-time without offset, e.g. 2026-10-12 or 2026-10-12T00:00:00")
         }
 
     override fun read() {
@@ -104,7 +104,8 @@ class Search(
                 val decoratedProgramInfo = decorateProgramInfo(it.drops, programInfo)
                 println(decoratedProgramInfo)
             }
-        println("${programs.size} of ${page.total} programs (limit=${page.limit}, offset=${page.offset})")
+        // stderr keeps the stdout table free of non-data rows.
+        echo("${programs.size} of ${page.total} programs (limit=${page.limit}, offset=${page.offset})", err = true)
     }
 
     private fun decorateProgramInfo(

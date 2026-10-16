@@ -104,16 +104,18 @@ types matches either filter, and multiple matching files do not duplicate a
 program or inflate totals. This is metadata availability, not a live NAS probe.
 
 JSON retains `schemaVersion: 1` and its `programs` array, adding `total` (all
-matches before pagination), `limit`, and `offset`. Human output ends with the
-same counts. ID-only output contains only the selected page's IDs; increment
-`--offset` by `--limit` to fetch later pages (or use JSON's `total`). Empty or
-beyond-end pages succeed.
+matches before pagination), `limit`, and `offset`. Human output prints the
+same counts to stderr after the table. ID-only output contains only the
+selected page's IDs; increment `--offset` by `--limit` to fetch later pages (or
+use JSON's `total`). Empty or beyond-end pages succeed. Separate page requests
+can reflect library changes; the stable tie-break avoids ambiguous ordering
+within each snapshot.
 
-Compatibility: search used to return up to 500 programs in one response; the
-default page is now 100, so pass `--limit 500` or page with `--offset` to get
-more. The short-lived JSON `truncated` flag is replaced by `total`; a page is
-incomplete when `offset + programs.length < total`. Separate page requests can reflect library changes;
-the stable tie-break avoids ambiguous ordering within each snapshot.
+Compatibility: search used to return up to 500 programs in one response,
+oldest first. It now defaults to newest first (`--direction asc` restores the
+old order) with a page size of 100, so pass `--limit 500` or page with
+`--offset` to get more. The short-lived JSON `truncated` flag is replaced by
+`total`; a page is incomplete when `offset + programs.length < total`.
 
 ```sh
 java -jar manager-console.jar search --channel BS1 --status completed --max-drops 0 --json
