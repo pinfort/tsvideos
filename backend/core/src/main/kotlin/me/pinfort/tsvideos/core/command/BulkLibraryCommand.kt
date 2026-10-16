@@ -149,6 +149,7 @@ class BulkLibraryCommand(
         all: List<CreatedFileDto>,
         val proposed: Map<String, Int>,
     ) {
+        // Normalized path key -> created_file ids registered at that path (not program ids).
         val owners: Map<String, Set<Long>> = all.groupBy({ key(it.file) }, { it.id }).mapValues { it.value.toSet() }
     }
 
