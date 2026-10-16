@@ -617,6 +617,18 @@ class FileProcessingPipelineTest :
                 verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
             }
 
+            expect("a failure to start history releases the claim for retry before any inspection") {
+                val original = newOriginalFile()
+                every { programCommand.findByName(original.name) } returns null
+                every { history.begin(any(), any()) } throws RuntimeException("db blip")
+
+                shouldThrow<RuntimeException> { fileProcessingPipeline.processFile(original) }
+
+                verify(exactly = 0) { tsSelectClient.check(any(), any()) }
+                verify(exactly = 0) { history.failed(any(), any()) }
+                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
             expect("a compress failure removes the partial archive and releases the job for retry") {
                 val original = newOriginalFile()
                 val archive = stubThroughUpload(original)

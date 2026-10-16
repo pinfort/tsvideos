@@ -8,6 +8,7 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.long
 import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
 
@@ -28,7 +29,9 @@ abstract class HistoryReadCommand(
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             throw CliktError("History read interrupted", statusCode = 130)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // Logs go to stderr, so the cause stays out of --json stdout.
+            logger.error("Reading processing history failed", e)
             throw CliktError("Unable to read processing history", statusCode = 1)
         }
     }
@@ -39,7 +42,7 @@ abstract class HistoryReadCommand(
         key: String,
         value: Any,
     ) = echo(
-        JsonMapper.builder().build().writeValueAsString(
+        jsonMapper.writeValueAsString(
             linkedMapOf(
                 "schemaVersion" to 1,
                 key to value,
@@ -48,6 +51,11 @@ abstract class HistoryReadCommand(
     )
 
     protected fun missing(): Nothing = throw CliktError("Processing job not found", statusCode = 3)
+
+    private companion object {
+        val logger = LoggerFactory.getLogger(HistoryReadCommand::class.java)
+        val jsonMapper: JsonMapper = JsonMapper.builder().build()
+    }
 }
 
 @Component

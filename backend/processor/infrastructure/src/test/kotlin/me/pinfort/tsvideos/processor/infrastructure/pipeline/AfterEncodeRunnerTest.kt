@@ -218,6 +218,16 @@ class AfterEncodeRunnerTest :
                 f.cleanup()
             }
         }
+        expect("failed encoder callback still notifies when recording its history fails") {
+            val f = Fixture()
+            try {
+                every { f.history.begin(any(), any()) } throws IllegalStateException("History identity conflict")
+                f.run(success = false)
+                verify { f.slack.notify(match { it.contains("encode failed") }) }
+            } finally {
+                f.cleanup()
+            }
+        }
         expect("missing split aborts before claiming or uploading") {
             val f = Fixture()
             try {
@@ -369,6 +379,19 @@ class AfterEncodeRunnerTest :
                 verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
                 verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, any()) }
                 verify { f.slack.notify(match { it.contains("marking processing job completed failed") }) }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("keeps a completed program when recording the completed attempt fails") {
+            val f = Fixture()
+            try {
+                every { f.history.finish(44, any(), any()) } throws IllegalStateException("Attempt is not active")
+                f.run()
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, any()) }
+                verify(exactly = 0) { f.history.failed(any(), any()) }
+                verify { f.slack.notify(match { it.contains("program stays COMPLETED") }) }
             } finally {
                 f.cleanup()
             }

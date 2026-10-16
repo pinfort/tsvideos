@@ -73,16 +73,7 @@ class AfterEncodeRunner(
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ) {
         if (!input.success) {
-            if (!dryRun) {
-                val failedSplit = findOriginalSplittedFile(input.inPath)
-                val failedJob = failedSplit?.let { processingJobCommand.findByExecutedFile(it.executedFileId) }
-                if (failedJob != null) {
-                    val failedAttempt = history.begin(failedJob, ProcessingAttemptKind.CALLBACK)
-                    val event = history.startStage(failedAttempt.id, ProcessingStage.FINALIZE)
-                    history.finishStage(event, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
-                    history.finish(failedAttempt.id, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
-                }
-            }
+            if (!dryRun) recordEncoderFailure(input)
             notifyError(input)
             return
         }
@@ -110,7 +101,7 @@ class AfterEncodeRunner(
                 report("claiming encode callback failed. in_path:${input.inPath}", e)
                 return
             }
-        // claim 前のスナップショット。この呼び出し内での完了は finishProcess の中で完結し、catch には到達しない。
+        // claim 前のスナップショット。この呼び出し内で完了した後の失敗は履歴の記録だけなので、catch で completed として扱う。
         val alreadyCompleted = job?.state == "COMPLETED"
         var completed = false
         var attempt: ProcessingAttempt? = null
@@ -159,12 +150,17 @@ class AfterEncodeRunner(
                 finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
             } else {
                 history.stage(attempt.id, ProcessingStage.FINALIZE, { ProcessingArtifact("PROGRAM", it, null) }) {
-                    finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
+                    finishProcess(splittedFile.executedFileId, input.inPath, dryRun).also { completed = true }
                 }
                 history.finish(attempt.id, ProcessingOutcome.COMPLETED)
             }
             completed = true
         } catch (e: Exception) {
+            if (completed) {
+                // The program is already COMPLETED and its files are gone; only the history write failed.
+                report("recording completed callback history failed; program stays COMPLETED. in_path:${input.inPath}", e)
+                return
+            }
             if (attempt != null) {
                 try {
                     history.failed(attempt.id, e)
@@ -201,6 +197,20 @@ class AfterEncodeRunner(
             processingJobCommand.releaseCallback(job, token)
         } catch (e: Exception) {
             report("releasing callback claim of job ${job.id} failed; reconcile the stale claim $token", e)
+        }
+    }
+
+    /** Best effort: Slack is the only signal from this unattended batch, so history must not block notifyError. */
+    private fun recordEncoderFailure(input: Input) {
+        try {
+            val failedSplit = findOriginalSplittedFile(input.inPath)
+            val failedJob = failedSplit?.let { processingJobCommand.findByExecutedFile(it.executedFileId) } ?: return
+            val failedAttempt = history.begin(failedJob, ProcessingAttemptKind.CALLBACK)
+            val event = history.startStage(failedAttempt.id, ProcessingStage.FINALIZE)
+            history.finishStage(event, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
+            history.finish(failedAttempt.id, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
+        } catch (e: Exception) {
+            logger.error("recording encoder failure history failed, inPath=${input.inPath}", e)
         }
     }
 

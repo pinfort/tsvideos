@@ -15,6 +15,7 @@ import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.core.domain.FileName
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
+import me.pinfort.tsvideos.core.domain.ProcessingAttempt
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingJob
@@ -109,10 +110,12 @@ class FileProcessingPipeline(
         val job =
             processingJobCommand.claim(identity)
                 ?: error("Recording already claimed by another invocation")
-        val attempt = history.begin(job, ProcessingAttemptKind.PROCESS)
         val runner = RollbackRunner()
+        var started: ProcessingAttempt? = null
         var uploadStarted = false
         try {
+            // Inside the try so that a failure to start history still releases the claim as RETRYABLE.
+            val attempt = history.begin(job, ProcessingAttemptKind.PROCESS).also { started = it }
             val inspection =
                 history.stage(
                     attempt.id,
@@ -165,10 +168,12 @@ class FileProcessingPipeline(
             }
             history.finish(attempt.id, ProcessingOutcome.COMPLETED)
         } catch (e: Exception) {
-            try {
-                history.failed(attempt.id, e)
-            } catch (historyFailure: Exception) {
-                e.addSuppressed(historyFailure)
+            started?.let {
+                try {
+                    history.failed(it.id, e)
+                } catch (historyFailure: Exception) {
+                    e.addSuppressed(historyFailure)
+                }
             }
             // Retry is only safe when nothing reached the NAS and every rollback finished.
             if (!uploadStarted && runner.rolledBackCleanly && markRetryable(job, identity, e)) {

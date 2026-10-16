@@ -97,14 +97,48 @@ interface ProcessingHistoryMapper {
     @Select("SELECT $STAGE_COLUMNS FROM processing_stage_event WHERE attempt_id=#{attemptId} ORDER BY id")
     fun stages(attemptId: Long): List<ProcessingStageEvent>
 
-    @Select("SELECT * FROM processing_history_identity ORDER BY job_id")
-    fun identities(): List<ProcessingHistoryIdentity>
-
-    @Select("SELECT $ATTEMPT_COLUMNS FROM processing_attempt ORDER BY job_id,attempt_number")
-    fun attempts(): List<ProcessingAttempt>
+    @Select(
+        """
+        <script>
+        SELECT * FROM processing_history_identity
+        <if test="jobId != null">WHERE job_id=#{jobId}</if>
+        ORDER BY job_id
+        </script>
+    """,
+    )
+    fun identities(jobId: Long?): List<ProcessingHistoryIdentity>
 
     @Select(
-        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest,updated_at FROM processing_job ORDER BY id",
+        """
+        <script>
+        SELECT $ATTEMPT_COLUMNS FROM processing_attempt
+        <if test="jobId != null">WHERE job_id=#{jobId}</if>
+        ORDER BY job_id,attempt_number
+        </script>
+    """,
     )
-    fun liveJobs(): List<ProcessingJob>
+    fun attempts(jobId: Long?): List<ProcessingAttempt>
+
+    @Select(
+        """
+        <script>
+        SELECT $STAGE_COLUMNS FROM processing_stage_event WHERE attempt_id IN
+        <foreach item="id" collection="attemptIds" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY attempt_id,id
+        </script>
+    """,
+    )
+    fun stagesOf(attemptIds: List<Long>): List<ProcessingStageEvent>
+
+    @Select(
+        """
+        <script>
+        SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest,updated_at
+        FROM processing_job
+        <if test="jobId != null">WHERE id=#{jobId}</if>
+        ORDER BY id
+        </script>
+    """,
+    )
+    fun liveJobs(jobId: Long?): List<ProcessingJob>
 }
