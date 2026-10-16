@@ -90,6 +90,17 @@ class NasFileVerifierTest :
             verify(exactly = 1) { client.videoStoreNas() }
             verify(exactly = 0) { client.originalStoreNas() }
         }
+        expect("names with URL-special characters reach resolve unchanged, as upload stores them") {
+            // VerifiedUploadNas and NasComponent pass the stored path to resolve as-is, so verify must too.
+            val name = "base/アニメ #01 100% 本当?.mp4"
+            val file = mockk<SmbResource>(relaxed = true)
+            every { video.resolve(name) } returns file
+            every { file.exists() } returns true
+            every { file.isFile } returns true
+            every { file.length() } returns 12
+            verifier.verify(name, 12).status shouldBe VerificationStatus.VERIFIED
+            verify(exactly = 1) { video.resolve(name) }
+        }
         expect("directories and invalid metadata remain unchecked") {
             every { videoFile.exists() } returns true
             every { videoFile.isFile } returns false
