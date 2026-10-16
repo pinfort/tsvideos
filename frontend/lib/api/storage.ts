@@ -14,13 +14,26 @@ export interface StorageTotals {
   pendingFileBytes: number;
   verifiedPhysicalBytes: number | null;
 }
-export interface StorageRecording { id: number; name: string; registeredBytes: number }
+
+export interface StorageRecording {
+  id: number;
+  name: string;
+  registeredBytes: number;
+}
+
+export interface StorageDuplicateCandidate {
+  reason: "SAME_BROADCAST" | "OVERLAP";
+  retained: StorageRecording;
+  removable: StorageRecording[];
+}
+
 export interface StorageOverview {
   totals: StorageTotals;
   largestRecordings: StorageRecording[];
-  duplicateCandidates: { reason: "SAME_BROADCAST" | "OVERLAP"; retained: StorageRecording; removable: StorageRecording[] }[];
+  duplicateCandidates: StorageDuplicateCandidate[];
   estimatedReclaimableBytes: number;
   excludedSharedPathCount: number;
   verifiedReclaimableBytes: number | null;
 }
+
 export const getStorageOverview = () => fetchJson<StorageOverview>("/api/v1/storage");

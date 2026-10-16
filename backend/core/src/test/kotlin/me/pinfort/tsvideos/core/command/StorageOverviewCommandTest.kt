@@ -1,12 +1,12 @@
-package me.pinfort.tsvideos.core.external.database.mapper
+package me.pinfort.tsvideos.core.command
 
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
-import me.pinfort.tsvideos.core.command.LibraryStatsCommand
-import me.pinfort.tsvideos.core.command.StorageOverviewCommand
+import me.pinfort.tsvideos.core.external.database.mapper.LibraryStatsMapper
+import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
+import me.pinfort.tsvideos.core.external.database.mapper.StorageOverviewMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -21,7 +21,7 @@ import javax.sql.DataSource
 @SpringJUnitConfig
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
-class StorageOverviewMapperTest : ExpectSpec() {
+class StorageOverviewCommandTest : ExpectSpec() {
     @Autowired private lateinit var dataSource: DataSource
 
     @Autowired private lateinit var mapper: StorageOverviewMapper
@@ -65,7 +65,6 @@ class StorageOverviewMapperTest : ExpectSpec() {
             r.estimatedReclaimableBytes shouldBe 50L
             r.excludedSharedPathCount shouldBe 1L
             r.totals.registeredBytes shouldBe 6000000180L
-            mapper.references().size shouldBe 6
         }
         expect("shared executed-file records count each file once per program and are never reclaimed while retained") {
             sql(
@@ -82,6 +81,25 @@ class StorageOverviewMapperTest : ExpectSpec() {
             r.totals.registeredBytes shouldBe 100L
             r.estimatedReclaimableBytes shouldBe 0L
             r.excludedSharedPathCount shouldBe 1L
+        }
+        expect("removable programs sharing a path reclaim its smallest size once and negative sizes count as zero") {
+            sql(
+                listOf(
+                    "INSERT INTO executed_file VALUES (1,'a',0,1,'2026-01-01','ch','a','ch',60,'SPLITTED'),(2,'b',2,1,'2026-01-01','ch','b','ch',60,'SPLITTED'),(3,'c',3,1,'2026-01-01','ch','c','ch',60,'SPLITTED')",
+                    "INSERT INTO program VALUES (1,'kept',1,'COMPLETED'),(2,'remove1',2,'COMPLETED'),(3,'remove2',3,'COMPLETED')",
+                    "INSERT INTO splitted_file VALUES (1,1,'s1',1,1,'REGISTERED'),(2,2,'s2',1,1,'REGISTERED'),(3,3,'s3',1,1,'REGISTERED')",
+                    "INSERT INTO created_file VALUES (1,1,'keep',10,'video/mp4',NULL,'FILE_MOVED'),(2,2,'shared',100,'video/mp4',NULL,'FILE_MOVED'),(3,3,'SHARED',40,'video/mp4',NULL,'FILE_MOVED'),(4,2,'broken',-5,'video/mp4',NULL,'REGISTERED')",
+                ),
+            )
+            val r = command().overview()
+            r.largestRecordings.single { it.id == 2L }.registeredBytes shouldBe 100L
+            r.estimatedReclaimableBytes shouldBe 40L
+            r.excludedSharedPathCount shouldBe 0L
+        }
+        expect("paths normalize separators, case and dot segments") {
+            StorageOverviewCommand.normalizedPath("NAS\\Dir\\./sub/../File.mp4") shouldBe "nas/dir/file.mp4"
+            StorageOverviewCommand.normalizedPath("../../a/..") shouldBe "../.."
+            StorageOverviewCommand.normalizedPath("//") shouldBe ""
         }
     }
 
