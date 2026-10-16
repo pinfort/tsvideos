@@ -32,8 +32,7 @@ class Search(
             return
         }
         println("id\trecorded_at\t\tchannelName\t\tdrops\ttsExists\ttitle")
-        programs
-            .sortedBy { it.recordedAt }
+        sorted
             .forEach {
                 val tsExists = programCommand.hasTsFile(it)
                 val programInfo =

@@ -4,29 +4,43 @@ import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 /** Explicit fields keep the public schema independent of domain helper properties. */
 object ReadJson {
     fun program(program: Program): Map<String, Any?> =
         with(program) {
-            linkedMapOf(
-                "id" to id,
-                "name" to name,
-                "executedFileId" to executedFileId,
-                "status" to status.name,
-                "drops" to drops,
-                "size" to size,
-                "recordedAt" to recordedAt.toString(),
-                "channel" to channel,
-                "title" to title,
-                "channelName" to channelName,
-                "duration" to duration,
+            programFields(
+                id = id,
+                name = name,
+                executedFileId = executedFileId,
+                status = status,
+                drops = drops,
+                size = size,
+                recordedAt = recordedAt,
+                channel = channel,
+                title = title,
+                channelName = channelName,
+                duration = duration,
             )
         }
 
     fun detail(detail: ProgramDetail): Map<String, Any?> =
         with(detail) {
-            program(Program(id, name, executedFileId, status, drops, size, recordedAt, channel, title, channelName, duration)) +
+            programFields(
+                id = id,
+                name = name,
+                executedFileId = executedFileId,
+                status = status,
+                drops = drops,
+                size = size,
+                recordedAt = recordedAt,
+                channel = channel,
+                title = title,
+                channelName = channelName,
+                duration = duration,
+            ) +
                 linkedMapOf(
                     "createdFiles" to createdFiles.map(::createdFile),
                     "tags" to tags,
@@ -42,13 +56,44 @@ object ReadJson {
                 "status" to status.name,
                 "drops" to drops,
                 "size" to size,
-                "recordedAt" to recordedAt.toString(),
+                "recordedAt" to dateTime(recordedAt),
                 "channel" to channel,
                 "title" to title,
                 "channelName" to channelName,
                 "duration" to duration,
             )
         }
+
+    /** Shared by [program] and [detail]; named arguments keep same-typed fields from being swapped. */
+    private fun programFields(
+        id: Long,
+        name: String,
+        executedFileId: Long,
+        status: Program.Status,
+        drops: Int,
+        size: Long,
+        recordedAt: LocalDateTime,
+        channel: String,
+        title: String,
+        channelName: String,
+        duration: Double,
+    ): Map<String, Any?> =
+        linkedMapOf(
+            "id" to id,
+            "name" to name,
+            "executedFileId" to executedFileId,
+            "status" to status.name,
+            "drops" to drops,
+            "size" to size,
+            "recordedAt" to dateTime(recordedAt),
+            "channel" to channel,
+            "title" to title,
+            "channelName" to channelName,
+            "duration" to duration,
+        )
+
+    /** LocalDateTime.toString() drops zero seconds; the schema always carries them. */
+    private fun dateTime(value: LocalDateTime): String = value.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
 
     private fun createdFile(createdFile: CreatedFile): Map<String, Any?> =
         with(createdFile) {

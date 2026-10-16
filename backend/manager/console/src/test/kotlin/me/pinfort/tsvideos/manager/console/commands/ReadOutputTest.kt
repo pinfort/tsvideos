@@ -42,6 +42,15 @@ class ReadOutputTest :
             root["programs"][0]["tsExists"].asBoolean() shouldBe true
         }
 
+        expect("recordedAt always carries seconds, even when they are zero") {
+            val programs = mockk<ProgramCommand>()
+            val zeroSeconds = program.copy(recordedAt = LocalDateTime.of(2026, 10, 12, 1, 2))
+            every { programs.selectByName(any(), any(), any()) } returns listOf(zeroSeconds)
+            every { programs.hasTsFile(any()) } returns false
+            val result = Search(programs, mockk()).testRead("--name x --json")
+            mapper.readTree(result.stdout)["programs"][0]["recordedAt"].asString() shouldBe "2026-10-12T01:02:00"
+        }
+
         expect("search IDs are deterministic with timestamp ties and require no extra queries") {
             val programs = mockk<ProgramCommand>()
             every { programs.selectByName(any(), any(), any()) } returns listOf(program, program.copy(id = 1))
