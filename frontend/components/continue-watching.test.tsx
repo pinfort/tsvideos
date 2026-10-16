@@ -43,6 +43,16 @@ describe("ContinueWatching", () => {
       expect.stringContaining("programId=4"),
     );
   });
+  it("checks each program once across history changes", async () => {
+    vi.mocked(getPlaybackProgramDetail).mockResolvedValue(null);
+    savePlayback(entry);
+    savePlayback({ ...entry, videoId: 2, title: "別回", updatedAt: 2 });
+    render(<ContinueWatching />);
+    await screen.findByText("別回（削除済み・利用不可）");
+    fireEvent.click(screen.getByRole("button", { name: "番組を履歴から削除" }));
+    await waitFor(() => expect(readPlayback()).toHaveLength(1));
+    expect(getPlaybackProgramDetail).toHaveBeenCalledTimes(1);
+  });
   it("supports direct links and cross-tab deletion", async () => {
     savePlayback({ ...entry, programId: undefined });
     render(<ContinueWatching />);

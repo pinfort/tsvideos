@@ -68,6 +68,7 @@ describe("VideoPlayer", () => {
     expect(readPlayback()).toEqual([]);
   });
   it("handles metadata and errors already present before hydration", () => {
+    // jsdom has no MediaError getter to spy on, so define one and always remove it.
     Object.defineProperty(HTMLMediaElement.prototype, "error", {
       configurable: true,
       get: () => ({ code: 4 }),
@@ -94,6 +95,15 @@ describe("VideoPlayer", () => {
     });
     const second = render(<VideoPlayer videoId={1} title="番組" />);
     expect(second.container.querySelector("video")!.currentTime).toBe(40);
+  });
+  it("saves the current position on unmount", () => {
+    const view = render(<VideoPlayer videoId={1} programId={4} title="番組" />);
+    const video = view.container.querySelector("video")!;
+    Object.defineProperty(video, "duration", { configurable: true, value: 200 });
+    fireEvent.loadedMetadata(video);
+    video.currentTime = 60;
+    view.unmount();
+    expect(readPlayback()[0]).toMatchObject({ position: 60, programId: 4 });
   });
   it("throttles progress writes and flushes on page hide", () => {
     let now = 10000;

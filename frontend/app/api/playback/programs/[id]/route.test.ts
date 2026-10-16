@@ -29,7 +29,23 @@ describe("playback metadata route", () => {
     expect(await response.text()).not.toContain("secret");
   });
   it("returns the existing metadata response", async () => {
-    const detail = { program: { id: 1, name: "test", executedFileId: 1, status: "COMPLETED" as const, drops: 0, size: 100, recordedAt: "2026-10-13T00:00:00", channel: "BS1", title: "test", channelName: "BS1", duration: 60, createdFiles: [] }, videoFiles: [] };
+    const detail = {
+      program: {
+        id: 1,
+        name: "test",
+        executedFileId: 1,
+        status: "COMPLETED" as const,
+        drops: 0,
+        size: 100,
+        recordedAt: "2026-10-13T00:00:00",
+        channel: "BS1",
+        title: "test",
+        channelName: "BS1",
+        duration: 60,
+        createdFiles: [],
+      },
+      videoFiles: [],
+    };
     vi.mocked(getProgramDetail).mockResolvedValue(
       detail as Awaited<ReturnType<typeof getProgramDetail>>,
     );
@@ -40,4 +56,3 @@ describe("playback metadata route", () => {
     expect(getProgramDetail).toHaveBeenCalledWith(1);
   });
 });
-

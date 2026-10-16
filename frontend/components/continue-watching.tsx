@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getPlaybackProgramDetail } from "@/lib/api/playback";
+import type { ProgramDetailResponse } from "@/lib/api/types";
 import {
   hasPlayableFile,
   PLAYBACK_EVENT,
@@ -13,11 +14,17 @@ import {
   type PlaybackEntry,
 } from "@/lib/playback";
 
+type Check = "missing" | "unknown" | "available";
+
 export function ContinueWatching() {
   const [entries, setEntries] = useState<PlaybackEntry[]>([]);
-  const [checks, setChecks] = useState<
-    Record<number, "missing" | "unknown" | "available">
+  // Metadata per programId: null = confirmed 404, "failed" = check unavailable.
+  const [details, setDetails] = useState<
+    Record<number, ProgramDetailResponse | null | "failed">
   >({});
+  // Each program is checked once per page load, not on every history change.
+  const requested = useRef(new Set<number>());
+
   useEffect(() => {
     const refresh = () => setEntries(readPlayback());
     const storage = (event: StorageEvent) => {
@@ -31,45 +38,36 @@ export function ContinueWatching() {
       window.removeEventListener("storage", storage);
     };
   }, []);
+
   useEffect(() => {
-    let active = true;
-    const ids = [
-      ...new Set(entries.flatMap((e) => (e.programId ? [e.programId] : []))),
-    ];
-    Promise.all(
-      ids.map(async (id) => {
-        try {
-          return { id, detail: await getPlaybackProgramDetail(id) };
-        } catch {
-          return { id, detail: undefined };
-        }
-      }),
-    ).then((results) => {
-      if (!active) return;
-      const next: typeof checks = {};
-      for (const entry of entries) {
-        const result = results.find((r) => r.id === entry.programId);
-        next[entry.videoId] =
-          !result || result.detail === undefined
-            ? "unknown"
-            : hasPlayableFile(result.detail, entry.videoId)
-              ? "available"
-              : "missing";
-      }
-      setChecks(next);
-    });
-    return () => {
-      active = false;
-    };
+    for (const { programId } of entries) {
+      if (!programId || requested.current.has(programId)) continue;
+      requested.current.add(programId);
+      getPlaybackProgramDetail(programId)
+        .catch(() => "failed" as const)
+        .then((detail) =>
+          setDetails((prev) => ({ ...prev, [programId]: detail })),
+        );
+    }
   }, [entries]);
+
+  const check = (entry: PlaybackEntry): Check | undefined => {
+    if (!entry.programId) return "unknown";
+    const detail = details[entry.programId];
+    if (detail === undefined) return undefined;
+    if (detail === "failed") return "unknown";
+    return hasPlayableFile(detail, entry.videoId) ? "available" : "missing";
+  };
+
   if (!entries.length) return null;
+
   return (
     <section aria-label="続きから視聴" className="rounded border p-4">
       <h2 className="mb-3 text-lg font-semibold">続きから視聴</h2>
       <ul className="flex flex-col gap-3">
         {entries.map((entry) => (
           <li key={entry.videoId} className="flex flex-wrap items-center gap-3">
-            {checks[entry.videoId] === "missing" ? (
+            {check(entry) === "missing" ? (
               <span>{entry.title}（削除済み・利用不可）</span>
             ) : (
               <Link
@@ -83,7 +81,7 @@ export function ContinueWatching() {
               {Math.floor(entry.position / 60)}分 /{" "}
               {Math.ceil(entry.duration / 60)}分
             </span>
-            {checks[entry.videoId] === "unknown" && (
+            {check(entry) === "unknown" && (
               <span className="text-sm">利用可否未確認</span>
             )}
             <button

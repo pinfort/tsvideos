@@ -5,6 +5,8 @@ import {
   savePlayback,
   removePlayback,
   completed,
+  parsePositiveId,
+  playbackTitle,
 } from "./playback";
 const entry = {
   videoId: 1,
@@ -51,6 +53,15 @@ describe("browser playback storage", () => {
     });
     expect(readPlayback()).toEqual([]);
     expect(() => savePlayback(entry)).not.toThrow();
+  });
+  it("parses positive IDs and view titles", () => {
+    expect(parsePositiveId("42")).toBe(42);
+    for (const raw of ["0", "-1", "1.2", "abc", "", "9007199254740992", 42, undefined, ["1"]])
+      expect(parsePositiveId(raw)).toBeUndefined();
+    expect(playbackTitle("番組", 3)).toBe("番組");
+    expect(playbackTitle("  ", 3)).toBe("動画 #3");
+    expect(playbackTitle(["a"], 3)).toBe("動画 #3");
+    expect(playbackTitle("x".repeat(301), 3)).toHaveLength(300);
   });
   it("bounds history and defines completion", () => {
     for (let i = 1; i <= 55; i++)

@@ -1,6 +1,15 @@
 import Link from "next/link";
 import type { CreatedFile } from "@/lib/api/types";
 
+function viewHref(file: CreatedFile, programId?: number, title?: string) {
+  if (!programId) return `/video/${file.id}/view`;
+  const params = new URLSearchParams({
+    programId: String(programId),
+    title: title || file.file,
+  });
+  return `/video/${file.id}/view?${params}`;
+}
+
 export function VideoFilesTable({
   files,
   programId,
@@ -19,11 +28,7 @@ export function VideoFilesTable({
             <td className="px-4 py-2">
               {file.mp4 ? (
                 <Link
-                  href={
-                    programId
-                      ? `/video/${file.id}/view?${new URLSearchParams({ programId: String(programId), title: title || file.file })}`
-                      : `/video/${file.id}/view`
-                  }
+                  href={viewHref(file, programId, title)}
                   className="text-blue-600 hover:underline dark:text-blue-400"
                 >
                   視聴

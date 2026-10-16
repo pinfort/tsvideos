@@ -21,10 +21,13 @@ export function VideoPlayer({
   const video = useRef<HTMLVideoElement>(null);
   const loaded = useRef(false);
   const lastSaved = useRef(0);
+  // Read by restore so a speed change does not re-run the restore effect.
+  const speedRef = useRef("1");
   const [unavailable, setUnavailable] = useState(false);
   const [speed, setSpeed] = useState("1");
   const [notice, setNotice] = useState("");
   const src = getVideoStreamUrl(videoId);
+
   const restore = useCallback(() => {
     const player = video.current;
     if (!player || !Number.isFinite(player.duration) || player.duration <= 0)
@@ -41,20 +44,21 @@ export function VideoPlayer({
       }
       loaded.current = true;
     }
-    player.playbackRate = Number(speed);
+    player.playbackRate = Number(speedRef.current);
     setUnavailable(false);
-  }, [videoId, speed]);
+  }, [videoId]);
+
+  // Metadata or an error may already be present before hydration attaches handlers.
   useEffect(() => {
-    const inspect = () => {
-      if (video.current?.error) setUnavailable(true);
-      else if ((video.current?.readyState ?? 0) >= 1) restore();
-    };
-    inspect();
+    if (video.current?.error) setUnavailable(true);
+    else if ((video.current?.readyState ?? 0) >= 1) restore();
   }, [restore]);
+
   const saveCurrent = useCallback(
     (player: HTMLVideoElement | null) => {
       if (!player || !loaded.current || player.error) return;
-      // savePlayback also removes completed/restarted positions during cleanup.
+      // savePlayback drops position 0 / completed entries, so saves after
+      // restart or ended (including the unmount save) remove history.
       savePlayback({
         videoId,
         programId,
@@ -68,6 +72,7 @@ export function VideoPlayer({
     [videoId, programId, title],
   );
   const persist = () => saveCurrent(video.current);
+
   useEffect(() => {
     const player = video.current;
     const save = () => saveCurrent(player);
@@ -82,6 +87,7 @@ export function VideoPlayer({
       document.removeEventListener("visibilitychange", hide);
     };
   }, [saveCurrent]);
+
   return (
     <section className="flex w-full flex-col gap-4" aria-label="動画プレーヤー">
       <h1 className="break-words text-xl font-semibold">{title}</h1>
@@ -114,6 +120,7 @@ export function VideoPlayer({
             value={speed}
             onChange={(event) => {
               setSpeed(event.target.value);
+              speedRef.current = event.target.value;
               if (video.current)
                 video.current.playbackRate = Number(event.target.value);
             }}
