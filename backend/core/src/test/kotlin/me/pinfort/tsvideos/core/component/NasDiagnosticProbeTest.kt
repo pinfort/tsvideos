@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.component
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -116,5 +117,21 @@ class NasDiagnosticProbeTest :
             every { file.openOutputStream(any(), any(), any(), any()) } throws IOException("already exists")
             run(true).single { it.id.endsWith(".write") }.status shouldBe DiagnosticStatus.FAIL
             verify(exactly = 0) { file.delete() }
+        }
+        expect("write and cleanup failures are both reported") {
+            every { file.openOutputStream(any(), any(), any(), any()) } returns
+                object : OutputStream() {
+                    override fun write(value: Int) = throw IOException("secret")
+                }
+            every { file.delete() } throws IOException("secret")
+            val checks = run(true)
+            checks.single { it.id.endsWith(".write") }.status shouldBe DiagnosticStatus.FAIL
+            checks.single { it.id.endsWith(".cleanup") }.status shouldBe DiagnosticStatus.FAIL
+        }
+        expect("interruption is propagated with the interrupt flag restored, after cleanup") {
+            every { file.openInputStream() } throws InterruptedException()
+            shouldThrow<InterruptedException> { run(true) }
+            Thread.interrupted() shouldBe true
+            verify { file.delete() }
         }
     })

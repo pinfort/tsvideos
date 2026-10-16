@@ -12,12 +12,15 @@ class DatabaseDiagnosticProbe {
         username: String,
         password: String,
     ): Boolean {
-        // Replace caller timeouts: diagnostic connections must not inherit an unbounded wait.
+        // Replace caller timeouts in the URL itself: URL options take precedence over Properties in Connector/J,
+        // so a URL connectTimeout=0 would otherwise reintroduce an unbounded wait.
         val query =
             url.substringAfter('?', "").split('&').filter {
-                it.isNotBlank() && it.substringBefore('=') !in setOf("connectTimeout", "socketTimeout")
+                it.isNotBlank() && it.substringBefore('=').lowercase() !in setOf("connecttimeout", "sockettimeout")
             }
-        val boundedUrl = url.substringBefore('?') + "?" + (query + listOf("connectTimeout=3000", "socketTimeout=3000")).joinToString("&")
+        val boundedUrl =
+            url.substringBefore('?') + "?" +
+                (query + listOf("connectTimeout=$TIMEOUT_MILLIS", "socketTimeout=$TIMEOUT_MILLIS")).joinToString("&")
         val properties =
             Properties().apply {
                 setProperty("user", username)
@@ -26,9 +29,13 @@ class DatabaseDiagnosticProbe {
         return DriverManager.getConnection(boundedUrl, properties).use { connection ->
             connection.isReadOnly = true
             connection.createStatement().use { statement ->
-                statement.queryTimeout = 3
+                statement.queryTimeout = TIMEOUT_MILLIS / 1000
                 statement.executeQuery("SELECT 1").use { result -> result.next() && result.getInt(1) == 1 }
             }
         }
+    }
+
+    companion object {
+        private const val TIMEOUT_MILLIS = 3000
     }
 }

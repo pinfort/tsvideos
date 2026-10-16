@@ -31,6 +31,9 @@ class NasDiagnosticProbe(
                     }
                 }
             }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw e
         } catch (_: Exception) {
             if (checks.none { it.id == "$id.read" }) {
                 checks +=
@@ -101,6 +104,9 @@ class NasDiagnosticProbe(
                     check(input.readNBytes(PROBE_CONTENT.size + 1).contentEquals(PROBE_CONTENT))
                 }
                 checks += DiagnosticCheck("$id.write", DiagnosticStatus.PASS, "Isolated temporary file could be written and read")
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw e
             } catch (_: Exception) {
                 checks += DiagnosticCheck("$id.write", DiagnosticStatus.FAIL, "Check NAS create, write and read permissions")
             } finally {

@@ -29,11 +29,20 @@ class EnvironmentDiagnosticCommand(
                     "Set a jdbc:mariadb://host[:port]/database URL without embedded credentials",
                 ),
                 validate(checks, "spring.datasource.username", !databaseUser.isNullOrBlank(), "Set the database username"),
-                validate(checks, "spring.datasource.password", !databasePassword.isNullOrBlank(), "Set the database password"),
+                // Blank is allowed for passwordless local users; the connectivity probe still verifies authentication.
+                validate(checks, "spring.datasource.password", databasePassword != null, "Set the database password"),
             ).all { it }
         checks +=
             if (databaseValid) {
-                val success = runCatching { databaseProbe.check(databaseUrl!!, databaseUser!!, databasePassword!!) }.getOrDefault(false)
+                val success =
+                    try {
+                        databaseProbe.check(databaseUrl!!, databaseUser!!, databasePassword!!)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw e
+                    } catch (_: Exception) {
+                        false
+                    }
                 DiagnosticCheck(
                     "database.connectivity",
                     if (success) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
