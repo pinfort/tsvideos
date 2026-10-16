@@ -23,6 +23,7 @@ import me.pinfort.tsvideos.core.domain.DiagnosticStatus
 import me.pinfort.tsvideos.core.external.samba.DiagnosticNasClient
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.springframework.core.env.StandardEnvironment
 import tools.jackson.databind.json.JsonMapper
 import java.nio.file.Path
 
@@ -59,12 +60,20 @@ class PreflightCommand(
     }
 }
 
+private val checksMapper = JsonMapper.builder().build()
+
+/** Whether [name] appears as an option, ignoring operands after the `--` separator. */
+internal fun hasOption(
+    args: Array<String>,
+    name: String,
+) = args.takeWhile { it != "--" }.contains(name)
+
 internal fun renderChecks(
     checks: List<DiagnosticCheck>,
     json: Boolean,
 ): String =
     if (json) {
-        JsonMapper.builder().build().writeValueAsString(mapOf("schemaVersion" to 1, "checks" to checks))
+        checksMapper.writeValueAsString(mapOf("schemaVersion" to 1, "checks" to checks))
     } else {
         checks.joinToString("\n") { "${it.status}\t${it.id}\t${it.reason}" }
     }
@@ -81,9 +90,8 @@ object PreflightBootstrap {
         try {
             val environment =
                 try {
-                    if ("--help" in args) {
-                        org.springframework.core.env
-                            .StandardEnvironment()
+                    if (hasOption(args, "--help")) {
+                        StandardEnvironment()
                     } else {
                         DiagnosticEnvironment.load(args)
                     }
@@ -101,7 +109,7 @@ object PreflightBootstrap {
                                     "Check application configuration files and unresolved placeholders",
                                 ),
                             ),
-                            "--json" in args,
+                            hasOption(args, "--json"),
                         ),
                     )
                     return 1
@@ -129,8 +137,9 @@ object PreflightBootstrap {
                 Thread.currentThread().interrupt()
                 System.err.println("Preflight interrupted")
                 130
-            } catch (_: Exception) {
-                System.err.println("Unable to complete preflight; check configuration and access")
+            } catch (error: Exception) {
+                // Only the class name: messages may carry URLs or credentials, but a preflight bug must stay diagnosable.
+                System.err.println("Unable to complete preflight (${error.javaClass.name}); check configuration and access")
                 1
             }
         } finally {

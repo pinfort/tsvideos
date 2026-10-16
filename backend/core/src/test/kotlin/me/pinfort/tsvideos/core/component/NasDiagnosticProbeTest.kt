@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.component
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -57,8 +58,7 @@ class NasDiagnosticProbeTest :
         expect("interrupted owned write still cleans up and propagates cancellation") {
             every { file.openInputStream() } throws IOException("wrapped", InterruptedException())
             try {
-                io.kotest.assertions.throwables
-                    .shouldThrow<InterruptedException> { run(true) }
+                shouldThrow<InterruptedException> { run(true) }
                 verify(exactly = 1) { file.delete() }
             } finally {
                 Thread.interrupted()
@@ -126,5 +126,34 @@ class NasDiagnosticProbeTest :
             every { file.openOutputStream(any(), any(), any(), any()) } throws IOException("already exists")
             run(true).single { it.id.endsWith(".write") }.status shouldBe DiagnosticStatus.FAIL
             verify(exactly = 0) { file.delete() }
+        }
+        expect("write and cleanup failures are both reported") {
+            every { file.openOutputStream(any(), any(), any(), any()) } returns
+                object : OutputStream() {
+                    override fun write(value: Int) = throw IOException("secret")
+                }
+            every { file.delete() } throws IOException("secret")
+            val checks = run(true)
+            checks.single { it.id.endsWith(".write") }.status shouldBe DiagnosticStatus.FAIL
+            checks.single { it.id.endsWith(".cleanup") }.status shouldBe DiagnosticStatus.FAIL
+        }
+        expect("interruption is propagated with the interrupt flag restored, after cleanup") {
+            every { file.openInputStream() } throws InterruptedException()
+            shouldThrow<InterruptedException> { run(true) }
+            Thread.interrupted() shouldBe true
+            verify { file.delete() }
+        }
+        expect("interruption during cleanup is propagated, not reported as a cleanup failure") {
+            every { file.delete() } throws InterruptedException()
+            shouldThrow<InterruptedException> { run(true) }
+            Thread.interrupted() shouldBe true
+        }
+        expect("a failure after a successful read is a separate operation failure") {
+            every { directory.close() } throws IOException("secret")
+            val checks = run()
+            checks.single { it.id.endsWith(".read") }.status shouldBe DiagnosticStatus.PASS
+            checks.single { it.id.endsWith(".operation") }.status shouldBe DiagnosticStatus.FAIL
+            checks.single { it.id.endsWith(".write") }.status shouldBe DiagnosticStatus.UNCHECKED
+            checks.toString() shouldNotContain "secret"
         }
     })

@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ContinueWatching } from "@/components/continue-watching";
 import { parseProgramQuery } from "@/lib/program-query";
 import { Pager } from "@/components/pager";
 import { ProgramsTable } from "@/components/programs-table";
@@ -27,8 +29,10 @@ export default async function HomePage({
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-6 py-10">
       <header>
+        <Link href="/storage" className="mb-4 inline-block underline">ストレージ概要</Link>
         <SearchForm defaultValue={name} />
       </header>
+      <ContinueWatching />
       <main>
         <ProgramsTable programs={programs} />
       </main>

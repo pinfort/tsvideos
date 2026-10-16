@@ -37,4 +37,8 @@ class DatabaseDiagnosticProbeTest :
         expect("invalid database credentials fail instead of claiming connectivity") {
             shouldThrow<SQLException> { DatabaseDiagnosticProbe().check(database.jdbcUrl, database.username, "incorrect") }
         }
+        expect("caller timeouts in the URL are replaced regardless of case") {
+            val url = database.jdbcUrl + (if ('?' in database.jdbcUrl) "&" else "?") + "ConnectTimeout=0&SOCKETTIMEOUT=0"
+            DatabaseDiagnosticProbe().check(url, database.username, database.password) shouldBe true
+        }
     })

@@ -26,21 +26,33 @@ class ProcessingPreflightCommand(
     ): DiagnosticReport {
         diagnosticCancellation()
         val checks = shared.diagnose(checkWrite).checks.toMutableList()
+        val inputs = checkInputs(paths, checks)
+        checkTools(checks)
+        checkEncoder(checks)
+        checkSpace(inputs, checks)
+        diagnosticCancellation()
+        return DiagnosticReport(checks)
+    }
 
-        fun add(
-            id: String,
-            status: DiagnosticStatus,
-            reason: String,
-        ) {
-            checks += DiagnosticCheck(id, status, reason)
-        }
+    private fun MutableList<DiagnosticCheck>.add(
+        id: String,
+        status: DiagnosticStatus,
+        reason: String,
+    ) {
+        add(DiagnosticCheck(id, status, reason))
+    }
+
+    private fun checkInputs(
+        paths: List<Path>,
+        checks: MutableList<DiagnosticCheck>,
+    ): List<LocalPreflightProbe.Input> {
         val inputs = mutableListOf<LocalPreflightProbe.Input>()
         paths.forEachIndexed { index, path ->
             diagnosticCancellation()
             try {
                 val expanded = local.expand(path)
                 if (expanded.isEmpty()) {
-                    add(
+                    checks.add(
                         "input.$index",
                         DiagnosticStatus.FAIL,
                         "Select a readable recording or directory containing .m2ts files",
@@ -51,53 +63,57 @@ class ProcessingPreflightCommand(
                         val input = local.inspect(file)
                         require(input.bytes >= 0)
                         inputs += input
-                        add(
+                        checks.add(
                             "input.$index.$fileIndex",
                             DiagnosticStatus.PASS,
                             "Readable regular input; canonical path ${input.canonical}; bytes ${input.bytes}",
                         )
                     } catch (error: Exception) {
                         diagnosticCancellation(error)
-                        add("input.$index.$fileIndex", DiagnosticStatus.FAIL, "Check that the selected input is a readable regular file")
+                        checks.add(
+                            "input.$index.$fileIndex",
+                            DiagnosticStatus.FAIL,
+                            "Check that the selected input is a readable regular file",
+                        )
                     }
                 }
             } catch (error: Exception) {
                 diagnosticCancellation(error)
-                add("input.$index", DiagnosticStatus.FAIL, "Check input existence and directory list permission")
+                checks.add("input.$index", DiagnosticStatus.FAIL, "Check input existence and directory list permission")
             }
         }
+        return inputs
+    }
+
+    private fun checkTools(checks: MutableList<DiagnosticCheck>) {
         listOf("ts-splitter-path" to true, "amatsukaze-add-task-path" to true, "ffprobe-path" to false).forEach { (name, windowsOnly) ->
             diagnosticCancellation()
             val value = setting("processor-tool.$name")
             val configured = !value.isNullOrBlank() && value.none(Char::isISOControl)
             val found = configured && safe { local.tool(value!!, windowsOnly) }
-            add(
+            val executionChecked = !windowsOnly && !local.windows()
+            val passReason =
+                if (executionChecked) "Tool file is readable and executable" else "Tool file is readable; execution was not checked"
+            checks.add(
                 "tool.$name",
                 if (found) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
-                if (found) {
-                    "Tool file is readable${if (!windowsOnly && !local.windows()) {
-                        " and executable"
-                    } else {
-                        ""
-                    }}"
-                } else {
-                    "Configure an existing readable tool executable (bare names resolve on PATH)"
-                },
+                if (found) passReason else "Configure an existing readable tool executable (bare names resolve on PATH)",
             )
-            if (windowsOnly &&
-                !local.windows()
-            ) {
-                add(
+            if (windowsOnly && !local.windows()) {
+                checks.add(
                     "tool.$name.execution",
                     DiagnosticStatus.UNCHECKED,
                     "This tool is Windows-only; execution is unsupported on this platform and was not tested",
                 )
             }
         }
+    }
+
+    private fun checkEncoder(checks: MutableList<DiagnosticCheck>) {
         listOf("default-profile", "atx-div-profile").forEach { name ->
             val value = setting("processor-tool.amatsukaze.$name")
             val valid = !value.isNullOrBlank() && value.none(Char::isISOControl)
-            add(
+            checks.add(
                 "config.encoder.$name",
                 if (valid) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
                 if (valid) {
@@ -109,31 +125,21 @@ class ProcessingPreflightCommand(
         }
         val host = setting("processor-tool.amatsukaze.host")
         val port = setting("processor-tool.amatsukaze.port")?.toIntOrNull()
-        val validHost =
-            !host.isNullOrBlank() &&
-                safe {
-                    val uri = URI("tcp://$host")
-                    !uri.host.isNullOrBlank() &&
-                        uri.userInfo == null &&
-                        uri.port == -1 &&
-                        uri.path.isEmpty() &&
-                        uri.query == null &&
-                        uri.fragment == null
-                }
-        add(
+        val validHost = !host.isNullOrBlank() && safe { isBareHost(host) }
+        checks.add(
             "config.encoder.host",
             if (validHost) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
             if (validHost) "Host configured" else "Configure a hostname or IP address without credentials, path or port",
         )
         val validPort = port != null && port in 1..65535
-        add(
+        checks.add(
             "config.encoder.port",
             if (validPort) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
             if (validPort) "Port configured" else "Configure an integer TCP port from 1 through 65535",
         )
         if (validHost && validPort) {
             val connected = safe { encoder.check(host!!, port!!) }
-            add(
+            checks.add(
                 "encoder.connectivity",
                 if (connected) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
                 if (connected) {
@@ -143,20 +149,34 @@ class ProcessingPreflightCommand(
                 },
             )
         } else {
-            add("encoder.connectivity", DiagnosticStatus.UNCHECKED, "Correct host and port configuration before connecting")
+            checks.add("encoder.connectivity", DiagnosticStatus.UNCHECKED, "Correct host and port configuration before connecting")
         }
+    }
+
+    private fun isBareHost(host: String): Boolean {
+        val uri = URI("tcp://$host")
+        return !uri.host.isNullOrBlank() &&
+            uri.userInfo == null &&
+            uri.port == -1 &&
+            uri.path.isEmpty() &&
+            uri.query == null &&
+            uri.fragment == null
+    }
+
+    private fun checkSpace(
+        inputs: List<LocalPreflightProbe.Input>,
+        checks: MutableList<DiagnosticCheck>,
+    ) {
+        // The BigDecimal must also fit a double so the multiplier stays a sane, finite factor.
         val multiplier =
-            setting("processor-preflight.space-multiplier", "3")?.toBigDecimalOrNull()?.takeIf {
-                it > BigDecimal.ZERO &&
-                    it.toDouble().isFinite() &&
-                    it.toDouble() > 0
-            }
-        add(
+            setting("processor-preflight.space-multiplier", "3")
+                ?.toBigDecimalOrNull()
+                ?.takeIf { it > BigDecimal.ZERO && it.toDouble().isFinite() }
+        val multiplierValid = multiplier != null
+        checks.add(
             "config.space-multiplier",
-            if (multiplier != null) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
-            if (multiplier !=
-                null
-            ) {
+            if (multiplierValid) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
+            if (multiplierValid) {
                 "Positive finite space estimate multiplier configured"
             } else {
                 "Set processor-preflight.space-multiplier to a finite positive number (default 3)"
@@ -165,38 +185,30 @@ class ProcessingPreflightCommand(
         inputs.distinctBy { it.canonical }.groupBy { it.storage }.entries.forEachIndexed { index, (storage, members) ->
             val usable = members.mapNotNull { it.usable }.minOrNull()
             if (storage == null || usable == null || multiplier == null) {
-                add(
+                checks.add(
                     "space.$index",
                     DiagnosticStatus.UNCHECKED,
                     "Local usable space or estimate is unavailable; verify capacity before processing",
                 )
+                return@forEachIndexed
+            }
+            val totalBytes = members.fold(BigDecimal.ZERO) { sum, input -> sum + input.bytes.toBigDecimal() }
+            val required = totalBytes.multiply(multiplier).setScale(0, RoundingMode.CEILING)
+            val overflow = required > Long.MAX_VALUE.toBigDecimal()
+            if (overflow) {
+                checks.add(
+                    "space.$index",
+                    DiagnosticStatus.FAIL,
+                    "Estimated local space exceeds supported byte range; reduce batch size or multiplier",
+                )
             } else {
-                val required =
-                    members
-                        .fold(
-                            BigDecimal.ZERO,
-                        ) { sum, input -> sum + input.bytes.toBigDecimal() }
-                        .multiply(multiplier)
-                        .setScale(0, RoundingMode.CEILING)
-                if (required >
-                    Long.MAX_VALUE.toBigDecimal()
-                ) {
-                    add(
-                        "space.$index",
-                        DiagnosticStatus.FAIL,
-                        "Estimated local space exceeds supported byte range; reduce batch size or multiplier",
-                    )
-                } else {
-                    add(
-                        "space.$index",
-                        if (usable.toBigDecimal() >= required) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
-                        "Estimated temporary space: $required bytes for ${members.size} input(s) on this filesystem; usable $usable bytes; multiplier $multiplier (estimate, not a reservation)",
-                    )
-                }
+                checks.add(
+                    "space.$index",
+                    if (usable.toBigDecimal() >= required) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
+                    "Estimated temporary space: $required bytes for ${members.size} input(s) on this filesystem; usable $usable bytes; multiplier $multiplier (estimate, not a reservation)",
+                )
             }
         }
-        diagnosticCancellation()
-        return DiagnosticReport(checks)
     }
 
     private fun setting(

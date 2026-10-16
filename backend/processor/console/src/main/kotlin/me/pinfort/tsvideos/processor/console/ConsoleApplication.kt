@@ -23,10 +23,10 @@ import kotlin.system.exitProcess
 class ConsoleApplication
 
 fun main(args: Array<String>) {
-    if ("--json" in args) System.setOut(java.io.PrintStream(System.out, true, Charsets.UTF_8))
+    if (hasOption(args, "--json")) System.setOut(java.io.PrintStream(System.out, true, Charsets.UTF_8))
     val command = DiagnosticEnvironment.commandArguments(args).firstOrNull()
     if (command == "preflight") exitProcess(PreflightBootstrap.run(args))
-    if (command == "process" && "--help" !in args) {
+    if (command == "process" && !hasOption(args, "--help")) {
         val status = PreflightBootstrap.run(args, processGate = true)
         if (status != 0) exitProcess(status)
     }

@@ -14,4 +14,6 @@ Default checks are read-only. Explicit `--check-write` reuses doctor's unique ex
 
 JSON stdout is UTF-8 with `schemaVersion: 1` and `checks` containing `id`, `status` (PASS/FAIL/UNCHECKED), and safe actionable `reason`. Credential-bearing settings and raw exceptions are not echoed. Canonical user input paths are shown. Environment-only Boot config loading diagnoses invalid datasource/tool config before the regular bean graph; use `--spring.config.additional-location=<file>` for external YAML. Exit: 0 no FAIL (UNCHECKED may remain), 1 failed checks, 2 invalid CLI, 130 interruption. Shared DB/NAS timeouts are three seconds per operation; total time includes every endpoint.
 
-This branch stacks only on #59. Independent history/concurrency/quality stacks must retain the early main gate when integrated; they are not merged here.
+Tool PASS for Windows-only tools (and every tool on Windows) means the file is readable; execution permission is not checked. The space estimate uses the filesystem holding each input because TsSplitter and compression write their outputs next to it.
+
+`--json`/`--help` are recognised only before a `--` separator, so `tvpcli process -- --json` treats `--json` as a path. When preflight itself fails unexpectedly, stderr names only the exception class (never its message) so bugs stay diagnosable without leaking settings.

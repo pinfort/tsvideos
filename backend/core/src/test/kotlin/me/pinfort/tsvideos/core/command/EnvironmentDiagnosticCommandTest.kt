@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldNotContain
@@ -41,8 +42,7 @@ class EnvironmentDiagnosticCommandTest :
         expect("database interruption and interrupt flag propagate without NAS checks") {
             every { database.check(any(), any(), any()) } throws java.sql.SQLException("wrapped", InterruptedException())
             try {
-                io.kotest.assertions.throwables
-                    .shouldThrow<InterruptedException> { command.diagnose() }
+                shouldThrow<InterruptedException> { command.diagnose() }
                 verify(exactly = 0) { nas.check(any(), any(), any(), any(), any(), any()) }
             } finally {
                 Thread.interrupted()
@@ -101,5 +101,16 @@ class EnvironmentDiagnosticCommandTest :
             val report = command.diagnose()
             report.checks.single { it.id == "config.samba.video-store-nas.url" }.status shouldBe DiagnosticStatus.FAIL
             report.checks.single { it.id == "nas.original-store-nas.read" }.status shouldBe DiagnosticStatus.PASS
+        }
+        expect("a blank database password is accepted and left to the connectivity check") {
+            environment.withProperty("spring.datasource.password", "")
+            val report = command.diagnose()
+            report.checks.single { it.id == "config.spring.datasource.password" }.status shouldBe DiagnosticStatus.PASS
+            verify(exactly = 1) { database.check(any(), any(), "") }
+        }
+        expect("interruption during the database check is propagated, not reported as a failure") {
+            every { database.check(any(), any(), any()) } throws InterruptedException()
+            shouldThrow<InterruptedException> { command.diagnose() }
+            Thread.interrupted() shouldBe true
         }
     })

@@ -7,10 +7,13 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.core.command.ProcessingPreflightCommand
+import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
 import me.pinfort.tsvideos.core.domain.DiagnosticCheck
 import me.pinfort.tsvideos.core.domain.DiagnosticReport
 import me.pinfort.tsvideos.core.domain.DiagnosticStatus
 import tools.jackson.databind.json.JsonMapper
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
 
 class PreflightCommandTest :
     ExpectSpec({
@@ -46,5 +49,34 @@ class PreflightCommandTest :
             val result = PreflightCommand(diagnostics).test(listOf("--dry-run", "--check-write", "/recording"))
             (result.statusCode != 0) shouldBe true
             verify(exactly = 1) { diagnostics.diagnose(any(), any()) }
+        }
+        expect("option detection ignores operands after the -- separator") {
+            hasOption(arrayOf("process", "--json", "/recording"), "--json") shouldBe true
+            hasOption(arrayOf("process", "--", "--json"), "--json") shouldBe false
+            hasOption(arrayOf("process", "--", "--help"), "--help") shouldBe false
+        }
+        expect("spring property arguments are split from command arguments") {
+            val args = arrayOf("preflight", "--spring.config.additional-location=/x.yaml", "--spring.flag", "/recording")
+            DiagnosticEnvironment.commandArguments(args) shouldBe listOf("preflight", "--spring.flag", "/recording")
+        }
+        expect("unloadable configuration reports config.load as JSON and exits 1") {
+            val out = ByteArrayOutputStream()
+            val original = System.out
+            val status =
+                try {
+                    System.setOut(PrintStream(out, true, Charsets.UTF_8))
+                    PreflightBootstrap.run(
+                        arrayOf("preflight", "--json", "--spring.config.location=file:/nonexistent/tsvideos-preflight.yaml", "/recording"),
+                    )
+                } finally {
+                    System.setOut(original)
+                }
+            status shouldBe 1
+            val json = JsonMapper.builder().build().readTree(out.toString(Charsets.UTF_8))
+            json["checks"][0]["id"].asString() shouldBe "config.load"
+            json["checks"][0]["status"].asString() shouldBe "FAIL"
+        }
+        expect("help skips configuration loading and exits 0") {
+            PreflightBootstrap.run(arrayOf("preflight", "--help", "--spring.config.location=file:/nonexistent/x.yaml")) shouldBe 0
         }
     })
