@@ -89,7 +89,22 @@ configuration options use `--spring.property=value` and may precede or follow
 
 Each check has an `id`, `status` (`PASS`, `FAIL`, `UNCHECKED`) and an actionable
 `reason`. Configuration values, usernames, passwords, URLs and raw exceptions are
-never printed. Doctor suppresses library logging in its own process so driver
+never printed.
+
+Check ids are stable for JSON consumers:
+
+| Id | Meaning |
+| --- | --- |
+| `config.<property>` | One required setting, e.g. `config.spring.datasource.url`, `config.samba.video-store-nas.base-dir` |
+| `config.load` | Configuration files could not be loaded |
+| `database.connectivity` | Connect and `SELECT 1` |
+| `nas.<store>.read` | Base directory exists and can be listed (`<store>` is `video-store-nas` or `original-store-nas`) |
+| `nas.<store>.write` | `--check-write` probe; `UNCHECKED` without the flag or after a failed read |
+| `nas.<store>.cleanup` | Removal of the write probe (only with `--check-write`) |
+| `nas.<store>.operation` | A NAS failure after the read check had already passed |
+
+The database URL must be a single-host `jdbc:mariadb://host[:port]/database`;
+multi-host failover URLs are reported as invalid. Doctor suppresses library logging in its own process so driver
 messages cannot leak credentials. It does not change logging in normal commands.
 
 Database diagnostics use a separate connection whose only statement is `SELECT 1`
@@ -112,7 +127,9 @@ in a `finally` block even if verification fails. It never overwrites a recording
 or creates a base directory. Cleanup failure is a separate `FAIL` naming only the
 temporary filename for manual removal. A creation failure does not authorize
 deleting an existing file; cleanup is then `UNCHECKED`, with the probe name provided
-for inspection if the server accepted a create request before the connection failed.
+for inspection if the server accepted a create request before the connection failed. Any leftover
+`.tsvideos-doctor-*.tmp` file (for example after the process was killed mid-probe)
+contains only a marker and is safe to delete.
 
 Exit `0` means no failed checks (optional unchecked write probes are allowed),
 `1` means one or more diagnostics failed, and `2` means invalid CLI input. JSON
