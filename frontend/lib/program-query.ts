@@ -17,6 +17,15 @@ export function programQueryParams(query: ProgramSearchQuery): URLSearchParams {
   return params;
 }
 
+const optionLabels: Record<string, string> = {
+  status: "状態",
+  fileType: "ファイル形式",
+  sort: "並び順",
+  direction: "並び方向",
+};
+
+// Mirrors core's ProgramSearchQuery validation (backend/core/.../domain/ProgramSearchQuery.kt) so invalid
+// input stays editable without a round trip; keep the bounds in sync when the backend rules change.
 export function parseProgramQuery(
   params: ProgramQueryParams,
 ): ParsedProgramQuery {
@@ -45,7 +54,7 @@ export function parseProgramQuery(
     const v = value(key);
     if (v === undefined) return fallback;
     if (!values.includes(v as T))
-      throw new Error("状態・ファイル形式・並び順の指定が不正です。");
+      throw new Error(`${optionLabels[key] ?? key} の指定が不正です。`);
     return v as T;
   };
   const date = (key: string) => {

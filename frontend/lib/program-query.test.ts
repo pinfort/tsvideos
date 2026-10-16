@@ -60,6 +60,16 @@ describe("parseProgramQuery", () => {
       expect(() => parseProgramQuery(raw)).toThrow();
     },
   );
+  it.each([
+    ["status", "状態"],
+    ["fileType", "ファイル形式"],
+    ["sort", "並び順"],
+    ["direction", "並び方向"],
+  ])("names the invalid %s option in the error", (key, label) => {
+    expect(() => parseProgramQuery({ [key]: "wrong" })).toThrow(
+      `${label} の指定が不正です。`,
+    );
+  });
   it("supports leap days and compares subsecond local bounds without timezone conversion", () => {
     expect(
       parseProgramQuery({
