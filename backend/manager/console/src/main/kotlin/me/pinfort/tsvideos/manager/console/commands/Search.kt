@@ -21,10 +21,17 @@ class Search(
     private val programSearchName by option("-n", "--name", help = "ambiguous program name for search").required()
 
     override fun read() {
-        val programs = programCommand.selectByName(programSearchName, 500, 0) // TODO: 全部JOINにしてSQL発行回数をなんとかする
-        val sorted = programs.sortedWith(compareBy({ it.recordedAt }, { it.id }))
+        // One extra row tells whether anything was cut off at the limit.
+        val fetched = programCommand.selectByName(programSearchName, LIMIT + 1, 0) // TODO: 全部JOINにしてSQL発行回数をなんとかする
+        val truncated = fetched.size > LIMIT
+        val sorted = fetched.take(LIMIT).sortedWith(compareBy({ it.recordedAt }, { it.id }))
+        if (truncated) echo("warning: more than $LIMIT programs matched; output is truncated", err = true)
         if (json) {
-            outputJson("programs", sorted.map { ReadJson.program(it) + ("tsExists" to programCommand.hasTsFile(it)) })
+            outputJson(
+                "programs",
+                sorted.map { ReadJson.program(it) + ("tsExists" to programCommand.hasTsFile(it)) },
+                mapOf("truncated" to truncated),
+            )
             return
         }
         if (idsOnly) {
@@ -58,4 +65,8 @@ class Search(
             drops > 0 -> terminalTextColorComponent.error(programInfo)
             else -> terminalTextColorComponent.info(programInfo)
         }
+
+    companion object {
+        const val LIMIT = 500
+    }
 }

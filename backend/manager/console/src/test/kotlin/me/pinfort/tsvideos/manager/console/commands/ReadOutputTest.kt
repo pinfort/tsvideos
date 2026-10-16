@@ -40,6 +40,23 @@ class ReadOutputTest :
             root["programs"][0]["recordedAt"].asString() shouldBe "2026-10-12T01:02:03"
             root["programs"][0]["status"].asString() shouldBe "COMPLETED"
             root["programs"][0]["tsExists"].asBoolean() shouldBe true
+            root["truncated"].asBoolean() shouldBe false
+        }
+
+        expect("search signals truncation at the result limit in JSON and on stderr") {
+            val programs = mockk<ProgramCommand>()
+            val overLimit = (1L..Search.LIMIT + 1L).map { program.copy(id = it) }
+            every { programs.selectByName(any(), Search.LIMIT + 1, 0) } returns overLimit
+            every { programs.hasTsFile(any()) } returns false
+            val json = Search(programs, mockk()).testRead("--name x --json")
+            json.statusCode shouldBe 0
+            val root = mapper.readTree(json.stdout)
+            root["truncated"].asBoolean() shouldBe true
+            root["programs"].size() shouldBe Search.LIMIT
+            json.stderr.contains("truncated") shouldBe true
+            val ids = Search(programs, mockk()).testRead("--name x --ids-only")
+            ids.stdout shouldBe (1..Search.LIMIT).joinToString("") { "$it\n" }
+            ids.stderr.contains("truncated") shouldBe true
         }
 
         expect("recordedAt always carries seconds, even when they are zero") {

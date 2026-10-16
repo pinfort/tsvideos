@@ -20,7 +20,7 @@ informational text behavior.
 
 | Command | Payload |
 | --- | --- |
-| `search --json` | `programs`: array of program objects with `tsExists` |
+| `search --json` | `programs`: array of program objects with `tsExists`; boolean `truncated` |
 | `get program ID --json` | `program`: program object with `createdFiles`, `tags`, `checks` |
 | `get executed_file ID --json` | `executedFile`: executed-file object |
 | `duplicates --json` | `groups`: array of duplicate group objects |
@@ -54,8 +54,9 @@ in recommendation order, each with `tsExists`.
 recording time then ID; get emits the requested program ID. Duplicates emits
 **all members, including recommended keepers**, deduplicated and sorted by ID;
 it is not a deletion-candidate list. `get executed_file --ids-only` is invalid
-because an executed-file ID is not a program ID. Search retains the existing
-500-result limit.
+because an executed-file ID is not a program ID. Search returns at most 500
+programs. When more match, JSON sets `truncated: true` and every mode prints a
+warning to stderr (stdout is unaffected); narrow the name to get the rest.
 
 | Exit | Meaning |
 | --- | --- |
