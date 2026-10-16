@@ -111,11 +111,17 @@ class ProcessingPreflightCommandTest :
                 val report = command.diagnose(listOf(one))
                 report.checks.single { it.id == "config.encoder.host" }.status shouldBe DiagnosticStatus.PASS
             }
-            listOf("host:80", "host/path", "-host", "a b").forEach { host ->
+            listOf("host:80", "host/path", "-host", "a b", "a..b", "host.", "win_").forEach { host ->
                 env.withProperty("processor-tool.amatsukaze.host", host)
                 val report = command.diagnose(listOf(one))
                 report.checks.single { it.id == "config.encoder.host" }.status shouldBe DiagnosticStatus.FAIL
             }
+        }
+        expect("multiplier beyond double range fails") {
+            env.withProperty("processor-preflight.space-multiplier", "1e400")
+            val report = command.diagnose(listOf(one))
+            report.checks.single { it.id == "config.space-multiplier" }.status shouldBe DiagnosticStatus.FAIL
+            report.checks.single { it.id == "space.0" }.status shouldBe DiagnosticStatus.UNCHECKED
         }
         expect("unbracketed IPv6 encoder host is rejected without connecting") {
             env.withProperty("processor-tool.amatsukaze.host", "::1")

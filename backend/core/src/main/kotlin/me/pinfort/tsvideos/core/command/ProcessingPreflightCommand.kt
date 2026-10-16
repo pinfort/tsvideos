@@ -60,6 +60,7 @@ class ProcessingPreflightCommand(
                 expanded.forEachIndexed { fileIndex, file ->
                     try {
                         val input = local.inspect(file)
+                        // A negative size is a broken filesystem report; treat it as an unreadable input (FAIL).
                         require(input.bytes >= 0)
                         inputs += input
                         checks.add(
@@ -228,7 +229,8 @@ class ProcessingPreflightCommand(
         }
 
     private companion object {
-        val BARE_HOST = Regex("[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
+        private const val LABEL = "[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?"
+        val BARE_HOST = Regex("$LABEL(?:\\.$LABEL)*")
         val BRACKETED_IPV6 = Regex("""\[[0-9A-Fa-f:.]+(?:%[A-Za-z0-9._-]+)?]""")
     }
 }
