@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
 import me.pinfort.tsvideos.core.domain.UploadManifest
+import org.apache.ibatis.annotations.Delete
 import org.apache.ibatis.annotations.Insert
 import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Select
@@ -51,8 +52,8 @@ interface UploadManifestMapper {
     fun transition(
         id: Long,
         token: String,
-        expected: String,
-        next: String,
+        expected: UploadManifest.State,
+        next: UploadManifest.State,
     ): Int
 
     @Update(
@@ -67,7 +68,7 @@ interface UploadManifestMapper {
         createdFileId: Long,
     ): Int
 
-    @org.apache.ibatis.annotations.Delete("DELETE FROM upload_manifest WHERE id=#{id} AND claim_token=#{token}")
+    @Delete("DELETE FROM upload_manifest WHERE id=#{id} AND claim_token=#{token}")
     fun remove(
         id: Long,
         token: String,

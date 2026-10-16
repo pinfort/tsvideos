@@ -1,8 +1,11 @@
 package me.pinfort.tsvideos.core.external.samba
 
 import jcifs.SmbConstants
+import me.pinfort.tsvideos.core.domain.hex
+import me.pinfort.tsvideos.core.domain.sha256Hex
 import org.springframework.stereotype.Component
 import java.io.File
+import java.security.DigestInputStream
 import java.security.MessageDigest
 
 /** All operations address one explicit NAS; no fallback to another share. */
@@ -39,28 +42,20 @@ class VerifiedUploadNas(
     ): String =
         root(type).use { root ->
             root.resolve(path).use { resource ->
-                resource.openInputStream().use { input ->
-                    val digest = MessageDigest.getInstance("SHA-256")
-                    val buffer = ByteArray(65536)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        digest.update(buffer, 0, count)
-                    }
-                    digest.digest().joinToString("") { "%02x".format(it) }
-                }
+                resource.openInputStream().use { it.sha256Hex() }
             }
         }
 
+    /** @return SHA-256 of the bytes actually written, so callers need not re-read the source. */
     fun transfer(
         type: SambaClient.NasType,
         path: String,
         source: File,
         onOwned: () -> Unit,
         progress: (Long, Long) -> Unit,
-    ) {
+    ): String {
         directories.createDirectories(path, type)
-        root(type).use { root ->
+        return root(type).use { root ->
             root.resolve(path).use { resource ->
                 resource
                     .openOutputStream(
@@ -71,7 +66,8 @@ class VerifiedUploadNas(
                     ).use { output ->
                         // A failed/ambiguous open never grants ownership. Persist ownership before writing bytes.
                         onOwned()
-                        source.inputStream().use { input ->
+                        val digest = MessageDigest.getInstance("SHA-256")
+                        DigestInputStream(source.inputStream(), digest).use { input ->
                             val buffer = ByteArray(65536)
                             var transferred = 0L
                             progress(0, source.length())
@@ -83,6 +79,7 @@ class VerifiedUploadNas(
                                 progress(transferred, source.length())
                             }
                         }
+                        digest.hex()
                     }
             }
         }

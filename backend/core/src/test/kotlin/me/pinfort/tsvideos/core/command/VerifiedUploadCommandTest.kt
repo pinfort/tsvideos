@@ -5,9 +5,12 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldStartWith
 import io.mockk.every
 import io.mockk.mockk
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
+import me.pinfort.tsvideos.core.domain.UploadManifest.State
+import me.pinfort.tsvideos.core.domain.sha256Hex
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
 import me.pinfort.tsvideos.core.external.samba.SambaClient
@@ -23,7 +26,6 @@ import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import java.io.File
 import java.nio.file.Files
-import java.security.MessageDigest
 import java.util.UUID
 
 @ImportTestcontainers
@@ -57,22 +59,25 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             val target: String,
         )
 
+        fun ByteArray.sha256() = inputStream().sha256Hex()
+
         fun fixture(
             checksum: Boolean = true,
             spring: Boolean = false,
+            name: String = "video.mp4",
         ): Fixture {
             val nas = if (spring) springNas else mockk<VerifiedUploadNas>()
             val remote = mutableMapOf<String, ByteArray>()
             every { nas.exists(any(), any()) } answers { remote.containsKey(secondArg()) }
             every { nas.size(any(), any()) } answers { remote.getValue(secondArg()).size.toLong() }
             every { nas.sha256(any(), any()) } answers {
-                MessageDigest.getInstance("SHA-256").digest(remote.getValue(secondArg())).joinToString("") { "%02x".format(it) }
+                remote.getValue(secondArg()).sha256()
             }
             every { nas.transfer(any(), any(), any(), any(), any()) } answers {
                 val path = secondArg<String>()
                 check(!remote.containsKey(path))
                 arg<() -> Unit>(3)()
-                remote[path] = arg<File>(2).readBytes()
+                arg<File>(2).readBytes().also { remote[path] = it }.sha256()
             }
             every { nas.finalize(any(), any(), any()) } answers {
                 check(!remote.containsKey(thirdArg()))
@@ -91,7 +96,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 source,
                 remote,
                 job,
-                "test/${UUID.randomUUID()}/video.mp4",
+                "test/${UUID.randomUUID()}/$name",
             )
         }
 
@@ -118,7 +123,8 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                             .forListeningPort(),
                     )
             container.start()
-            val f = fixture(spring = true)
+            // '#' and '%' are common in titles and must reach SMB literally.
+            val f = fixture(spring = true, name = "アニメ #3 100%.mp4")
             try {
                 container.execInContainer("sh", "-c", "chown 1000:1000 /shares && chmod 770 /shares").exitCode shouldBe 0
                 val server =
@@ -191,7 +197,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             val f = fixture(spring = true)
             try {
                 val receipt = f.upload()
-                f.manifest().state shouldBe "FINALIZED"
+                f.manifest().state shouldBe State.FINALIZED
                 val registered = f.command.register(receipt, 876543, "video/mp4", null)
                 manifests.get(receipt.manifestId)?.createdFileId shouldBe registered.id
                 f.command.deleteLocal(receipt)
@@ -208,7 +214,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             try {
                 val receipt = f.upload()
                 f.source.exists() shouldBe true
-                f.manifest().state shouldBe "FINALIZED"
+                f.manifest().state shouldBe State.FINALIZED
                 val first = f.command.register(receipt, 876543, "video/mp4", null)
                 f.command.register(receipt, 876543, "video/mp4", null).id shouldBe first.id
                 f.command.deleteLocal(receipt)
@@ -224,19 +230,22 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             val f = fixture()
             every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
                 arg<() -> Unit>(3)()
-                f.remote[secondArg()] = byteArrayOf(1)
+                byteArrayOf(1).also { f.remote[secondArg()] = it }.sha256()
             }
             try {
                 shouldThrow<IllegalStateException> { f.upload() }
-                f.manifest().state shouldBe "TRANSFERRING"
+                f.manifest().state shouldBe State.TRANSFERRING
                 f.source.exists() shouldBe true
                 f.remote.containsKey(f.target) shouldBe false
                 every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
                     arg<() -> Unit>(3)()
-                    f.remote[secondArg()] = f.source.readBytes()
+                    f.source
+                        .readBytes()
+                        .also { f.remote[secondArg()] = it }
+                        .sha256()
                 }
                 f.upload()
-                f.manifest().state shouldBe "FINALIZED"
+                f.manifest().state shouldBe State.FINALIZED
             } finally {
                 f.source.delete()
             }
@@ -246,7 +255,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             try {
                 f.remote[f.target] = f.source.readBytes()
                 shouldThrow<IllegalStateException> { f.upload() }
-                f.manifest().state shouldBe "NEW"
+                f.manifest().state shouldBe State.NEW
                 f.remote.keys shouldBe setOf(f.target)
                 f.source.exists() shouldBe true
             } finally {
@@ -263,7 +272,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                         every { f.nas.sha256(any(), any()) } returns "bad"
                     }
                     shouldThrow<Exception> { f.upload() }
-                    f.manifest().state shouldBe "TRANSFERRING"
+                    f.manifest().state shouldBe State.TRANSFERRING
                     f.remote.containsKey(f.target) shouldBe false
                     f.source.exists() shouldBe true
                 } finally {
@@ -279,7 +288,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             }
             try {
                 shouldThrow<IllegalStateException> { f.upload() }
-                f.manifest().state shouldBe "FINALIZING"
+                f.manifest().state shouldBe State.FINALIZING
                 shouldThrow<IllegalStateException> { f.upload() }
                 f.source.exists() shouldBe true
             } finally {
@@ -302,7 +311,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                     )
                 val command = VerifiedUploadCommand(manifests, f.nas, failing, files, transactions)
                 shouldThrow<IllegalStateException> { command.register(receipt, 1, "video/mp4", null) }
-                f.manifest().state shouldBe "FINALIZED"
+                f.manifest().state shouldBe State.FINALIZED
                 shouldThrow<IllegalStateException> { command.deleteLocal(receipt) }
                 f.source.exists() shouldBe true
                 f.command.register(receipt, 1, "video/mp4", null)
@@ -338,20 +347,64 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 shouldThrow<IllegalStateException> { f.upload() }
                 every { f.nas.delete(any(), any()) } throws IllegalStateException("cleanup failure")
                 shouldThrow<IllegalStateException> { f.upload() }
-                f.manifest().state shouldBe "TRANSFERRING"
+                f.manifest().state shouldBe State.TRANSFERRING
                 f.source.exists() shouldBe true
             } finally {
                 f.source.delete()
             }
         }
-        expect("uncertain exclusive open is never deleted as owned") {
+        expect("failure before any temporary file exists returns CREATING to NEW on retry") {
             val f = fixture()
-            every { f.nas.transfer(any(), any(), any(), any(), any()) } throws IllegalStateException("open outcome unknown")
+            val owning = f.nas
+            every { owning.transfer(any(), any(), any(), any(), any()) } throws IllegalStateException("share unreachable")
             try {
                 shouldThrow<IllegalStateException> { f.upload() }
-                f.manifest().state shouldBe "CREATING"
+                f.manifest().state shouldBe State.CREATING
+                every { owning.transfer(any(), any(), any(), any(), any()) } answers {
+                    arg<() -> Unit>(3)()
+                    f.source
+                        .readBytes()
+                        .also { f.remote[secondArg()] = it }
+                        .sha256()
+                }
+                f.upload()
+                f.manifest().state shouldBe State.FINALIZED
+                f.remote.keys shouldBe setOf(f.target)
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("uncertain exclusive open that left a temporary file is never deleted as owned") {
+            val f = fixture()
+            every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
+                f.remote[secondArg()] = byteArrayOf()
+                error("open outcome unknown")
+            }
+            try {
+                shouldThrow<IllegalStateException> { f.upload() }
+                f.manifest().state shouldBe State.CREATING
                 shouldThrow<IllegalStateException> { f.command.retireAfterReset(f.job) }
                 shouldThrow<IllegalStateException> { f.upload() }
+                f.manifest().state shouldBe State.CREATING
+                f.remote.keys shouldBe setOf(f.manifest().temporaryPath)
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("claim release failure does not mask the original failure") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                val failing = mockk<UploadManifestMapper>()
+                every { failing.claim(any(), any()) } answers { manifests.claim(firstArg(), secondArg()) }
+                every { failing.get(any()) } answers { manifests.get(firstArg()) }
+                every { failing.release(any(), any()) } throws IllegalStateException("release failed")
+                val created = CreatedFileCommand(files, mockk(), mockk(), mockk(relaxed = true))
+                val command = VerifiedUploadCommand(failing, f.nas, created, files, transactions)
+                val error = shouldThrow<IllegalStateException> { command.deleteLocal(receipt) }
+                error.message shouldBe "Remote artifact has not been registered"
+                error.suppressed.map { it.message } shouldBe listOf("release failed")
                 f.source.exists() shouldBe true
             } finally {
                 f.source.delete()
@@ -369,7 +422,10 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
                 transfers.incrementAndGet()
                 arg<() -> Unit>(3)()
-                f.remote[secondArg()] = f.source.readBytes()
+                f.source
+                    .readBytes()
+                    .also { f.remote[secondArg()] = it }
+                    .sha256()
             }
             try {
                 val futures =
@@ -385,7 +441,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 val results = futures.map { it.get(30, java.util.concurrent.TimeUnit.SECONDS) }
                 results.any { it.isSuccess } shouldBe true
                 transfers.get() shouldBe 1
-                f.manifest().state shouldBe "FINALIZED"
+                f.manifest().state shouldBe State.FINALIZED
                 f.manifest().claimToken shouldBe null
                 f.source.exists() shouldBe true
             } finally {
@@ -415,7 +471,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                     )
                 }
                 shouldThrow<java.io.IOException> { f.command.deleteLocal(receipt) }
-                manifests.get(receipt.manifestId)?.state shouldBe "REGISTERED"
+                manifests.get(receipt.manifestId)?.state shouldBe State.REGISTERED
                 protectedSource.exists() shouldBe true
                 if (windows) check(protectedSource.setWritable(true)) else Files.setPosixFilePermissions(directory, permissions)
                 f.command.deleteLocal(receipt)
@@ -455,7 +511,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 shouldThrow<IllegalStateException> { f.upload() }
                 f.remote["unrelated.upload-file"] = byteArrayOf(2)
                 f.command.cleanupTemporary(f.job, "output")
-                f.manifest().state shouldBe "NEW"
+                f.manifest().state shouldBe State.NEW
                 f.remote.keys shouldBe setOf("unrelated.upload-file")
                 f.source.exists() shouldBe true
             } finally {
@@ -476,7 +532,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 val splitId = f.job
                 shouldThrow<IllegalStateException> { command.register(receipt, splitId, "video/mp4", null) }
                 files.selectBySplittedFileId(splitId).size shouldBe 0
-                f.manifest().state shouldBe "FINALIZED"
+                f.manifest().state shouldBe State.FINALIZED
                 f.source.exists() shouldBe true
                 f.command.register(receipt, splitId, "video/mp4", null)
                 files.selectBySplittedFileId(splitId).size shouldBe 1
@@ -484,15 +540,25 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.source.delete()
             }
         }
-        expect("encoded or ambiguous URL paths are rejected before allocating ownership") {
+        expect("traversal, stream, wildcard and control-character paths are rejected before allocating ownership") {
             val f = fixture()
             try {
-                listOf("a/%2e%2e/file", "a/%2f/file", "a/%252e/file", "a/file%20name", "a/line\nbreak").forEach { path ->
+                listOf("/abs/file", "a\\b", "a//b", "a/../b", "a/./b", "a/b:stream", "a/what?", "a/line\nbreak").forEach { path ->
                     shouldThrow<IllegalArgumentException> {
                         f.command.upload(f.job, "output", f.source, SambaClient.NasType.VIDEO_STORE_NAS, path)
-                    }
+                    }.message shouldStartWith "NAS target"
                     manifests.find(f.job, ProcessingIdentity.hash("output")) shouldBe null
                 }
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("title characters such as '#' and '%' are stored literally") {
+            val f = fixture(name = "アニメ #3 100% %2e.mp4")
+            try {
+                f.upload()
+                f.manifest().finalPath shouldBe f.target
+                f.remote.keys shouldBe setOf(f.target)
             } finally {
                 f.source.delete()
             }
