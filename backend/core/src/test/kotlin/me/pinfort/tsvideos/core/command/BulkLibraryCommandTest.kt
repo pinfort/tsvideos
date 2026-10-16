@@ -1,8 +1,10 @@
 package me.pinfort.tsvideos.core.command
 
 import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -26,6 +28,8 @@ import org.springframework.dao.CannotAcquireLockException
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
 import java.time.LocalDateTime
+import kotlin.reflect.full.memberProperties
+import kotlin.reflect.full.primaryConstructor
 
 class BulkLibraryCommandTest :
     ExpectSpec({
@@ -124,6 +128,80 @@ class BulkLibraryCommandTest :
                 .status shouldBe
                 BulkOutcomeStatus.STALE
             verify(exactly = 0) { programs.delete(any(), any()) }
+        }
+        expect("every snapshot field is covered by the fingerprint") {
+            // Fails when a DTO gains a field that BulkLibraryCommand.fingerprint does not encode.
+            fun <T : Any> variants(value: T): List<Pair<String, T>> {
+                val constructor = value::class.primaryConstructor!!
+                return constructor.parameters.map { parameter ->
+                    val current =
+                        value::class
+                            .memberProperties
+                            .single { it.name == parameter.name }
+                            .getter
+                            .call(value)
+                    val changed: Any =
+                        when (current) {
+                            is Long -> current + 1000
+                            is Int -> current + 1
+                            is Double -> current + 0.5
+                            is String -> current + "x"
+                            is LocalDateTime -> current.plusDays(1)
+                            is Enum<*> -> current.javaClass.enumConstants.first { it != current }
+                            null -> "x"
+                            else -> error("Add a variant for ${parameter.name}: ${current::class}")
+                        }
+                    val arguments =
+                        constructor.parameters.associateWith { p ->
+                            value::class
+                                .memberProperties
+                                .single { it.name == p.name }
+                                .getter
+                                .call(value)
+                        }
+                    @Suppress("UNCHECKED_CAST")
+                    parameter.name!! to constructor.callBy(arguments + (parameter to changed)) as T
+                }
+            }
+            val baseline =
+                command
+                    .preview(request)
+                    .targets
+                    .single()
+                    .fingerprint
+
+            fun fingerprintWith(setup: () -> Unit): String {
+                setup()
+                return command.preview(request).targets.single().fingerprint.also {
+                    every { programs.find(any()) } returns program
+                    every { executed.find(any()) } returns source
+                    every { splits.selectByExecutedFileId(any()) } returns listOf(split)
+                    every { created.selectByExecutedFileId(any()) } returns listOf(file)
+                    every { mapper.references(any()) } returns listOf(1)
+                }
+            }
+            every { executed.find(any()) } returns source
+            every { splits.selectByExecutedFileId(any()) } returns listOf(split)
+            every { created.selectByExecutedFileId(any()) } returns listOf(file)
+            every { mapper.references(any()) } returns listOf(1)
+            for ((name, changed) in variants(program)) {
+                withClue("Program.$name") { fingerprintWith { every { programs.find(any()) } returns changed } shouldNotBe baseline }
+            }
+            for ((name, changed) in variants(source)) {
+                withClue(
+                    "ExecutedFileDto.$name",
+                ) { fingerprintWith { every { executed.find(any()) } returns changed } shouldNotBe baseline }
+            }
+            for ((name, changed) in variants(split)) {
+                withClue("SplittedFileDto.$name") {
+                    fingerprintWith { every { splits.selectByExecutedFileId(any()) } returns listOf(changed) } shouldNotBe baseline
+                }
+            }
+            for ((name, changed) in variants(file)) {
+                withClue("CreatedFileDto.$name") {
+                    fingerprintWith { every { created.selectByExecutedFileId(any()) } returns listOf(changed) } shouldNotBe baseline
+                }
+            }
         }
         expect("executed and split changes invalidate snapshots") {
             val plan = command.preview(request)
