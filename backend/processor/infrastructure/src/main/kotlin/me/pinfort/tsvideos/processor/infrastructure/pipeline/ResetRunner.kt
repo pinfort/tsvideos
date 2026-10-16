@@ -41,7 +41,10 @@ class ResetRunner(
         val target = file.toFile().canonicalPath
         logger.info("resetting processing, file=$target, dryRun=$dryRun")
 
-        val executedFile = executedFileCommand.findByFile(target)
+        // 064 より前の行は absolutePath で登録されているため、見つからなければそちらでも探す
+        val executedFile =
+            executedFileCommand.findByFile(target)
+                ?: executedFileCommand.findByFile(file.toFile().absolutePath)
         if (executedFile == null) {
             if (finishInterruptedReset(target, dryRun)) return
             logger.error("executed file not found, aborting. file=$target")

@@ -39,6 +39,7 @@ class TsVideosProcessorTest :
                     ProcessCommand(pathProcessingRunner),
                     AfterEncodeCommand(afterEncodeRunner),
                     ResetCommand(resetRunner, userQuestionComponent),
+                    ReleaseClaimCommand(mockk(), mockk(), userQuestionComponent),
                     StatusCommand(mockk(relaxed = true)),
                     HistoryCommand(mockk(relaxed = true)),
                 )
@@ -46,11 +47,11 @@ class TsVideosProcessorTest :
 
         context("subcommands") {
             expect("routes process to the path processing runner") {
-                every { pathProcessingRunner.processPath(any(), any(), any(), any(), any()) } just Runs
+                every { pathProcessingRunner.processPath(any(), any(), any(), any(), any(), any()) } just Runs
 
                 tsVideosProcessor.main(arrayOf("process", "/path/one"))
 
-                verify { pathProcessingRunner.processPath(Path.of("/path/one"), false, any(), any(), any()) }
+                verify { pathProcessingRunner.processPath(Path.of("/path/one"), false, any(), any(), any(), any()) }
             }
 
             expect("routes after-encode to the after encode runner") {
@@ -75,7 +76,7 @@ class TsVideosProcessorTest :
                 val exception = shouldThrow<PrintMessage> { tsVideosProcessor.parse(arrayOf("--version")) }
 
                 exception.message shouldContain "tvpcli version ${ApplicationVersion.value}"
-                verify(exactly = 0) { pathProcessingRunner.processPath(any(), any(), any(), any(), any()) }
+                verify(exactly = 0) { pathProcessingRunner.processPath(any(), any(), any(), any(), any(), any()) }
                 verify(exactly = 0) { afterEncodeRunner.run(any(), any(), any()) }
             }
         }

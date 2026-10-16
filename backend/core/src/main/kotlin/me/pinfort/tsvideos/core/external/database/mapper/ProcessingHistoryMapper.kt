@@ -104,7 +104,7 @@ interface ProcessingHistoryMapper {
     fun attempts(): List<ProcessingAttempt>
 
     @Select(
-        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest FROM processing_job ORDER BY id",
+        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest,updated_at FROM processing_job ORDER BY id",
     )
     fun liveJobs(): List<ProcessingJob>
 }
