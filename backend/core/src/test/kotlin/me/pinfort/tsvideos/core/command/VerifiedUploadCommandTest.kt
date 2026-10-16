@@ -336,6 +336,23 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.source.delete()
             }
         }
+        expect("same size and mtime content swap is caught by the full hash before deletion") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                f.command.register(receipt, 1, "video/mp4", null)
+                val modified = f.source.lastModified()
+                f.source.writeText("COMPLETE VIDEO")
+                f.source.setLastModified(modified)
+                // Repeated callbacks only re-check the fingerprint, so they still succeed...
+                f.upload() shouldBe receipt
+                // ...but the content is re-hashed before anything local is deleted.
+                shouldThrow<IllegalStateException> { f.command.deleteLocal(receipt) }
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
         expect("cleanup failure preserves ownership and local data") {
             val f = fixture()
             every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {

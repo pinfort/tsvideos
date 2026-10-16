@@ -59,18 +59,20 @@ class VerifiedUploadCommand(
         require(jobId > 0) { "Upload job id must be positive: $jobId" }
         require(artifact.isNotBlank()) { "Upload artifact name must not be blank" }
         validateTarget(target)
-        val (manifest, freshDigest) = findOrCreateManifest(jobId, ProcessingIdentity.hash(artifact), source, type, target)
+        val manifest = findOrCreateManifest(jobId, ProcessingIdentity.hash(artifact), source, type, target)
         check(manifest.nasType == type && manifest.finalPath == target && manifest.sourcePath == source.canonicalPath) {
             "Upload identity changed; reconciliation required"
         }
+        // Content is proven by the digest of the bytes sent (transferTemporary) and re-hashed before local
+        // deletion (deleteLocal); retries and repeated callbacks only re-check the size/mtime fingerprint.
         withClaim(manifest.id) { initial, token ->
             val claimed = Claimed(initial, token)
             if (initial.state in State.VERIFIED) {
                 verifyRemote(initial, initial.finalPath)
-                if (source.exists()) verifySource(initial, source, freshDigest)
+                if (source.exists()) checkIdentity(initial, ProcessingIdentity.from(source))
                 return@withClaim
             }
-            verifySource(initial, source, freshDigest)
+            checkIdentity(initial, ProcessingIdentity.from(source))
             recoverInterrupted(claimed)
             if (claimed.manifest.state == State.NEW) transferTemporary(claimed, source, progress)
             finalizeTemporary(claimed)
@@ -90,21 +92,20 @@ class VerifiedUploadCommand(
             "NAS target must not contain empty or traversal segments: $target"
         }
         require(target.none { it == ':' || it == '?' || it.isISOControl() }) {
-            "NAS target must not contain ':', '?' or control characters: ${target.map { if (it.isISOControl()) '�' else it }.joinToString(
-                "",
-            )}"
+            "NAS target must not contain ':', '?' or control characters: ${printable(target)}"
         }
     }
 
-    /** @return the manifest and, when this call fingerprinted the source, the digest it just computed. */
+    private fun printable(value: String): String = value.map { if (it.isISOControl()) '\uFFFD' else it }.joinToString("")
+
     private fun findOrCreateManifest(
         jobId: Long,
         key: String,
         source: File,
         type: SambaClient.NasType,
         target: String,
-    ): Pair<UploadManifest, String?> {
-        transaction.execute { manifests.find(jobId, key) }?.let { return it to null }
+    ): UploadManifest {
+        transaction.execute { manifests.find(jobId, key) }?.let { return it }
         val identity = ProcessingIdentity.from(source)
         val digest = source.inputStream().use { it.sha256Hex() }
         // Fingerprint again: a writer active during hashing changes size or mtime.
@@ -129,15 +130,11 @@ class VerifiedUploadCommand(
             )
         try {
             transaction.execute { manifests.insert(proposed) }
-        } catch (
-            _: DuplicateKeyException,
-        ) {
-            // Read winning ownership below.
+        } catch (lostRace: DuplicateKeyException) {
+            // Another invocation inserted first; read its ownership below.
         }
-        val manifest =
-            transaction.execute { manifests.find(jobId, key) }
-                ?: error("Destination belongs to another upload; reconciliation required")
-        return manifest to digest
+        return transaction.execute { manifests.find(jobId, key) }
+            ?: error("Destination belongs to another upload; reconciliation required")
     }
 
     private fun recoverInterrupted(claimed: Claimed) {
@@ -317,15 +314,14 @@ class VerifiedUploadCommand(
         ) { "Local source changed; preserved" }
     }
 
-    /** [knownDigest] is a digest this invocation already computed under the same fingerprint. */
+    /** Full content re-check; only required immediately before deleting the local source. */
     private fun verifySource(
         manifest: UploadManifest,
         source: File,
-        knownDigest: String? = null,
     ) {
         val identity = ProcessingIdentity.from(source)
         checkIdentity(manifest, identity)
-        val digest = knownDigest ?: source.inputStream().use { it.sha256Hex() }
+        val digest = source.inputStream().use { it.sha256Hex() }
         check(digest == manifest.sourceSha256 && ProcessingIdentity.from(source) == identity) { "Local source changed; preserved" }
     }
 
