@@ -142,11 +142,11 @@ export function SearchForm({ values = {} }: { values?: ProgramQueryParams }) {
       <div className="flex items-center gap-4">
         <button
           type="submit"
-          className="rounded bg-zinc-900 px-6 py-2 text-sm text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900"
+          className="rounded bg-zinc-900 px-6 py-2 text-sm text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
           検索
         </button>
-        <Link href="/" className="text-sm text-blue-600 underline">
+        <Link href="/" className="text-sm text-blue-600 underline dark:text-blue-400">
           条件をクリア
         </Link>
       </div>

@@ -17,11 +17,15 @@ export function programQueryParams(query: ProgramSearchQuery): URLSearchParams {
   return params;
 }
 
-const optionLabels: Record<string, string> = {
+const fieldLabels: Record<string, string> = {
   status: "状態",
   fileType: "ファイル形式",
   sort: "並び順",
   direction: "並び方向",
+  minDrops: "ドロップ数（下限）",
+  maxDrops: "ドロップ数（上限）",
+  limit: "1ページの件数",
+  offset: "開始位置",
 };
 
 // Mirrors core's ProgramSearchQuery validation (backend/core/.../domain/ProgramSearchQuery.kt) so invalid
@@ -43,7 +47,9 @@ export function parseProgramQuery(
     const v = value(key);
     if (v === undefined) return fallback;
     if (!/^\d+$/.test(v) || Number(v) < min || Number(v) > max)
-      throw new Error(`${key} は ${min}〜${max} の整数で指定してください。`);
+      throw new Error(
+        `${fieldLabels[key] ?? key} は ${min}〜${max} の整数で指定してください。`,
+      );
     return Number(v);
   };
   const option = <T extends string>(
@@ -54,7 +60,7 @@ export function parseProgramQuery(
     const v = value(key);
     if (v === undefined) return fallback;
     if (!values.includes(v as T))
-      throw new Error(`${optionLabels[key] ?? key} の指定が不正です。`);
+      throw new Error(`${fieldLabels[key] ?? key} の指定が不正です。`);
     return v as T;
   };
   const date = (key: string) => {

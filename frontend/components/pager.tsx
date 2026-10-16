@@ -24,7 +24,7 @@ export function Pager({
         <Link
           href={href(Math.max(offset - limit, 0))}
           aria-label="前のページ"
-          className="text-blue-600 hover:underline"
+          className="text-blue-600 hover:underline dark:text-blue-400"
         >
           &lt;&lt;
         </Link>
@@ -38,7 +38,7 @@ export function Pager({
         <Link
           href={href(offset + limit)}
           aria-label="次のページ"
-          className="text-blue-600 hover:underline"
+          className="text-blue-600 hover:underline dark:text-blue-400"
         >
           &gt;&gt;
         </Link>

@@ -45,7 +45,7 @@ recorded-time descending; limit must be 1–500. Invalid values or reversed
 bounds return HTTP 400. Existing name-only queries still work. Query semantics
 are shared with the manager CLI's `ProgramSearchQuery` in core.
 
-## Development scripts
+## Scripts
 
 - `pnpm dev` - start the development server
 - `pnpm build` - build for production

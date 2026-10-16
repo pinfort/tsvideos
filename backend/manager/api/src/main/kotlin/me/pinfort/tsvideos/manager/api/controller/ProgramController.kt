@@ -8,7 +8,6 @@ import me.pinfort.tsvideos.manager.api.response.ProgramDetailResponse
 import me.pinfort.tsvideos.manager.api.response.SearchResponse
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -19,7 +18,6 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeParseException
 
 @RestController
-@Validated
 class ProgramController(
     private val programCommand: ProgramCommand,
 ) {
