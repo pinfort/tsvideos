@@ -5,7 +5,6 @@ import com.github.ajalt.clikt.core.ProgramResult
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
 import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
@@ -23,7 +22,7 @@ class VerifyTest :
         lateinit var command: LibraryVerificationCommand
         beforeTest { command = mockk() }
         expect("empty library succeeds and emits exactly one JSON object") {
-            every { command.verify(null) } returns VerificationReport(emptyList())
+            every { command.verify(null, any()) } returns VerificationReport(emptyList())
             val output = captureVerifyOutput { Verify(command).parseManager(listOf("--json")) }
             val tree = JsonMapper.builder().build().readTree(output)
             tree["schemaVersion"].intValue() shouldBe 1
@@ -31,18 +30,18 @@ class VerifyTest :
             tree["summary"]["VERIFIED"].intValue() shouldBe 0
         }
         expect("issues retain machine-readable output and exit four") {
-            every { command.verify(7) } returns
+            every { command.verify(7, any()) } returns
                 VerificationReport(
                     listOf(
                         FileFinding(
-                            7,
-                            8,
-                            "番組/\"test\".mp4",
-                            VerificationStatus.MISSING,
-                            Instant.parse("2026-01-01T00:00:00Z"),
-                            12,
-                            null,
-                            "Absent",
+                            programId = 7,
+                            fileId = 8,
+                            file = "番組/\"test\".mp4",
+                            status = VerificationStatus.MISSING,
+                            checkedAt = Instant.parse("2026-01-01T00:00:00Z"),
+                            expectedBytes = 12,
+                            actualBytes = null,
+                            reason = "Absent",
                         ),
                     ),
                 )
@@ -55,16 +54,50 @@ class VerifyTest :
             tree["findings"][0]["checkedAt"].stringValue() shouldBe "2026-01-01T00:00:00Z"
             tree["findings"][0]["actualBytes"].isNull shouldBe true
         }
-        expect("human output includes a summary") {
-            every { command.verify(null) } returns VerificationReport(emptyList())
-            captureVerifyOutput { Verify(command).parseManager(emptyList()) } shouldContain "VERIFIED=0"
+        expect("human output lists each finding and a summary") {
+            every { command.verify(null, any()) } returns
+                VerificationReport(
+                    listOf(
+                        FileFinding(
+                            programId = 7,
+                            fileId = 8,
+                            file = "base/a.mp4",
+                            status = VerificationStatus.VERIFIED,
+                            checkedAt = Instant.parse("2026-01-01T00:00:00Z"),
+                            expectedBytes = 12,
+                            actualBytes = 12,
+                            reason = null,
+                        ),
+                        FileFinding(
+                            programId = 9,
+                            fileId = null,
+                            file = null,
+                            status = VerificationStatus.UNCHECKED,
+                            checkedAt = Instant.parse("2026-01-01T00:00:01Z"),
+                            expectedBytes = null,
+                            actualBytes = null,
+                            reason = "No NAS artifacts registered",
+                        ),
+                    ),
+                )
+            val output = captureVerifyOutput { shouldThrow<ProgramResult> { Verify(command).parseManager(emptyList()) } }
+            // Mordant expands the tab separators to spaces, so compare with whitespace runs collapsed.
+            output.replace("\r\n", "\n").replace(Regex("[ \t]+"), " ") shouldBe
+                """
+                VERIFIED program=7 file=8 base/a.mp4
+                 expected=12 actual=12 checkedAt=2026-01-01T00:00:00Z${' '}
+                UNCHECKED program=9 file=- -
+                 expected=- actual=- checkedAt=2026-01-01T00:00:01Z No NAS artifacts registered
+                VERIFIED=1 MISSING=0 SIZE_MISMATCH=0 INACCESSIBLE=0 UNCHECKED=1
+
+                """.trimIndent()
         }
         expect("missing selected program exits three") {
-            every { command.verify(9) } returns null
+            every { command.verify(9, any()) } returns null
             shouldThrow<CliktError> { Verify(command).parseManager(listOf("--program", "9")) }.statusCode shouldBe 3
         }
         expect("database errors exit one without exposing connection secrets") {
-            every { command.verify(null) } throws IllegalStateException("password=secret")
+            every { command.verify(null, any()) } throws IllegalStateException("password=secret")
             val error = shouldThrow<CliktError> { Verify(command).parseManager(emptyList()) }
             error.statusCode shouldBe 1
             error.message shouldBe "Library verification failed"

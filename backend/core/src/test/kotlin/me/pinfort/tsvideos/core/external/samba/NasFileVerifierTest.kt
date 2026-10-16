@@ -67,6 +67,21 @@ class NasFileVerifierTest :
             every { originalFile.length() } throws IOException("disconnected")
             verifier.verify("base/path/file.mp4", 12).status shouldBe VerificationStatus.INACCESSIBLE
         }
+        expect("a session opens each store once across files and closes it at the end") {
+            every { video.resolve("base/other.mp4") } returns videoFile
+            every { videoFile.exists() } returns true
+            every { videoFile.length() } returns 12
+            verifier.session { session ->
+                session.verify("base/path/file.mp4", 12).status shouldBe VerificationStatus.VERIFIED
+                session.verify("base/other.mp4", 12).status shouldBe VerificationStatus.VERIFIED
+                verify(exactly = 0) { video.close() }
+            }
+            verify(exactly = 1) {
+                client.videoStoreNas()
+                video.close()
+            }
+            verify(exactly = 0) { client.originalStoreNas() }
+        }
         expect("directories and invalid metadata remain unchecked") {
             every { videoFile.exists() } returns true
             every { videoFile.isFile } returns false

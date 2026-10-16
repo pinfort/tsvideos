@@ -12,8 +12,30 @@ import org.apache.ibatis.annotations.Update
 
 @Mapper
 interface ProgramMapper {
-    @Select("SELECT id FROM program ORDER BY id")
-    fun selectAllIds(): List<Long>
+    /** Unlike [selectAll], keeps programs whose executed_file row is gone. */
+    @Select(
+        """
+            SELECT
+                pg.id,
+                pg.name,
+                pg.executed_file_id,
+                pg.status,
+                ex.drops,
+                ex.size,
+                ex.recorded_at,
+                ex.channel,
+                ex.title,
+                ex.channelName,
+                ex.duration
+            FROM
+                program pg
+                LEFT OUTER JOIN executed_file ex
+                    ON pg.executed_file_id = ex.id
+            ORDER BY
+                pg.id
+        """,
+    )
+    fun selectAllOrderById(): List<ProgramDto>
 
     @SelectProvider(type = ProgramSearchSql::class, method = "search")
     fun search(query: ProgramSearchQuery): List<ProgramDto>
