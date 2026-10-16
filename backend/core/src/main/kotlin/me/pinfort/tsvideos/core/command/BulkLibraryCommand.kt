@@ -158,10 +158,14 @@ class BulkLibraryCommand(
             return input.copy(ids = input.ids.sorted())
         }
         val directory = input.directory ?: throw InvalidBulkRequestException("MOVE requires a directory")
-        ensure(safeLabel(directory)) { "Invalid directory label" }
+        ensure(
+            safeLabel(directory),
+        ) { "Invalid directory label: it must not be blank, \".\" or \"..\", or contain / \\ # % or control characters" }
         val normalized = normalize.normalize(directory.trim())
         // Normalization must never introduce a character the raw check would have refused.
-        ensure(safeLabel(normalized) && safeSegment(normalized)) { "Invalid normalized directory" }
+        ensure(safeLabel(normalized) && safeSegment(normalized)) {
+            "Invalid directory label: it must not end with a dot or space"
+        }
         return input.copy(ids = input.ids.sorted(), directory = normalized)
     }
 
