@@ -101,7 +101,7 @@ DDL は `core/src/main/resources/db/migrations/002_executed_file_tag.sql` を適
 
 Processor deployment and recovery: [processing identity and reconciliation](docs/processing-idempotency.md). Apply migration 064 before upgrading.
 
-Processor upload ownership, verification, migration and recovery: [verified-uploads.md](docs/verified-uploads.md).
+Processor upload ownership, verification, migration and recovery: [verified-uploads.md](docs/verified-uploads.md). By default the NAS copy is checked by size only before local files (including the only copy of the raw recording) are deleted; set `PROCESSOR_UPLOAD_VERIFY_SHA256=true` to read every upload back and compare SHA-256, at the cost of an extra full read over SMB.
 
 既存の DB には次のテーブルを一度だけ作成してください（DDL は `core/src/main/resources/db/migrations/064_processing_job.sql` と `072_upload_manifest.sql` をこの順に適用してください）。**processor を停止してから、この機能を含むビルドをデプロイする前に**作成する必要があります。
 

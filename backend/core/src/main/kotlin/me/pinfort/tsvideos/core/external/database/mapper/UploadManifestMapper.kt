@@ -25,6 +25,9 @@ interface UploadManifestMapper {
         artifactKey: String,
     ): UploadManifest?
 
+    @Select("SELECT * FROM upload_manifest WHERE destination_key=#{destinationKey}")
+    fun findByDestination(destinationKey: String): UploadManifest?
+
     @Select("SELECT * FROM upload_manifest WHERE id=#{id}")
     fun get(id: Long): UploadManifest?
 

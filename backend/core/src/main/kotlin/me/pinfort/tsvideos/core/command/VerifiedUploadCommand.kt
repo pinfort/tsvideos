@@ -74,8 +74,10 @@ class VerifiedUploadCommand(
             }
             checkIdentity(initial, ProcessingIdentity.from(source))
             recoverInterrupted(claimed)
+            // A temporary file verified earlier in this call need not be read back again before the rename.
+            val resumed = claimed.manifest.state == State.TEMP_VERIFIED
             if (claimed.manifest.state == State.NEW) transferTemporary(claimed, source, progress)
-            finalizeTemporary(claimed)
+            finalizeTemporary(claimed, reverifyTemporary = resumed)
         }
         return VerifiedUploadReceipt(manifest.id)
     }
@@ -133,8 +135,9 @@ class VerifiedUploadCommand(
         } catch (lostRace: DuplicateKeyException) {
             // Another invocation inserted first; read its ownership below.
         }
-        return transaction.execute { manifests.find(jobId, key) }
-            ?: error("Destination belongs to another upload; reconciliation required")
+        transaction.execute { manifests.find(jobId, key) }?.let { return it }
+        val owner = transaction.execute { manifests.findByDestination(proposed.destinationKey) }
+        error("Destination $target belongs to upload ${owner?.id} of job ${owner?.jobId}; reconciliation required")
     }
 
     private fun recoverInterrupted(claimed: Claimed) {
@@ -173,10 +176,13 @@ class VerifiedUploadCommand(
         claimed.transition(State.TEMP_VERIFIED)
     }
 
-    private fun finalizeTemporary(claimed: Claimed) {
+    private fun finalizeTemporary(
+        claimed: Claimed,
+        reverifyTemporary: Boolean,
+    ) {
         val current = claimed.manifest
         check(current.state == State.TEMP_VERIFIED) { "Upload requires reconciliation" }
-        verifyRemote(current, current.temporaryPath)
+        if (reverifyTemporary) verifyRemote(current, current.temporaryPath)
         check(!nas.exists(current.nasType, current.finalPath)) { "Unowned final destination exists" }
         claimed.transition(State.FINALIZING)
         nas.finalize(current.nasType, current.temporaryPath, current.finalPath)

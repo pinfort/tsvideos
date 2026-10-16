@@ -8,6 +8,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldStartWith
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest.State
 import me.pinfort.tsvideos.core.domain.sha256Hex
@@ -351,6 +352,33 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.source.exists() shouldBe true
             } finally {
                 f.source.delete()
+            }
+        }
+        expect("default size-only policy never reads the NAS copy back; checksum policy reads each copy once") {
+            listOf(false to 0, true to 2).forEach { (checksum, readbacks) ->
+                val f = fixture(checksum = checksum)
+                try {
+                    f.upload()
+                    verify(exactly = readbacks) { f.nas.sha256(any(), any()) }
+                } finally {
+                    f.source.delete()
+                }
+            }
+        }
+        expect("a destination owned by another job names the owner") {
+            val owner = fixture()
+            val other = fixture()
+            try {
+                val receipt = owner.upload()
+                val error =
+                    shouldThrow<IllegalStateException> {
+                        other.command.upload(other.job, "output", other.source, SambaClient.NasType.VIDEO_STORE_NAS, owner.target)
+                    }
+                error.message shouldBe
+                    "Destination ${owner.target} belongs to upload ${receipt.manifestId} of job ${owner.job}; reconciliation required"
+            } finally {
+                owner.source.delete()
+                other.source.delete()
             }
         }
         expect("cleanup failure preserves ownership and local data") {
