@@ -130,7 +130,7 @@ class NasComponent(
             }
         }
         logger.warn("Move source not found, oldFile=$oldFile")
-        throw IllegalStateException("Source file not found")
+        throw IllegalStateException("Source file not found, path=$oldFile")
     }
 
     // Resolve a fresh handle: jcifs caches attributes on an existing resource.
@@ -170,6 +170,7 @@ class NasComponent(
     // Structural checks only. jcifs resolves '#', '%' (including "%2e%2e%2f") and '?' verbatim,
     // and registered recordings use such names, so refusing them here would block deleting them.
     // ':' is refused because SMB treats it as an alternate data stream separator.
+    // BulkLibraryCommand.safePath is deliberately stricter for bulk actions; keep the two in sync knowingly.
     private fun validateFilePath(file: String) {
         val path = file.replace('\\', '/')
         require(

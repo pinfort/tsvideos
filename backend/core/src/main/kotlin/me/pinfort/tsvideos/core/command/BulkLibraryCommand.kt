@@ -141,7 +141,7 @@ class BulkLibraryCommand(
             label != ".." &&
             label.none { it == '/' || it == '\\' || it == '#' || it == '%' || it.isISOControl() }
 
-    /** Per-request data shared by every target, so a batch costs O(N) queries rather than O(N^2). */
+    /** Per-request data shared by every target, so each target costs a constant number of queries instead of O(N). */
     private inner class Context(
         all: List<CreatedFileDto>,
         val proposed: Map<String, Int>,
@@ -308,6 +308,8 @@ class BulkLibraryCommand(
 
     private fun key(path: String) = path.replace('\\', '/').split('/').joinToString("/") { it.trimEnd(' ', '.').lowercase(Locale.ROOT) }
 
+    // Stricter than NasComponent.validateFilePath on purpose: bulk refuses URL-special and alias-prone names
+    // that single-program delete still accepts.
     private fun safePath(path: String): Boolean {
         val segments = path.replace('\\', '/').split('/')
         return !path.startsWith('/') && !path.startsWith('\\') && segments.size >= 4 && segments.all(::safeSegment)
