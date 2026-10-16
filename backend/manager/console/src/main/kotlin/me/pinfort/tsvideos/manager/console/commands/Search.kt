@@ -14,6 +14,7 @@ import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.manager.console.component.ReadJson
 import org.springframework.stereotype.Component
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
@@ -29,8 +30,8 @@ class Search(
 
     private val programSearchName by option("-n", "--name", help = "case-insensitive literal name substring")
     private val channel by option("--channel", help = "exact channel identifier")
-    private val recordedFrom by option("--recorded-from", help = "inclusive ISO local date-time").convert { parseDate(it) }
-    private val recordedTo by option("--recorded-to", help = "exclusive ISO local date-time").convert { parseDate(it) }
+    private val recordedFrom by option("--recorded-from", help = "inclusive ISO local date or date-time").convert { parseDate(it) }
+    private val recordedTo by option("--recorded-to", help = "exclusive ISO local date or date-time").convert { parseDate(it) }
     private val status by option("--status").enum<Program.Status>()
     private val minDrops by option("--min-drops").int()
     private val maxDrops by option("--max-drops").int()
@@ -45,11 +46,12 @@ class Search(
     private val limit by option("--limit", help = "page size, 1..500").int().default(100)
     private val offset by option("--offset", help = "number of matching programs to skip").int().default(0)
 
+    // A plain date means that day's midnight, so --recorded-to 2026-10-12 excludes the 12th itself.
     private fun parseDate(value: String): LocalDateTime =
         try {
-            LocalDateTime.parse(value)
+            if ('T' in value) LocalDateTime.parse(value) else LocalDate.parse(value).atStartOfDay()
         } catch (_: DateTimeParseException) {
-            throw UsageError("use an ISO local date-time, e.g. 2026-10-12T00:00:00")
+            throw UsageError("use an ISO local date or date-time, e.g. 2026-10-12 or 2026-10-12T00:00:00")
         }
 
     override fun read() {
@@ -70,7 +72,7 @@ class Search(
                     offset,
                 )
             } catch (error: IllegalArgumentException) {
-                throw UsageError(error.message)
+                throw UsageError(error.message ?: "invalid search options")
             }
         val page = programCommand.search(query)
         val programs = page.items

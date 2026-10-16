@@ -76,8 +76,8 @@ the newest recordings. Existing `search -n NAME` syntax remains supported.
 | --- | --- |
 | `-n`, `--name` | Case-insensitive literal substring of program name; `%` and `_` are ordinary characters |
 | `--channel` | Exact channel identifier, not the display channel name |
-| `--recorded-from` | Inclusive ISO local date-time, e.g. `2026-10-01T00:00:00` |
-| `--recorded-to` | Exclusive ISO local date-time; use the next midnight to include a whole day |
+| `--recorded-from` | Inclusive ISO local date or date-time, e.g. `2026-10-01` or `2026-10-01T06:00:00`; a date means its midnight |
+| `--recorded-to` | Exclusive ISO local date or date-time; a date means its midnight, so pass the next day to include a whole day |
 | `--status` | `registered`, `completed`, `error` |
 | `--min-drops`, `--max-drops` | Inclusive nonnegative dropped-frame limits; unknown drops (`-1`) never match a numeric limit |
 | `--file-type` | `ts` or `encoded`, as defined below |
@@ -107,7 +107,12 @@ JSON retains `schemaVersion: 1` and its `programs` array, adding `total` (all
 matches before pagination), `limit`, and `offset`. Human output ends with the
 same counts. ID-only output contains only the selected page's IDs; increment
 `--offset` by `--limit` to fetch later pages (or use JSON's `total`). Empty or
-beyond-end pages succeed. Separate page requests can reflect library changes;
+beyond-end pages succeed.
+
+Compatibility: search used to return up to 500 programs in one response; the
+default page is now 100, so pass `--limit 500` or page with `--offset` to get
+more. The short-lived JSON `truncated` flag is replaced by `total`; a page is
+incomplete when `offset + programs.length < total`. Separate page requests can reflect library changes;
 the stable tie-break avoids ambiguous ordering within each snapshot.
 
 ```sh

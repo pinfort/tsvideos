@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
+import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 
 /** Only fixed SQL fragments are interpolated. All user values remain bound parameters. */
@@ -29,6 +30,8 @@ class ProgramSearchSql {
 
     private fun fromWhere(query: ProgramSearchQuery): String {
         val conditions = mutableListOf<String>()
+        // The schema is utf8mb4 (db/migrations). An explicit case-insensitive collation keeps matching independent of
+        // the column default; it rules out index use, as the old LIKE '%x%' did, so name search is a full scan.
         if (query.name != null) conditions += "LOCATE(#{name} COLLATE utf8mb4_unicode_ci, pg.name COLLATE utf8mb4_unicode_ci) > 0"
         if (query.channel != null) conditions += "ex.channel = #{channel}"
         if (query.recordedFrom != null) conditions += "ex.recorded_at >= #{recordedFrom}"
@@ -40,8 +43,8 @@ class ProgramSearchSql {
         if (query.fileType != null) {
             val mime =
                 when (query.fileType) {
-                    ProgramSearchQuery.FileType.TS -> "cf.mime = 'video/vnd.dlna.mpeg-tts'"
-                    ProgramSearchQuery.FileType.ENCODED -> "cf.mime LIKE 'video/%' AND cf.mime <> 'video/vnd.dlna.mpeg-tts'"
+                    ProgramSearchQuery.FileType.TS -> "cf.mime = '${CreatedFile.TS_MIME}'"
+                    ProgramSearchQuery.FileType.ENCODED -> "cf.mime LIKE 'video/%' AND cf.mime <> '${CreatedFile.TS_MIME}'"
                 }
             conditions +=
                 """
