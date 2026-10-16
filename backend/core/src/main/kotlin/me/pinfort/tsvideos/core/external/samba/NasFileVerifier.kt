@@ -29,7 +29,17 @@ class NasFileVerifier(
         private val stores =
             listOf(sambaClient::videoStoreNas, sambaClient::originalStoreNas).map { open ->
                 // A failed open is remembered, so an unreachable store is not retried for every file.
-                lazy { runCatching { open() }.onSuccess { opened += it } }
+                lazy {
+                    runCatching { open() }
+                        .onSuccess { opened += it }
+                        .onFailure {
+                            if (it is InterruptedException) {
+                                Thread.currentThread().interrupt()
+                                throw it
+                            }
+                            logger.warn("Opening NAS store failed: {}", it.javaClass.name)
+                        }
+                }
             }
 
         fun verify(
@@ -50,7 +60,15 @@ class NasFileVerifier(
             // If a higher-priority store cannot be checked, do not claim a fallback is the resolved file.
             return try {
                 for (store in stores) {
-                    store.value.getOrThrow().resolve(normalized).use { resource ->
+                    // The open failure was logged once; later files only report it.
+                    val root =
+                        store.value.getOrElse {
+                            return Result(
+                                VerificationStatus.INACCESSIBLE,
+                                reason = "NAS metadata could not be read",
+                            )
+                        }
+                    root.resolve(normalized).use { resource ->
                         if (resource.exists()) {
                             if (!resource.isFile) return Result(VerificationStatus.UNCHECKED, reason = "Path is not a regular file")
                             val size = resource.length()
