@@ -8,7 +8,11 @@ import me.pinfort.tsvideos.core.command.LibraryStatsCommand
 import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
 import me.pinfort.tsvideos.core.domain.LibraryStatsTotals
 import org.springframework.stereotype.Component
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import java.util.Locale
 
 @Component
 class Stats(
@@ -18,30 +22,39 @@ class Stats(
 
     private val groupBy by option("--group-by", help = "CHANNEL or MONTH").convert {
         try {
-            LibraryStatsQuery.Group.valueOf(it.uppercase())
+            LibraryStatsQuery.Group.valueOf(it.uppercase(Locale.ROOT))
         } catch (_: IllegalArgumentException) {
             throw UsageError("--group-by must be CHANNEL or MONTH")
         }
     }
-    private val recordedFrom by option("--recorded-from", help = "inclusive local ISO recording time").convert { date(it) }
-    private val recordedTo by option("--recorded-to", help = "exclusive local ISO recording time").convert { date(it) }
+    private val recordedFrom by option(
+        "--recorded-from",
+        help = "inclusive strict ISO local date or date-time, e.g. 2026-01-01 or 2026-01-01T00:00:00",
+    ).convert {
+        date(it) ?: fail(DATE_HINT)
+    }
+    private val recordedTo by option(
+        "--recorded-to",
+        help = "exclusive strict ISO local date or date-time; a date means its midnight",
+    ).convert {
+        date(it) ?: fail(DATE_HINT)
+    }
 
     override fun read() {
         if (idsOnly) throw UsageError("stats does not support --ids-only")
-        val query =
-            try {
-                LibraryStatsQuery(groupBy, recordedFrom, recordedTo)
-            } catch (_: IllegalArgumentException) {
-                throw UsageError("--recorded-from must precede --recorded-to")
-            }
+        val from = recordedFrom
+        val to = recordedTo
+        // LibraryStatsQuery also requires this; checking here first gives a usage error (exit 2) with the option names.
+        if (from != null && to != null && from >= to) throw UsageError("--recorded-from must precede --recorded-to")
+        val query = LibraryStatsQuery(groupBy, from, to)
         val stats = command.summarize(query)
         if (json) {
             outputJson(
                 "stats",
                 linkedMapOf(
                     "groupBy" to groupBy?.name,
-                    "recordedFrom" to recordedFrom?.toString(),
-                    "recordedTo" to recordedTo?.toString(),
+                    "recordedFrom" to recordedFrom?.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                    "recordedTo" to recordedTo?.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
                     "totals" to stats.totals,
                     "groups" to stats.groups,
                 ),
@@ -58,18 +71,25 @@ class Stats(
         totals: LibraryStatsTotals,
     ) {
         echo(
-            "$label: programs=${totals.programCount}, failed=${totals.failedProgramCount}, drops=${totals.droppedFrameCount}, unknownDrops=${totals.unknownDropsProgramCount}",
+            "$label: programs=${totals.programCount}, failed=${totals.failedProgramCount}, " +
+                "drops=${totals.droppedFrameCount}, unknownDrops=${totals.unknownDropsProgramCount}",
         )
         echo(
-            "  files=${totals.registeredFileCount}, bytes=${totals.registeredBytes}, originalTs=${totals.originalTsBytes}, encoded=${totals.encodedBytes}, other=${totals.otherBytes}",
+            "  files=${totals.registeredFileCount}, bytes=${totals.registeredBytes}, " +
+                "originalTs=${totals.originalTsBytes}, encoded=${totals.encodedBytes}, other=${totals.otherBytes}",
         )
         echo("  moved=${totals.movedFileBytes}, pending=${totals.pendingFileBytes}, verifiedPhysical=unverified")
     }
 
-    private fun date(value: String): LocalDateTime =
+    // Returns null for an invalid value so convert's fail() names the offending option.
+    private fun date(value: String): LocalDateTime? =
         try {
-            LocalDateTime.parse(value)
-        } catch (_: Exception) {
-            throw UsageError("Recording time must be an ISO local date-time without offset")
+            if (value.contains('T')) LocalDateTime.parse(value) else LocalDate.parse(value).atStartOfDay()
+        } catch (_: DateTimeParseException) {
+            null
         }
+
+    private companion object {
+        const val DATE_HINT = "use an ISO local date or date-time without offset, e.g. 2026-01-01 or 2026-01-01T00:00:00"
+    }
 }
