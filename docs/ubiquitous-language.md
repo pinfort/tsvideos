@@ -81,6 +81,8 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | 保持を推薦 / 整理候補 | `retained` / `removable` | 重複番組のうち残す 1 件と、それ以外の番組。重複番組のまとまり同士は番組を共有しない |
 | 回収候補容量 | `estimatedReclaimableBytes` | 整理候補をすべて除去したと仮定した推計。参照する全番組が整理候補のパスだけを 1 度数える |
 | 共有パス | `excludedSharedPathCount` | 整理候補と保持する番組の両方が参照するため、回収候補から除外したパス |
+| 整合性検証 | `LibraryVerificationCommand` (`tvmcli verify`) | 登録済みの作成ファイルが NAS 上に存在し、記録サイズと一致するかを読み取り専用で確かめること。内容のデコードまでは保証しない |
+| 検証結果 | `VerificationStatus` | `VERIFIED` (存在しサイズ一致) / `MISSING` (両 NAS で確認できたうえで存在しない) / `SIZE_MISMATCH` (サイズ不一致) / `INACCESSIBLE` (接続・権限などで確認できない。欠損とはみなさない) / `UNCHECKED` (転送未完了・未登録・無効なパスなどで検査しなかった) |
 
 ## 外部ツール・環境
 

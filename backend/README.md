@@ -90,6 +90,38 @@ EOF 時点で未完成の PES は破棄します。長さ 0 の PES は次の開
 
 DDL は `core/src/main/resources/db/migrations/002_executed_file_tag.sql` を適用してください（`IF NOT EXISTS` なので再実行しても安全です）。
 
+## manager:console の整合性検証 (`tvmcli verify`)
+
+`verify` は全番組、`verify --program 123` は指定番組の `created_file`（圧縮済み原本・エンコード済みファイル等の NAS 成果物）を読み取り専用で検証します。DB、NAS、ローカルファイルを変更しません。`executed_file` / `splitted_file` のローカル処理用パスは対象外です。
+
+```bash
+./gradlew manager:console:bootRun --args="verify --program 123"
+./gradlew manager:console:bootJar
+java -jar manager/console/build/libs/console.jar verify --json > verification.json
+```
+
+自動処理では Gradle の出力を含まない実行可能 jar を使用してください。`--json` の stdout は UTF-8 の単一 JSON オブジェクト（`schemaVersion: 1`, `summary`, `findings`）です。ログ・エラーは stderr に出力します。各 finding は `programId`, `fileId`, `file`, `status`, UTC の `checkedAt`（その finding を確定した時刻。`UNCHECKED` では NAS に問い合わせていない）, バイト単位の `expectedBytes` / `actualBytes`, `reason` を含みます。番組に成果物が未登録の場合は `fileId` / `file` / サイズを null にした `UNCHECKED` を一件出します。summary は全ステータスの件数で、これらの未登録番組も含みます。
+
+| 状態 | 意味 |
+| --- | --- |
+| `VERIFIED` | 通常ファイルが存在し、記録サイズと一致 |
+| `MISSING` | 両 NAS の確認に成功したがファイルが存在しない |
+| `SIZE_MISMATCH` | 存在するがサイズが不一致 |
+| `INACCESSIBLE` | 接続・権限・メタデータ取得などの失敗。削除済みとは判断しない |
+| `UNCHECKED` | NAS 転送未完了、未登録、無効なパス／サイズ、または通常ファイルでない |
+
+既存の NAS 解決順（video store → original store）を使い、DB パス内の baseDir は重ねて付加しません。先の NAS がアクセス不能なら、後の NAS のファイルを使って検証成功とはしません。個別ファイルの問題があっても後続ファイルを検証します。サイズ一致は内容の完全性を保証せず、検証後にファイルが変化することもあります。
+
+終了コードは `0`（全件正常・空ライブラリ）、`1`（DB 等の実行失敗）、`2`（引数不正）、`3`（指定番組がない）、`4`（`VERIFIED` 以外の finding がある）です。
+
+stdout/stderr の分離、引数エラーの終了コード `2`、ログ設定（stderr・既定 `WARN`）は `manager:console` 全サブコマンド共通の規約です。詳細は [manager/console/README.md](manager/console/README.md) を参照してください。全件検証では 100 番組ごとに進捗を stderr に出力します。失敗時は資格情報を含みうる例外メッセージを出さず、例外クラス名だけを stderr にログ出力します。
+
+DB 上のパスは SMB 共有からの相対パスであるため、`..`・`.`・空のセグメント（`a//b` や末尾の `/`）を含むもの、絶対パス、`:` を含むもの（ドライブレター・`smb://` などのスキーム・NTFS ストリーム）は NAS に問い合わせずに `UNCHECKED` とします。共有上のファイル名として解決できないパスを `MISSING` と誤報告しないためです。NAS の各ストアは 1 回の実行で一度だけ開き、全ファイルの検証で再利用します。ストアを開けなかった場合はその実行中は再試行せず、以降のファイルも `INACCESSIBLE` とします。全件検証は番組と成果物の一覧をそれぞれ 1 クエリでメモリに読み込みます。`splitted_file` を失った `created_file` は、全件検証でも `--program` 指定でも対象外です。
+
+### 深いメディア検証の別モード仕様
+
+デフォルトは SMB の存在・通常ファイル種別・サイズだけを調べ、ダウンロードや ffprobe は実行しません。将来の任意モード `--deep` は、通常検証に成功したメディアだけを別ステップでプローブし、読み取り／デコードエラー・ストリーム情報を独立した `mediaCheck` 結果として返す設計です。明示的な実行時間・転送量の上限と一時ファイルの後処理が必要であり、通常検証の `VERIFIED` を「デコード確認済み」と読み替えません。この PR はこのモードの境界を定義するもので、`--deep` の実装は含みません（未対応オプションとして終了コード `2`）。
+
 ## CLI のバージョン確認
 
 `tvmcli`（`manager:console`）と `tvpcli`（`processor:console`）は `--version` でバージョンと git コミットハッシュを `tvmcli version 0.0.1-SNAPSHOT (d87cab7)` の形式で表示します。どちらもビルド時に `core` のリソース（`version.properties`）へ埋め込まれます（バージョンは Gradle プロジェクトバージョン、コミットハッシュは `git rev-parse --short HEAD`）。git リポジトリ外でビルドした場合（Docker ビルドなど）はコミットハッシュが取得できないため、バージョンのみを表示します。
