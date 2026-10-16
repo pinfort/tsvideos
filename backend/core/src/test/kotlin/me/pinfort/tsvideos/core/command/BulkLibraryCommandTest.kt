@@ -404,6 +404,14 @@ class BulkLibraryCommandTest :
             outcome.message.contains("nothing was changed") shouldBe false
             outcome.message.contains("partially") shouldBe true
         }
+        expect("a non-lock failure before mutation says nothing was changed") {
+            val plan = command.preview(request)
+            every { mapper.lockExecuted(any()) } throws IllegalStateException("db down")
+            val outcome = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))).outcomes.single()
+            outcome.status shouldBe BulkOutcomeStatus.FAILED
+            outcome.message.contains("nothing was changed") shouldBe true
+            verify(exactly = 0) { programs.delete(any(), any()) }
+        }
         expect("missing target is a per-target result") {
             val plan = command.preview(request)
             every { mapper.lockProgram(1) } returns null

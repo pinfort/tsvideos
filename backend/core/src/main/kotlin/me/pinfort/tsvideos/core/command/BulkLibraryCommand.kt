@@ -119,7 +119,9 @@ class BulkLibraryCommand(
             BulkOutcome(id, BulkOutcomeStatus.FAILED, "Library is busy (processing may be running); nothing was changed. Retry later.")
         } catch (error: Exception) {
             if (error is InterruptedException) Thread.currentThread().interrupt()
-            failedAfterMutation(id, request, error)
+            if (mutating) return failedAfterMutation(id, request, error)
+            logger.error("Bulk ${request.action} failed before any change, programId=$id", error)
+            BulkOutcome(id, BulkOutcomeStatus.FAILED, "Operation failed before any change; nothing was changed. Preview again and retry.")
         }
     }
 
