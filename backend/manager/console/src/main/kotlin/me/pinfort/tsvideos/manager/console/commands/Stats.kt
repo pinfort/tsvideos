@@ -31,13 +31,13 @@ class Stats(
         "--recorded-from",
         help = "inclusive strict ISO local date or date-time, e.g. 2026-01-01 or 2026-01-01T00:00:00",
     ).convert {
-        date(it)
+        date(it) ?: fail(DATE_HINT)
     }
     private val recordedTo by option(
         "--recorded-to",
         help = "exclusive strict ISO local date or date-time; a date means its midnight",
     ).convert {
-        date(it)
+        date(it) ?: fail(DATE_HINT)
     }
 
     override fun read() {
@@ -81,10 +81,15 @@ class Stats(
         echo("  moved=${totals.movedFileBytes}, pending=${totals.pendingFileBytes}, verifiedPhysical=unverified")
     }
 
-    private fun date(value: String): LocalDateTime =
+    // Returns null for an invalid value so convert's fail() names the offending option.
+    private fun date(value: String): LocalDateTime? =
         try {
             if (value.contains('T')) LocalDateTime.parse(value) else LocalDate.parse(value).atStartOfDay()
         } catch (_: DateTimeParseException) {
-            throw UsageError("Recording time must be an ISO local date or date-time without offset, e.g. 2026-01-01 or 2026-01-01T00:00:00")
+            null
         }
+
+    private companion object {
+        const val DATE_HINT = "use an ISO local date or date-time without offset, e.g. 2026-01-01 or 2026-01-01T00:00:00"
+    }
 }

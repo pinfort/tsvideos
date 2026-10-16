@@ -18,6 +18,8 @@ import java.time.YearMonth
 class LibraryStatsCommand(
     private val mapper: LibraryStatsMapper,
 ) {
+    // Rows are aggregated in Kotlin rather than SQL GROUP BY: each row is small at personal-library scale,
+    // and the dedup/classification rules stay in one readable, testable place.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun summarize(query: LibraryStatsQuery = LibraryStatsQuery()): LibraryStats {
         // Both queries return one row per primary key (EXISTS does not multiply rows), so no deduplication is needed.
@@ -72,7 +74,7 @@ class LibraryStatsCommand(
     }
 
     private companion object {
-        const val TS_MIME = "video/vnd.dlna.mpeg-tts"
+        const val TS_MIME = CreatedFile.TS_MIME
         const val GZIP = "gzip"
     }
 }

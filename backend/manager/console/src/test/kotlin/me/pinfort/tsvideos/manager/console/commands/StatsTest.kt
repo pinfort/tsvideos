@@ -77,6 +77,11 @@ class StatsTest :
             stats["groups"][0].propertyNames().toSet() shouldBe setOf("key", "totals")
             stats["groups"][0]["totals"].propertyNames().toSet() shouldBe totalsKeys
         }
+        expect("invalid date names the offending option") {
+            val result = Stats(mockk()).invoke("--recorded-to 2026-13-01")
+            result.statusCode shouldBe 2
+            result.stderr.contains("--recorded-to") shouldBe true
+        }
         expect("date-only bounds mean start of day") {
             val command = mockk<LibraryStatsCommand>()
             every { command.summarize(any()) } returns LibraryStats(empty, emptyList())
