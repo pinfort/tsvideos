@@ -96,7 +96,7 @@ Database diagnostics use a separate connection whose only statement is `SELECT 1
 (the connection is also flagged read-only as a driver hint), with 3-second
 connect/socket/query timeouts that replace any timeouts in the configured URL. An
 empty database password is accepted for passwordless users; authentication is
-verified by the connectivity check. NAS diagnostics use SMB2/3 with 3-second
+verified by the connectivity check. NAS diagnostics use the same SMB2/3 dialect range as the production Samba client, adding 3-second
 connection, response and socket timeouts and one request retry. These are per-I/O
 bounds, not a total command deadline; OS hostname resolution and multiple checks
 can add time. Both NAS stores are checked even if another endpoint fails.
