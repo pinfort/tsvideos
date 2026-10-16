@@ -1,10 +1,15 @@
 package me.pinfort.tsvideos.core.external.samba
 
+import jcifs.SmbConstants
 import jcifs.SmbResource
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 import java.io.File
+import java.io.OutputStream
 import java.nio.file.Path
+import java.security.DigestInputStream
+import java.security.MessageDigest
+import java.util.Locale
 
 @Component
 class NasComponent(
@@ -74,7 +79,7 @@ class NasComponent(
     ): SambaClient.NasType {
         validateFilePath(oldFile)
         validateFilePath(newFile)
-        require(oldFile.replace('\\', '/').lowercase() != newFile.replace('\\', '/').lowercase())
+        require(oldFile.replace('\\', '/').lowercase(Locale.ROOT) != newFile.replace('\\', '/').lowercase(Locale.ROOT))
         val candidates =
             listOf(
                 videoStoreNas to SambaClient.NasType.VIDEO_STORE_NAS,
@@ -90,23 +95,23 @@ class NasComponent(
                 nas.resolve(newFile.replace('\\', '/')).use { target ->
                     // Exclusive creation closes the existence-check race; copyTo may overwrite.
                     // On copy/readback failure retain source and partial destination for inspection.
-                    val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    val digest = MessageDigest.getInstance("SHA-256")
                     target
                         .openOutputStream(
                             true,
-                            jcifs.SmbConstants.O_WRONLY or jcifs.SmbConstants.O_CREAT or jcifs.SmbConstants.O_EXCL,
-                            jcifs.SmbConstants.FILE_WRITE_DATA,
-                            jcifs.SmbConstants.FILE_NO_SHARE,
+                            SmbConstants.O_WRONLY or SmbConstants.O_CREAT or SmbConstants.O_EXCL,
+                            SmbConstants.FILE_WRITE_DATA,
+                            SmbConstants.FILE_NO_SHARE,
                         ).use { output ->
                             source.openInputStream().use { input ->
-                                java.security.DigestInputStream(input, digest).copyTo(output)
+                                DigestInputStream(input, digest).copyTo(output)
                             }
                         }
                     check(target.length() == size) { "Copied size mismatch" }
                     val expected = digest.digest()
-                    val actual = java.security.MessageDigest.getInstance("SHA-256")
+                    val actual = MessageDigest.getInstance("SHA-256")
                     target.openInputStream().use { input ->
-                        java.security.DigestInputStream(input, actual).transferTo(java.io.OutputStream.nullOutputStream())
+                        DigestInputStream(input, actual).transferTo(OutputStream.nullOutputStream())
                     }
                     check(expected.contentEquals(actual.digest())) { "Copied checksum mismatch" }
                     // Resolve a fresh handle: jcifs caches attributes on an existing resource.
@@ -119,19 +124,20 @@ class NasComponent(
                 return type
             }
         }
+        logger.warn("Move source not found, oldFile=$oldFile")
         throw IllegalStateException("Source file not found")
     }
 
+    // Structural checks only. jcifs resolves '#', '%' (including "%2e%2e%2f") and '?' verbatim,
+    // and registered recordings use such names, so refusing them here would block deleting them.
+    // ':' is refused because SMB treats it as an alternate data stream separator.
     private fun validateFilePath(file: String) {
+        val path = file.replace('\\', '/')
         require(
-            file.replace('\\', '/').split('/').all {
-                it.isNotBlank() &&
-                    it != "." &&
-                    it != ".." &&
-                    !it.endsWith('.') &&
-                    !it.endsWith(' ') &&
-                    it.none { c -> c in ":?#%" || c.isISOControl() }
-            },
+            !path.startsWith('/') &&
+                path.split('/').all {
+                    it.isNotBlank() && it != "." && it != ".." && it.none { c -> c == ':' || c.isISOControl() }
+                },
         ) { "Unsafe NAS path" }
     }
 

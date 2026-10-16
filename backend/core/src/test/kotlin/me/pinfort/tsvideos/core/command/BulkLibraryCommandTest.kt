@@ -262,6 +262,36 @@ class BulkLibraryCommandTest :
                 }
             }
         }
+        expect("move without generated files is refused instead of reporting a no-op success") {
+            every { created.selectByExecutedFileId(10) } returns emptyList()
+            command
+                .preview(BulkRequest(listOf(1), BulkAction.MOVE, "beta"))
+                .targets
+                .single()
+                .reason shouldBe "No generated files to move"
+        }
+        expect("earlier committed moves in the same apply do not make later targets stale") {
+            val second = program.copy(id = 2, name = "second", executedFileId = 11)
+            val secondFile = file.copy(id = 31, splittedFileId = 21, file = "base/s/second/video2.mp4")
+            val files = mutableListOf(file, secondFile)
+            every { programs.find(2) } returns second
+            every { executed.find(11) } returns source.copy(id = 11)
+            every { splits.selectByExecutedFileId(11) } returns listOf(split.copy(id = 21, executedFileId = 11))
+            every { created.selectByExecutedFileId(10) } answers { listOf(files[0]) }
+            every { created.selectByExecutedFileId(11) } answers { listOf(files[1]) }
+            every { mapper.references(11) } returns listOf(2)
+            every { mapper.allFiles() } answers { files.toList() }
+            every { mapper.createdFilesOfPrograms(any()) } answers { files.toList() }
+            every { programs.moveCreatedFiles(program, "beta", any()) } answers {
+                files[0] = file.copy(file = "base/B/beta/video.mp4")
+            }
+            val move = BulkRequest(listOf(1, 2), BulkAction.MOVE, "beta")
+            val plan = command.preview(move)
+            command
+                .apply(BulkApplyRequest(move, plan.targets.associate { it.id to it.fingerprint }))
+                .outcomes
+                .map { it.status } shouldBe listOf(BulkOutcomeStatus.SUCCESS, BulkOutcomeStatus.SUCCESS)
+        }
         expect("a 100-target move preview issues a linear number of queries") {
             val ids = (1L..100L).toList()
             every { programs.find(any()) } answers { program.copy(id = firstArg()) }

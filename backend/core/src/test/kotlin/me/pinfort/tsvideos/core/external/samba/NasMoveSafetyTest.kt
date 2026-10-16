@@ -74,8 +74,15 @@ class NasMoveSafetyTest :
             shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
             verify(exactly = 0) { source.delete() }
         }
-        expect("NAS boundary rejects URI delimiters and encoded traversal before opening anything") {
-            for (unsafe in listOf("base/a/alpha/%2e%2e%2fother", "base/a/alpha/file#fragment", "base/a/alpha/file?query", "../file")) {
+        expect("NAS boundary rejects traversal, streams and control characters before opening anything") {
+            for (unsafe in listOf(
+                "../file",
+                "base/a/../file",
+                "/base/a/alpha/file",
+                "base//alpha/file",
+                "base/a/alpha/file:stream",
+                "base/a/alpha/a\u0000b",
+            )) {
                 shouldThrow<IllegalArgumentException> { nas.moveResource(unsafe, new) }
                 shouldThrow<IllegalArgumentException> { nas.deleteResource(unsafe) }
                 shouldThrow<IllegalArgumentException> { nas.moveResource(old, unsafe) }
@@ -83,6 +90,16 @@ class NasMoveSafetyTest :
             verify(exactly = 0) {
                 video.resolve(any())
                 source.delete()
+            }
+        }
+        expect("registered names with URL-special characters are deleted verbatim") {
+            for (name in listOf("base/a/alpha/アニメ #01 100%.mp4", "base/a/alpha/a%2e%2e%2fb.mp4", "base/a/alpha/Dr.")) {
+                val file = mockk<SmbResource>(relaxed = true)
+                every { video.resolve(name) } returns file
+                every { file.exists() } returns true
+                every { file.isFile } returns true
+                nas.deleteResource(name) shouldBe SambaClient.NasType.VIDEO_STORE_NAS
+                verify(exactly = 1) { file.delete() }
             }
         }
         expect("directory deletion and movement are refused without recursive effects") {

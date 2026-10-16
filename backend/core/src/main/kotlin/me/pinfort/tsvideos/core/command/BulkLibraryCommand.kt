@@ -22,7 +22,10 @@ import org.springframework.stereotype.Component
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
+import java.io.DataOutputStream
+import java.io.OutputStream
 import java.nio.file.Path
+import java.security.DigestOutputStream
 import java.security.MessageDigest
 import java.time.LocalDateTime
 import java.util.Locale
@@ -50,10 +53,12 @@ class BulkLibraryCommand(
             isolationLevel = TransactionDefinition.ISOLATION_REPEATABLE_READ
         }
 
+    private val fingerprintPattern = Regex("[a-f0-9]{64}")
+
     fun preview(input: BulkRequest): BulkPlan {
         val request = validate(input)
         return read.execute {
-            val context = Context(request, bulk.allFiles())
+            val context = Context(bulk.allFiles(), proposed(request))
             BulkPlan(request, request.ids.map { target(it, request, context) })
         }!!
     }
@@ -61,13 +66,17 @@ class BulkLibraryCommand(
     fun apply(input: BulkApplyRequest): BulkResult {
         val request = validate(input.request)
         require(input.fingerprints.keys == request.ids.toSet()) { "Every target requires its preview fingerprint" }
-        require(input.fingerprints.values.all { it.matches(Regex("[a-f0-9]{64}")) }) { "Invalid fingerprint" }
-        return BulkResult(request.ids.map { id -> applyOne(id, request, input.fingerprints.getValue(id)) })
+        require(input.fingerprints.values.all { it.matches(fingerprintPattern) }) { "Invalid fingerprint" }
+        // Selection-wide destination counts are computed once: other programs' existing paths are still
+        // re-checked per target against the locked alias scan, and any change to a target's own files is STALE.
+        val proposed = read.execute { proposed(request) }!!
+        return BulkResult(request.ids.map { id -> applyOne(id, request, proposed, input.fingerprints.getValue(id)) })
     }
 
     private fun applyOne(
         id: Long,
         request: BulkRequest,
+        proposed: Map<String, Int>,
         fingerprint: String,
     ): BulkOutcome =
         try {
@@ -82,7 +91,7 @@ class BulkLibraryCommand(
                 bulk.lockExecuted(program.executedFileId)
                 bulk.lockSplits(program.executedFileId)
                 bulk.lockReferences(program.executedFileId)
-                val current = target(id, request, Context(request, all))
+                val current = target(id, request, Context(all, proposed))
                 when {
                     current.fingerprint != fingerprint ->
                         BulkOutcome(id, BulkOutcomeStatus.STALE, "Recording changed; preview again")
@@ -128,22 +137,23 @@ class BulkLibraryCommand(
 
     /** Per-request data shared by every target, so a batch costs O(N) queries rather than O(N^2). */
     private inner class Context(
-        request: BulkRequest,
         all: List<CreatedFileDto>,
+        val proposed: Map<String, Int>,
     ) {
         val owners: Map<String, Set<Long>> = all.groupBy({ key(it.file) }, { it.id }).mapValues { it.value.toSet() }
-        val proposed: Map<String, Int> =
-            if (request.action == BulkAction.MOVE) {
-                bulk
-                    .createdFilesOfPrograms(request.ids)
-                    .filter { safePath(it.file) }
-                    .map { key(destination(it, request.directory!!)) }
-                    .groupingBy { it }
-                    .eachCount()
-            } else {
-                emptyMap()
-            }
     }
+
+    private fun proposed(request: BulkRequest): Map<String, Int> =
+        if (request.action == BulkAction.MOVE) {
+            bulk
+                .createdFilesOfPrograms(request.ids)
+                .filter { safePath(it.file) }
+                .map { key(destination(it, request.directory!!)) }
+                .groupingBy { it }
+                .eachCount()
+        } else {
+            emptyMap()
+        }
 
     private fun destination(
         file: CreatedFileDto,
@@ -191,6 +201,7 @@ class BulkLibraryCommand(
                 program.status != Program.Status.COMPLETED -> "Only COMPLETED recordings can be changed"
                 snapshot.executed == null -> "Original recording metadata missing"
                 refs.any { it != id } || shared || duplicate -> "Shared file paths or recording metadata; operation refused"
+                files.isEmpty() && request.action == BulkAction.MOVE -> "No generated files to move"
                 files.any { it.status != CreatedFileDto.Status.FILE_MOVED } -> "Unfinished generated files; operation refused"
                 files.any { !safePath(it.file) || it.size < 0 } -> "Unsafe NAS path; operation refused"
                 collision -> "Destination is already referenced or duplicated"
@@ -216,7 +227,7 @@ class BulkLibraryCommand(
         flags: List<Boolean>,
     ): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        val output = java.io.DataOutputStream(java.security.DigestOutputStream(java.io.OutputStream.nullOutputStream(), digest))
+        val output = DataOutputStream(DigestOutputStream(OutputStream.nullOutputStream(), digest))
 
         fun encode(item: Any?) {
             when (item) {
