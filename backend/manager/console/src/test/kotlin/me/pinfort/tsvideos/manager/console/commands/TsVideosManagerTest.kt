@@ -17,12 +17,15 @@ import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
 import me.pinfort.tsvideos.core.domain.ProgramSearchPage
+import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
+import me.pinfort.tsvideos.core.domain.VerificationReport
 import me.pinfort.tsvideos.core.version.ApplicationVersion
 import me.pinfort.tsvideos.manager.console.component.ProgramDetailToTextComponent
 import java.nio.file.Path
@@ -44,6 +47,7 @@ class TsVideosManagerTest :
         lateinit var delete: Delete
         lateinit var modify: Modify
         lateinit var duplicates: Duplicates
+        lateinit var libraryVerificationCommand: LibraryVerificationCommand
         lateinit var tsVideosManager: TsVideosManager
 
         beforeTest {
@@ -57,13 +61,24 @@ class TsVideosManagerTest :
             userQuestionComponent = mockk()
             directoryNameComponent = mockk()
             programDetailToTextComponent = mockk()
+            libraryVerificationCommand = mockk()
 
             search = Search(programCommand, terminalTextColorComponent)
             get = Get(programCommand, executedFileCommand, programDetailToTextComponent)
             delete = Delete(programCommand, userQuestionComponent, createdFileCommand)
             modify = Modify(programCommand, directoryNameComponent, userQuestionComponent)
             duplicates = Duplicates(duplicateProgramCommand, programCommand, terminalTextColorComponent)
-            tsVideosManager = TsVideosManager(search, get, delete, modify, duplicates)
+            tsVideosManager =
+                TsVideosManager(
+                    search,
+                    get,
+                    delete,
+                    modify,
+                    duplicates,
+                    Doctor(mockk()),
+                    Stats(mockk()),
+                    Verify(libraryVerificationCommand),
+                )
         }
 
         val dummyProgram =
@@ -117,10 +132,7 @@ class TsVideosManagerTest :
                 tsVideosManager.main(arrayOf("search", "-n", "test"))
 
                 verify(exactly = 1) {
-                    programCommand.search(
-                        me.pinfort.tsvideos.core.domain
-                            .ProgramSearchQuery(name = "test"),
-                    )
+                    programCommand.search(ProgramSearchQuery(name = "test"))
                 }
             }
 
@@ -169,6 +181,14 @@ class TsVideosManagerTest :
                 verify(exactly = 1) {
                     duplicateProgramCommand.detect(DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO)
                 }
+            }
+
+            expect("verify") {
+                every { libraryVerificationCommand.verify(null, any()) } returns VerificationReport(emptyList())
+
+                tsVideosManager.parse(arrayOf("verify", "--json"))
+
+                verify(exactly = 1) { libraryVerificationCommand.verify(null, any()) }
             }
 
             expect("version") {

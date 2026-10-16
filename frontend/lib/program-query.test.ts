@@ -60,6 +60,16 @@ describe("parseProgramQuery", () => {
       expect(() => parseProgramQuery(raw)).toThrow();
     },
   );
+  it.each([
+    ["status", "状態"],
+    ["fileType", "ファイル形式"],
+    ["sort", "並び順"],
+    ["direction", "並び方向"],
+    ["minDrops", "ドロップ数（下限）"],
+    ["limit", "1ページの件数"],
+  ])("names the invalid %s field in the error", (key, label) => {
+    expect(() => parseProgramQuery({ [key]: "wrong" })).toThrow(label);
+  });
   it("supports leap days and compares subsecond local bounds without timezone conversion", () => {
     expect(
       parseProgramQuery({

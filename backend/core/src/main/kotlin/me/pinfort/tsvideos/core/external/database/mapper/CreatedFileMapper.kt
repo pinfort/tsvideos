@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
 import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
+import me.pinfort.tsvideos.core.external.database.dto.ExecutedCreatedFileDto
 import org.apache.ibatis.annotations.Delete
 import org.apache.ibatis.annotations.Insert
 import org.apache.ibatis.annotations.Mapper
@@ -81,6 +82,27 @@ interface CreatedFileMapper {
         """,
     )
     fun selectByExecutedFileId(executedFileId: Long): List<CreatedFileDto>
+
+    @Select(
+        """
+            SELECT
+                splitted_file.executed_file_id,
+                created_file.id,
+                created_file.splitted_file_id,
+                created_file.file,
+                created_file.size,
+                created_file.mime,
+                created_file.encoding,
+                created_file.status
+            FROM
+                created_file
+            INNER JOIN splitted_file
+            ON created_file.splitted_file_id = splitted_file.id
+            ORDER BY
+                created_file.id
+        """,
+    )
+    fun selectAllWithExecutedFileId(): List<ExecutedCreatedFileDto>
 
     @Update(
         """
