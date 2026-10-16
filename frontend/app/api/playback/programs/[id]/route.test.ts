@@ -43,6 +43,8 @@ describe("playback metadata route", () => {
         channelName: "BS1",
         duration: 60,
         createdFiles: [],
+        tags: [],
+        checks: [],
       },
       videoFiles: [
         {
