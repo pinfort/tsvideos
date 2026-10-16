@@ -24,16 +24,13 @@ class StorageOverviewCommand(
             references.groupBy { it.programId }.mapValues { (id, rows) ->
                 StorageRecording(id, rows.first().programName, rows.distinctBy { it.fileId }.sumOf { registeredSize(it.size) })
             }
+
         // detect() reads programs inner-joined to executed_file, a subset of the LEFT JOIN rows in references(),
         // and both run in the same snapshot, so every grouped program has an entry.
-        val groups = duplicates.detect()
+        fun recording(id: Long) = recordings[id] ?: error("duplicate program $id has no storage references in the same snapshot")
         val candidates =
-            groups.map { group ->
-                StorageDuplicateCandidate(
-                    group.reason,
-                    recordings.getValue(group.recommended.id),
-                    group.others.map { recordings.getValue(it.id) },
-                )
+            duplicates.detect().map { group ->
+                StorageDuplicateCandidate(group.reason, recording(group.recommended.id), group.others.map { recording(it.id) })
             }
         // Duplicate groups are a partition (union-find), so no program is retained in one group and removable in another.
         val removalIds = candidates.flatMap { it.removable }.map { it.id }.toSet()
@@ -51,7 +48,7 @@ class StorageOverviewCommand(
         }
         return StorageOverview(
             totals,
-            recordings.values.sortedWith(compareByDescending<StorageRecording> { it.registeredBytes }.thenBy { it.id }).take(20),
+            recordings.values.sortedWith(compareByDescending<StorageRecording> { it.registeredBytes }.thenBy { it.id }).take(LARGEST_LIMIT),
             candidates,
             bytes,
             excluded,
@@ -59,6 +56,8 @@ class StorageOverviewCommand(
     }
 
     internal companion object {
+        const val LARGEST_LIMIT = 20
+
         // Missing or negative registered sizes count as zero everywhere.
         private fun registeredSize(size: Long?): Long = (size ?: 0).coerceAtLeast(0)
 

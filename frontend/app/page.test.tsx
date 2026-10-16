@@ -40,6 +40,14 @@ describe("HomePage", () => {
     expect(screen.getByText(">>")).not.toHaveAttribute("href");
   });
 
+  it("links to the storage overview", async () => {
+    getPrograms.mockResolvedValue({ programs: [] });
+
+    render(await HomePage({ searchParams: Promise.resolve({}) }));
+
+    expect(screen.getByRole("link", { name: "ストレージ概要" })).toHaveAttribute("href", "/storage");
+  });
+
   it("clamps an out-of-range limit to the backend's max of 100", async () => {
     getPrograms.mockResolvedValue({ programs: [] });
 
