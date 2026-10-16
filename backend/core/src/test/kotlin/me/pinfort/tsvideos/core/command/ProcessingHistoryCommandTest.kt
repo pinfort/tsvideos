@@ -7,6 +7,7 @@ import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
+import me.pinfort.tsvideos.core.domain.ProcessingArtifactType
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.core.domain.ProcessingErrorCode
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
@@ -88,7 +89,9 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
             val job = job()
             val attempt = command.begin(job, ProcessingAttemptKind.PROCESS)
             val before = Instant.now().minusSeconds(5)
-            command.stage(attempt.id, ProcessingStage.UPLOAD_ORIGINAL, { ProcessingArtifact("UPLOAD_MANIFEST", it, "base/artifact.gz") }) {
+            command.stage(attempt.id, ProcessingStage.UPLOAD_ORIGINAL, {
+                ProcessingArtifact(ProcessingArtifactType.UPLOAD_MANIFEST, it, "base/artifact.gz")
+            }) {
                 TransactionSynchronizationManager.isActualTransactionActive() shouldBe false
                 123L
             } shouldBe 123L
@@ -136,6 +139,28 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
                 .stages
                 .single()
                 .outcome shouldBe ProcessingOutcome.INTERRUPTED
+        }
+        expect("a failure on an interrupted thread is still closed and the interrupt is restored") {
+            val command = command()
+            val job = job()
+            val attempt = command.begin(job, ProcessingAttemptKind.PROCESS)
+            try {
+                val failure =
+                    shouldThrow<IllegalStateException> {
+                        command.stage(attempt.id, ProcessingStage.UPLOAD_ORIGINAL) {
+                            Thread.currentThread().interrupt()
+                            error("upload aborted")
+                        }
+                    }
+                failure.suppressed.size shouldBe 0
+                command.failed(attempt.id, failure)
+                Thread.currentThread().isInterrupted shouldBe true
+            } finally {
+                Thread.interrupted()
+            }
+            val history = command.history(job.id).single()
+            history.attempt.outcome shouldBe ProcessingOutcome.INTERRUPTED
+            history.stages.single().outcome shouldBe ProcessingOutcome.INTERRUPTED
         }
         expect("heartbeats update activity without changing recording identity or inferring owner death") {
             val command = command()

@@ -15,6 +15,7 @@ import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.core.domain.FileName
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
+import me.pinfort.tsvideos.core.domain.ProcessingArtifactType
 import me.pinfort.tsvideos.core.domain.ProcessingAttempt
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
@@ -120,7 +121,7 @@ class FileProcessingPipeline(
                 history.stage(
                     attempt.id,
                     ProcessingStage.INSPECT,
-                    { ProcessingArtifact("INPUT", job.id, identity.path) },
+                    { ProcessingArtifact(ProcessingArtifactType.INPUT, job.id, identity.path) },
                 ) {
                     val inspected =
                         inspect(
@@ -142,7 +143,11 @@ class FileProcessingPipeline(
                 }
             var splitInvoked = false
             val mainSplittedFile =
-                history.stage(attempt.id, ProcessingStage.SPLIT, { ProcessingArtifact("SPLITTED_FILE", it.id, it.file) }) {
+                history.stage(
+                    attempt.id,
+                    ProcessingStage.SPLIT,
+                    { ProcessingArtifact(ProcessingArtifactType.SPLITTED_FILE, it.id, it.file) },
+                ) {
                     runner.stage({ if (splitInvoked) rollbackTsSplit(executedFile) }) {
                         tsSplit(executedFile) { splitInvoked = true }
                     }
@@ -228,6 +233,8 @@ class FileProcessingPipeline(
         if (!file.isFile) {
             throw TsVideosException("file not found or not a regular file, file=$file")
         }
+        // Not redundant with the pre-claim check in processFile: dry-run relies on it, and it catches a
+        // registration that raced in after the claim.
         programCommand.findByName(file.name)?.let {
             logger.info("Program already registered, skip processing, file=$file, program=$it")
             return null
@@ -398,7 +405,7 @@ class FileProcessingPipeline(
             history.stage(
                 attemptId,
                 ProcessingStage.UPLOAD_ORIGINAL,
-                { ProcessingArtifact("UPLOAD_MANIFEST", it.manifestId, targetFile) },
+                { ProcessingArtifact(ProcessingArtifactType.UPLOAD_MANIFEST, it.manifestId, targetFile) },
             ) {
                 val uploaded =
                     verifiedUploadCommand.upload(

@@ -10,6 +10,7 @@ import me.pinfort.tsvideos.core.component.MimeTypeComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
+import me.pinfort.tsvideos.core.domain.ProcessingArtifactType
 import me.pinfort.tsvideos.core.domain.ProcessingAttempt
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.core.domain.ProcessingErrorCode
@@ -130,7 +131,7 @@ class AfterEncodeRunner(
                     history.stage(
                         active.id,
                         ProcessingStage.UPLOAD_ENCODED,
-                        { ProcessingArtifact("UPLOAD_MANIFEST", it.manifestId, target) },
+                        { ProcessingArtifact(ProcessingArtifactType.UPLOAD_MANIFEST, it.manifestId, target) },
                     ) {
                         val uploaded =
                             verifiedUploadCommand.upload(
@@ -149,7 +150,7 @@ class AfterEncodeRunner(
             if (attempt == null) {
                 finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
             } else {
-                history.stage(attempt.id, ProcessingStage.FINALIZE, { ProcessingArtifact("PROGRAM", it, null) }) {
+                history.stage(attempt.id, ProcessingStage.FINALIZE, { ProcessingArtifact(ProcessingArtifactType.PROGRAM, it, null) }) {
                     finishProcess(splittedFile.executedFileId, input.inPath, dryRun).also { completed = true }
                 }
                 history.finish(attempt.id, ProcessingOutcome.COMPLETED)

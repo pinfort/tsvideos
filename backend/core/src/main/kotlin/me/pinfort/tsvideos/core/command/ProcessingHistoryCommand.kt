@@ -84,11 +84,10 @@ class ProcessingHistoryCommand(
     ) {
         require(outcome != ProcessingOutcome.ACTIVE)
         require((outcome == ProcessingOutcome.COMPLETED) == (error == null))
-        require(artifact == null || artifact.type in setOf("INPUT", "SPLITTED_FILE", "UPLOAD_MANIFEST", "PROGRAM"))
         transaction.execute {
             val stage = checkNotNull(mapper.stage(stageId)) { "Stage does not exist" }
             check(mapper.lockAttempt(stage.attemptId)?.outcome == ProcessingOutcome.ACTIVE) { "Attempt is not active" }
-            check(mapper.finishStage(stageId, outcome.name, error?.name, artifact?.type, artifact?.id, artifact?.path) == 1) {
+            check(mapper.finishStage(stageId, outcome.name, error?.name, artifact?.type?.name, artifact?.id, artifact?.path) == 1) {
                 "Stage was already finished"
             }
             check(mapper.heartbeat(stage.attemptId) == 1)
@@ -150,9 +149,9 @@ class ProcessingHistoryCommand(
             try {
                 operation()
             } catch (failure: Exception) {
+                val code = classify(failure)
                 try {
-                    val code = classify(failure)
-                    finishStage(event, outcome(code), code)
+                    withInterruptCleared { finishStage(event, outcome(code), code) }
                 } catch (historyFailure: Exception) {
                     failure.addSuppressed(historyFailure)
                 }
@@ -168,7 +167,7 @@ class ProcessingHistoryCommand(
         failure: Exception,
     ) {
         val code = classify(failure)
-        finish(attemptId, outcome(code), code)
+        withInterruptCleared { finish(attemptId, outcome(code), code) }
     }
 
     fun history(jobId: Long? = null): List<ProcessingAttemptHistory> =
@@ -204,6 +203,19 @@ class ProcessingHistoryCommand(
                 }
             },
         )
+
+    /**
+     * An interrupted thread can make the JDBC write itself fail, which would leave the stage/attempt ACTIVE forever.
+     * Clear the flag for the closing write only and restore it so the caller still observes the interruption.
+     */
+    private fun <T> withInterruptCleared(write: () -> T): T {
+        val interrupted = Thread.interrupted()
+        try {
+            return write()
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt()
+        }
+    }
 
     private fun outcome(code: ProcessingErrorCode) =
         if (code == ProcessingErrorCode.INTERRUPTED) ProcessingOutcome.INTERRUPTED else ProcessingOutcome.FAILED
