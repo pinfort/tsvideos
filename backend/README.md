@@ -106,3 +106,8 @@ Processor deployment and recovery: [processing identity and reconciliation](docs
 ### DDL の管理
 
 スキーマの単一の情報源は `core/src/main/resources/db/migrations/` の番号付き SQL ファイルです（ファイル名順に適用、すべて `IF NOT EXISTS` で再実行可能）。テスト用の初期化 SQL（Testcontainers の `ddl/01_create_database.sql`）は Gradle の `core:generateTestDdl` がこれらを連結して生成し、`docker-compose.test.yml` も同じファイルをマウントします。スキーマを変更するときは新しい番号のファイルを追加し、`docker-compose.test.yml` のマウントに 1 行足してください。
+
+## Manager CLI structured output
+
+See [manager/console/README.md](manager/console/README.md) for JSON fields,
+ID-only output, stdout/stderr separation, and exit codes.

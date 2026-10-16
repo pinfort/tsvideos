@@ -1,7 +1,9 @@
 package me.pinfort.tsvideos.manager.console.commands
 
 import com.github.ajalt.clikt.core.main
+import com.github.ajalt.clikt.testing.test
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.shouldBe
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -70,7 +72,7 @@ class GetTest :
                 expect("notFound") {
                     every { programCommand.findDetail(1) } returns null
 
-                    get.main(arrayOf("program", "1"))
+                    get.test("program 1").statusCode shouldBe 3
                 }
             }
 
@@ -84,7 +86,7 @@ class GetTest :
                 expect("notFound") {
                     every { executedFileCommand.find(1) } returns null
 
-                    get.main(arrayOf("executed_file", "1"))
+                    get.test("executed_file 1").statusCode shouldBe 3
                 }
             }
         }
