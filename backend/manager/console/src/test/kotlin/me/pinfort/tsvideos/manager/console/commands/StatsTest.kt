@@ -80,7 +80,11 @@ class StatsTest :
         expect("date-only bounds mean start of day") {
             val command = mockk<LibraryStatsCommand>()
             every { command.summarize(any()) } returns LibraryStats(empty, emptyList())
-            Stats(command).invoke("--recorded-from 2026-01-01 --recorded-to 2026-02-01").statusCode shouldBe 0
+            val result = Stats(command).invoke("--recorded-from 2026-01-01 --recorded-to 2026-02-01 --json")
+            result.statusCode shouldBe 0
+            val stats = JsonMapper.builder().build().readTree(result.stdout)["stats"]
+            stats["recordedFrom"].asString() shouldBe "2026-01-01T00:00:00"
+            stats["recordedTo"].asString() shouldBe "2026-02-01T00:00:00"
             verify {
                 command.summarize(
                     LibraryStatsQuery(null, LocalDateTime.parse("2026-01-01T00:00:00"), LocalDateTime.parse("2026-02-01T00:00:00")),
@@ -117,6 +121,8 @@ class StatsTest :
                 "--group-by bad",
                 "--recorded-from bad",
                 "--recorded-from 2026-01-01T00:00:00Z",
+                "--recorded-from 2026-13-01",
+                "--recorded-to 2026-01-01t00:00",
                 "--recorded-from 2026-02-01T00:00 --recorded-to 2026-01-01T00:00",
                 "--ids-only",
                 "--json --ids-only",

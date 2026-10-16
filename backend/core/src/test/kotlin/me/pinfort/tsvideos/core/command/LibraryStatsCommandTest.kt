@@ -5,6 +5,7 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
 import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
+import me.pinfort.tsvideos.core.domain.LibraryStatsQuery.Group
 import me.pinfort.tsvideos.core.external.database.mapper.LibraryStatsMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
@@ -51,6 +52,7 @@ class LibraryStatsCommandTest : ExpectSpec() {
     }
 
     init {
+        afterTest { afterPrograms = {} }
         beforeTest {
             afterPrograms = {}
             execute(listOf("created_file", "splitted_file", "program", "executed_file").map { "DELETE FROM $it" })
@@ -118,6 +120,8 @@ class LibraryStatsCommandTest : ExpectSpec() {
             result.totals.programCount shouldBe 2L
             result.totals.registeredBytes shouldBe 150L
             command.summarize(LibraryStatsQuery(recordedFrom = end)).totals.programCount shouldBe 1L
+            // The orphan program (no executed_file) has no recording time, so any bound excludes it.
+            command.summarize(LibraryStatsQuery(Group.CHANNEL, recordedTo = end)).groups.map { it.key } shouldBe listOf("日本語")
             command.summarize(LibraryStatsQuery(recordedTo = end)).totals.let {
                 it.programCount shouldBe 2L
                 it.registeredBytes shouldBe 150L

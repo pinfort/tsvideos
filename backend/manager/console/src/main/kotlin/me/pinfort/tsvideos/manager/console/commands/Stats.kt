@@ -10,6 +10,7 @@ import me.pinfort.tsvideos.core.domain.LibraryStatsTotals
 import org.springframework.stereotype.Component
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
 
@@ -43,6 +44,7 @@ class Stats(
         if (idsOnly) throw UsageError("stats does not support --ids-only")
         val from = recordedFrom
         val to = recordedTo
+        // LibraryStatsQuery also requires this; checking here first gives a usage error (exit 2) with the option names.
         if (from != null && to != null && from >= to) throw UsageError("--recorded-from must precede --recorded-to")
         val query = LibraryStatsQuery(groupBy, from, to)
         val stats = command.summarize(query)
@@ -51,8 +53,8 @@ class Stats(
                 "stats",
                 linkedMapOf(
                     "groupBy" to groupBy?.name,
-                    "recordedFrom" to recordedFrom?.toString(),
-                    "recordedTo" to recordedTo?.toString(),
+                    "recordedFrom" to recordedFrom?.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                    "recordedTo" to recordedTo?.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
                     "totals" to stats.totals,
                     "groups" to stats.groups,
                 ),
