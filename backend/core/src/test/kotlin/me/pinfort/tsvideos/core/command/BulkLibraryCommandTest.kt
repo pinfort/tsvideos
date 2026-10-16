@@ -20,6 +20,7 @@ import me.pinfort.tsvideos.core.external.database.mapper.BulkLibraryMapper
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ExecutedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.SplittedFileMapper
+import org.slf4j.Logger
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
 import java.time.LocalDateTime
@@ -32,7 +33,9 @@ class BulkLibraryCommandTest :
         val created = mockk<CreatedFileMapper>()
         val mapper = mockk<BulkLibraryMapper>(relaxed = true)
         val tx = mockk<PlatformTransactionManager>(relaxed = true)
-        val command =
+        val logger = mockk<Logger>(relaxed = true)
+
+        fun command(normalize: NormalizeComponent = NormalizeComponent()) =
             BulkLibraryCommand(
                 programs,
                 executed,
@@ -40,9 +43,11 @@ class BulkLibraryCommandTest :
                 created,
                 mapper,
                 DirectoryNameComponent(NormalizeComponent()),
-                NormalizeComponent(),
+                normalize,
                 tx,
+                logger,
             )
+        val command = command()
         val program =
             Program(1, "first", 10, Program.Status.COMPLETED, 0, 12, LocalDateTime.of(2026, 1, 1, 0, 0), "1", "title", "channel", 12.0)
         val source =
@@ -62,7 +67,7 @@ class BulkLibraryCommandTest :
         val file = CreatedFileDto(30, 20, "base/a/alpha/video.mp4", 12, "video/mp4", null, CreatedFileDto.Status.FILE_MOVED)
         val request = BulkRequest(listOf(1), BulkAction.DELETE)
         beforeTest {
-            io.mockk.clearMocks(programs, executed, splits, created, mapper, tx)
+            io.mockk.clearMocks(programs, executed, splits, created, mapper, tx, logger)
             every { tx.getTransaction(any()) } returns SimpleTransactionStatus()
             every { programs.find(any()) } returns program
             every { executed.find(10) } returns source
@@ -71,6 +76,9 @@ class BulkLibraryCommandTest :
             every { mapper.references(10) } returns listOf(1)
             every { mapper.allFiles() } returns listOf(file)
             every { mapper.lockFiles() } answers { mapper.allFiles() }
+            every { mapper.createdFilesOfPrograms(any()) } answers {
+                firstArg<List<Long>>().filter { programs.find(it) != null }.flatMap { created.selectByExecutedFileId(10) }
+            }
             every { mapper.lockProgram(any()) } answers { firstArg() }
         }
         expect("preview is read only and includes all records and original preservation") {
@@ -233,6 +241,37 @@ class BulkLibraryCommandTest :
                 .message
                 .contains("secret") shouldBe false
             verify(exactly = 1) { programs.delete(program.copy(id = 2), false) }
+            verify(exactly = 1) { logger.error(match { it.contains("programId=1") }, any<IllegalStateException>()) }
+        }
+        expect("a program that disappears between lock and lookup is NOT_FOUND rather than FAILED") {
+            val plan = command.preview(request)
+            every { programs.find(1) } returns null
+            command
+                .apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+                .outcomes
+                .single()
+                .status shouldBe
+                BulkOutcomeStatus.NOT_FOUND
+        }
+        expect("directory labels are re-checked after normalization") {
+            val normalize = mockk<NormalizeComponent>()
+            for (normalized in listOf("a/b", "a\\b", "a#b", "a%b", "a:b", "x.", ".")) {
+                every { normalize.normalize(any<String>()) } returns normalized
+                shouldThrow<IllegalArgumentException> {
+                    command(normalize).preview(BulkRequest(listOf(1), BulkAction.MOVE, "valid"))
+                }
+            }
+        }
+        expect("a 100-target move preview issues a linear number of queries") {
+            val ids = (1L..100L).toList()
+            every { programs.find(any()) } answers { program.copy(id = firstArg()) }
+            every { mapper.createdFilesOfPrograms(ids) } returns ids.map { file }
+            command.preview(BulkRequest(ids, BulkAction.MOVE, "beta")).targets.size shouldBe 100
+            verify(exactly = 1) {
+                mapper.allFiles()
+                mapper.createdFilesOfPrograms(ids)
+            }
+            verify(exactly = 100) { created.selectByExecutedFileId(10) }
         }
         expect("missing target is a per-target result") {
             val plan = command.preview(request)
