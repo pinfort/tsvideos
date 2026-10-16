@@ -45,6 +45,11 @@ class LocalPreflightProbeTest :
                 }
             probe.check("127.0.0.1", port) shouldBe false
         }
+        expect("unresolvable host fails within the caller deadline") {
+            val started = System.nanoTime()
+            EncoderConnectivityProbe().check("tsvideos-preflight.invalid", 1) shouldBe false
+            (System.nanoTime() - started < 5_000_000_000L) shouldBe true
+        }
         expect("already interrupted TCP does not launch work") {
             try {
                 Thread.currentThread().interrupt()

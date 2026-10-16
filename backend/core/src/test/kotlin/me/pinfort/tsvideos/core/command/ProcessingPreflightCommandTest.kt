@@ -89,9 +89,33 @@ class ProcessingPreflightCommandTest :
             env.withProperty("processor-tool.amatsukaze.port", "bad-secret")
             env.withProperty("processor-preflight.space-multiplier", "NaN")
             val report = command.diagnose(listOf(one))
-            report.checks.count { it.status == DiagnosticStatus.FAIL } shouldBe 7
+            report.checks
+                .filter { it.status == DiagnosticStatus.FAIL }
+                .map { it.id }
+                .toSet() shouldBe
+                setOf(
+                    "input.0.0",
+                    "tool.ts-splitter-path",
+                    "tool.amatsukaze-add-task-path",
+                    "tool.ffprobe-path",
+                    "config.encoder.host",
+                    "config.encoder.port",
+                    "config.space-multiplier",
+                )
             report.toString().contains("secret") shouldBe false
             verify(exactly = 0) { tcp.check(any(), any()) }
+        }
+        expect("LAN hostnames with underscores and bracketed IPv6 literals are accepted") {
+            listOf("win_pc", "my-encoder.local", "192.168.0.10", "[::1]", "[fe80::1%eth0]").forEach { host ->
+                env.withProperty("processor-tool.amatsukaze.host", host)
+                val report = command.diagnose(listOf(one))
+                report.checks.single { it.id == "config.encoder.host" }.status shouldBe DiagnosticStatus.PASS
+            }
+            listOf("host:80", "host/path", "-host", "a b").forEach { host ->
+                env.withProperty("processor-tool.amatsukaze.host", host)
+                val report = command.diagnose(listOf(one))
+                report.checks.single { it.id == "config.encoder.host" }.status shouldBe DiagnosticStatus.FAIL
+            }
         }
         expect("unbracketed IPv6 encoder host is rejected without connecting") {
             env.withProperty("processor-tool.amatsukaze.host", "::1")

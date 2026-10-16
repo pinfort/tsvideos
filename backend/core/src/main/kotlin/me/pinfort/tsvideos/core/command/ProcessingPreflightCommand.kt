@@ -10,7 +10,6 @@ import org.springframework.core.env.Environment
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 import java.math.RoundingMode
-import java.net.URI
 import java.nio.file.Path
 
 @Component
@@ -125,7 +124,7 @@ class ProcessingPreflightCommand(
         }
         val host = setting("processor-tool.amatsukaze.host")
         val port = setting("processor-tool.amatsukaze.port")?.toIntOrNull()
-        val validHost = !host.isNullOrBlank() && safe { isBareHost(host) }
+        val validHost = !host.isNullOrBlank() && isBareHost(host)
         checks.add(
             "config.encoder.host",
             if (validHost) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
@@ -155,15 +154,11 @@ class ProcessingPreflightCommand(
 
     private fun isPlainSetting(value: String?): Boolean = !value.isNullOrBlank() && value.none(Char::isISOControl)
 
-    private fun isBareHost(host: String): Boolean {
-        val uri = URI("tcp://$host")
-        return !uri.host.isNullOrBlank() &&
-            uri.userInfo == null &&
-            uri.port == -1 &&
-            uri.path.isEmpty() &&
-            uri.query == null &&
-            uri.fragment == null
-    }
+    /**
+     * A DNS name/IPv4 literal or a bracketed IPv6 literal, with no credentials, port or path. Not URI-based:
+     * `URI` treats LAN names with underscores (`win_pc`) as registry authorities and reports no host.
+     */
+    private fun isBareHost(host: String): Boolean = BARE_HOST.matches(host) || BRACKETED_IPV6.matches(host)
 
     private fun checkSpace(
         inputs: List<LocalPreflightProbe.Input>,
@@ -231,4 +226,9 @@ class ProcessingPreflightCommand(
             diagnosticCancellation(error)
             false
         }
+
+    private companion object {
+        val BARE_HOST = Regex("[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
+        val BRACKETED_IPV6 = Regex("""\[[0-9A-Fa-f:.]+(?:%[A-Za-z0-9._-]+)?]""")
+    }
 }
