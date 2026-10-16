@@ -3,7 +3,7 @@ import { getPlaybackProgramDetail } from "./playback";
 afterEach(() => vi.unstubAllGlobals());
 describe("playback metadata client", () => {
   it("uses the same-origin metadata endpoint", async () => {
-    const detail = { program: { id: 1 }, videoFiles: [] };
+    const detail = { videoFiles: [] };
     const fetch = vi
       .fn()
       .mockResolvedValue({ ok: true, status: 200, json: async () => detail });

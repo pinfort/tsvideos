@@ -28,7 +28,7 @@ describe("playback metadata route", () => {
     expect(response.status).toBe(502);
     expect(await response.text()).not.toContain("secret");
   });
-  it("returns the existing metadata response", async () => {
+  it("returns only the file fields needed for availability", async () => {
     const detail = {
       program: {
         id: 1,
@@ -44,7 +44,19 @@ describe("playback metadata route", () => {
         duration: 60,
         createdFiles: [],
       },
-      videoFiles: [],
+      videoFiles: [
+        {
+          id: 3,
+          splittedFileId: 2,
+          file: "secret/path/video.mp4",
+          size: 100,
+          mime: null,
+          encoding: null,
+          status: "FILE_MOVED" as const,
+          mp4: true,
+          ts: false,
+        },
+      ],
     };
     vi.mocked(getProgramDetail).mockResolvedValue(
       detail as Awaited<ReturnType<typeof getProgramDetail>>,
@@ -52,7 +64,9 @@ describe("playback metadata route", () => {
     const response = await GET(request, {
       params: Promise.resolve({ id: "1" }),
     });
-    expect(await response.json()).toEqual(detail);
+    expect(await response.json()).toEqual({
+      videoFiles: [{ id: 3, mp4: true, status: "FILE_MOVED" }],
+    });
     expect(getProgramDetail).toHaveBeenCalledWith(1);
   });
 });

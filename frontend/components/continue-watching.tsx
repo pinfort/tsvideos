@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { getPlaybackProgramDetail } from "@/lib/api/playback";
-import type { ProgramDetailResponse } from "@/lib/api/types";
+import type { PlaybackMetadataResponse } from "@/lib/api/types";
 import {
   hasPlayableFile,
   PLAYBACK_EVENT,
@@ -16,13 +16,19 @@ import {
 
 type Check = "missing" | "unknown" | "available";
 
+// Sub-minute values show seconds so a short position doesn't read as "0分".
+function formatMinutes(seconds: number, round: (n: number) => number) {
+  return seconds < 60 ? `${round(seconds)}秒` : `${round(seconds / 60)}分`;
+}
+
 export function ContinueWatching() {
   const [entries, setEntries] = useState<PlaybackEntry[]>([]);
   // Metadata per programId: null = confirmed 404, "failed" = check unavailable.
   const [details, setDetails] = useState<
-    Record<number, ProgramDetailResponse | null | "failed">
+    Record<number, PlaybackMetadataResponse | null | "failed">
   >({});
   // Each program is checked once per page load, not on every history change.
+  // A failed check (e.g. transient 502) stays "unknown" until the page reloads.
   const requested = useRef(new Set<number>());
 
   useEffect(() => {
@@ -78,8 +84,8 @@ export function ContinueWatching() {
               </Link>
             )}
             <span>
-              {Math.floor(entry.position / 60)}分 /{" "}
-              {Math.ceil(entry.duration / 60)}分
+              {formatMinutes(entry.position, Math.floor)} /{" "}
+              {formatMinutes(entry.duration, Math.ceil)}
             </span>
             {check(entry) === "unknown" && (
               <span className="text-sm">利用可否未確認</span>

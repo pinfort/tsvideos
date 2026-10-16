@@ -41,3 +41,8 @@ export interface ProgramDetailResponse {
   program: ProgramDetail;
   videoFiles: CreatedFile[];
 }
+
+/** The subset of program detail the same-origin playback route exposes. */
+export interface PlaybackMetadataResponse {
+  videoFiles: Pick<CreatedFile, "id" | "mp4" | "status">[];
+}

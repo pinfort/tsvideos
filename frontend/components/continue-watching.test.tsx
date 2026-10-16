@@ -53,6 +53,11 @@ describe("ContinueWatching", () => {
     await waitFor(() => expect(readPlayback()).toHaveLength(1));
     expect(getPlaybackProgramDetail).toHaveBeenCalledTimes(1);
   });
+  it("shows seconds for sub-minute positions", async () => {
+    savePlayback({ ...entry, programId: undefined, position: 45 });
+    render(<ContinueWatching />);
+    expect(await screen.findByText("45秒 / 4分")).toBeInTheDocument();
+  });
   it("supports direct links and cross-tab deletion", async () => {
     savePlayback({ ...entry, programId: undefined });
     render(<ContinueWatching />);

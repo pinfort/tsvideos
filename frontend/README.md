@@ -43,4 +43,6 @@ The responsive player supports 0.5–2× speed and a restart button. Position is
 
 A video is complete at 95% or within its final 10 seconds; completed and restarted entries are removed. Saved positions beyond a newly shortened duration restart at zero. The home page offers continue-watching links, checks known program/file metadata, distinguishes deleted files from unavailable checks, and allows history removal. Direct video links without program metadata remain usable and are labeled unchecked. Media bytes still stream directly from the configured backend URL.
 
-Continue-watching metadata checks use a same-origin Next.js route to avoid requiring cross-origin browser API access. Only program/file JSON is proxied; media streaming remains direct. API failures remain unchecked, while confirmed HTTP 404 means removed.
+Continue-watching metadata checks use a same-origin Next.js route to avoid requiring cross-origin browser API access. Only program/file JSON is proxied; media streaming remains direct. API failures remain unchecked, while confirmed HTTP 404 means removed. The route (`/api/playback/programs/[id]`) returns only each video file's `id`, `mp4` and `status`, is unauthenticated like the backend it proxies, and each program is checked once per page load (a failed check is retried only after reload).
+
+History writes are read-modify-write on one localStorage key without locking, so two tabs saving different videos at the same instant can drop one update.

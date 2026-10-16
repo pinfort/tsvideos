@@ -1,8 +1,15 @@
-import { type ProgramDetailResponse } from "./api/types";
+import { type PlaybackMetadataResponse } from "./api/types";
 
 export const PLAYBACK_KEY = "tsvideos.playback.v1";
 export const PLAYBACK_EVENT = "tsvideos-playback-change";
 const MAX_TITLE_LENGTH = 300;
+const MAX_ENTRIES = 50;
+/** A video counts as finished at this fraction of its duration... */
+const COMPLETED_RATIO = 0.95;
+/** ...or within this many seconds of the end. */
+const COMPLETED_TAIL_SECONDS = 10;
+/** Minimum interval between progress saves during playback. */
+export const SAVE_INTERVAL_MS = 5000;
 
 export interface PlaybackEntry {
   videoId: number;
@@ -32,10 +39,16 @@ export function playbackTitle(raw: unknown, videoId: number): string {
 
 export function completed(position: number, duration: number): boolean {
   return (
-    duration > 0 && (position >= duration * 0.95 || duration - position <= 10)
+    duration > 0 &&
+    (position >= duration * COMPLETED_RATIO ||
+      duration - position <= COMPLETED_TAIL_SECONDS)
   );
 }
 
+/**
+ * Invalid or completed entries are only filtered out here; they stay in
+ * storage until the next write, which persists the filtered list.
+ */
 export function readPlayback(): PlaybackEntry[] {
   try {
     const parsed: unknown = JSON.parse(
@@ -62,20 +75,24 @@ export function readPlayback(): PlaybackEntry[] {
         );
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
+    // Keep only the newest entry per video.
+    const seen = new Set<number>();
     return entries
-      .filter(
-        (e, i) =>
-          entries.findIndex((other) => other.videoId === e.videoId) === i,
-      )
-      .slice(0, 50);
+      .filter((e) => !seen.has(e.videoId) && !!seen.add(e.videoId))
+      .slice(0, MAX_ENTRIES);
   } catch {
     return [];
   }
 }
 
+// Writes are read-modify-write without locking: two tabs saving different
+// videos at the same moment can drop one update. Acceptable for resume points.
 function writePlayback(entries: PlaybackEntry[]): void {
   try {
-    localStorage.setItem(PLAYBACK_KEY, JSON.stringify(entries.slice(0, 50)));
+    localStorage.setItem(
+      PLAYBACK_KEY,
+      JSON.stringify(entries.slice(0, MAX_ENTRIES)),
+    );
     window.dispatchEvent(new Event(PLAYBACK_EVENT));
   } catch {
     /* Playback remains usable when browser storage is unavailable. */
@@ -115,7 +132,7 @@ export function playbackHref(entry: PlaybackEntry): string {
 
 /** The stream endpoint only serves files that have been moved to the video store. */
 export function hasPlayableFile(
-  detail: ProgramDetailResponse | null,
+  detail: PlaybackMetadataResponse | null,
   videoId: number,
 ): boolean {
   return !!detail?.videoFiles.some(

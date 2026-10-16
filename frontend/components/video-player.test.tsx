@@ -96,6 +96,21 @@ describe("VideoPlayer", () => {
     const second = render(<VideoPlayer videoId={1} title="番組" />);
     expect(second.container.querySelector("video")!.currentTime).toBe(40);
   });
+  it("does not rewrite history for the restore seek", () => {
+    savePlayback({
+      videoId: 1,
+      title: "番組",
+      position: 40,
+      duration: 200,
+      updatedAt: 1,
+    });
+    const video = setup();
+    fireEvent.seeked(video);
+    expect(readPlayback()[0].updatedAt).toBe(1);
+    video.currentTime = 80;
+    fireEvent.seeked(video);
+    expect(readPlayback()[0].position).toBe(80);
+  });
   it("saves the current position on unmount", () => {
     const view = render(<VideoPlayer videoId={1} programId={4} title="番組" />);
     const video = view.container.querySelector("video")!;

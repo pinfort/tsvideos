@@ -6,6 +6,7 @@ import {
   completed,
   readPlayback,
   removePlayback,
+  SAVE_INTERVAL_MS,
   savePlayback,
 } from "@/lib/playback";
 
@@ -21,6 +22,9 @@ export function VideoPlayer({
   const video = useRef<HTMLVideoElement>(null);
   const loaded = useRef(false);
   const lastSaved = useRef(0);
+  // Set while restore's own seek is pending so it doesn't count as a user seek
+  // (which would rewrite the entry and reorder history just by opening it).
+  const restoring = useRef(false);
   // Read by restore so a speed change does not re-run the restore effect.
   const speedRef = useRef("1");
   const [unavailable, setUnavailable] = useState(false);
@@ -38,6 +42,7 @@ export function VideoPlayer({
         const position = Math.min(saved.position, player.duration);
         if (completed(position, player.duration)) removePlayback(videoId);
         else {
+          restoring.current = true;
           player.currentTime = position;
           setNotice("前回の続きから再開します。");
         }
@@ -101,10 +106,13 @@ export function VideoPlayer({
         aria-label={title}
         onLoadedMetadata={restore}
         onTimeUpdate={() => {
-          if (Date.now() - lastSaved.current >= 5000) persist();
+          if (Date.now() - lastSaved.current >= SAVE_INTERVAL_MS) persist();
         }}
         onPause={persist}
-        onSeeked={persist}
+        onSeeked={() => {
+          if (restoring.current) restoring.current = false;
+          else persist();
+        }}
         onEnded={() => {
           removePlayback(videoId);
           setNotice("視聴を完了しました。");
