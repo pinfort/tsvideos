@@ -68,7 +68,11 @@ class LibraryStatsCommandTest : ExpectSpec() {
                         TransactionSynchronizationManager.isCurrentTransactionReadOnly(),
                         TransactionSynchronizationManager.getCurrentTransactionIsolationLevel(),
                     )
-                execute(listOf("INSERT INTO created_file VALUES (6,1,'late',1000,'video/mp4',NULL,'REGISTERED')"))
+                execute(
+                    listOf(
+                        "INSERT INTO created_file (id, splitted_file_id, file, size, mime, encoding, status) VALUES (6,1,'late',1000,'video/mp4',NULL,'REGISTERED')",
+                    ),
+                )
             }
             val totals = command.summarize().totals
             observed shouldBe Triple(true, true, Isolation.REPEATABLE_READ.value())
@@ -143,10 +147,10 @@ class LibraryStatsCommandTest : ExpectSpec() {
     private fun seed() =
         execute(
             listOf(
-                "INSERT INTO executed_file VALUES (1,'a',7,100,'2026-01-01','日本語','a','a',1,'SPLITTED'),(2,'b',-1,100,'2026-02-01','空','b','b',1,'SPLITTED')",
-                "INSERT INTO program VALUES (1,'a',1,'ERROR'),(2,'b',1,'COMPLETED'),(3,'c',2,'REGISTERED'),(4,'orphan',999,'REGISTERED')",
-                "INSERT INTO splitted_file VALUES (1,1,'split',100,1,'REGISTERED')",
-                "INSERT INTO created_file VALUES (1,1,'a',10,'video/vnd.dlna.mpeg-tts','gzip','FILE_MOVED'),(2,1,'b',20,'video/mp4',NULL,'ENCODE_SUCCESS'),(3,1,'c',30,'video/vnd.dlna.mpeg-tts',NULL,'REGISTERED'),(4,1,'d',40,'text/plain',NULL,'REGISTERED'),(5,1,'e',50,NULL,NULL,'REGISTERED')",
+                "INSERT INTO executed_file (id, file, drops, size, recorded_at, channel, title, channelName, duration, status) VALUES (1,'a',7,100,'2026-01-01','日本語','a','a',1,'SPLITTED'),(2,'b',-1,100,'2026-02-01','空','b','b',1,'SPLITTED')",
+                "INSERT INTO program (id, name, executed_file_id, status) VALUES (1,'a',1,'ERROR'),(2,'b',1,'COMPLETED'),(3,'c',2,'REGISTERED'),(4,'orphan',999,'REGISTERED')",
+                "INSERT INTO splitted_file (id, executed_file_id, file, size, duration, status) VALUES (1,1,'split',100,1,'REGISTERED')",
+                "INSERT INTO created_file (id, splitted_file_id, file, size, mime, encoding, status) VALUES (1,1,'a',10,'video/vnd.dlna.mpeg-tts','gzip','FILE_MOVED'),(2,1,'b',20,'video/mp4',NULL,'ENCODE_SUCCESS'),(3,1,'c',30,'video/vnd.dlna.mpeg-tts',NULL,'REGISTERED'),(4,1,'d',40,'text/plain',NULL,'REGISTERED'),(5,1,'e',50,NULL,NULL,'REGISTERED')",
             ),
         )
 }

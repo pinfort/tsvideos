@@ -39,6 +39,7 @@ class LibraryStatsCommand(
                         }
                     }.entries
                     .sortedWith(compareBy(nullsFirst()) { it.key })
+                    // Every group key is a property of the executed file, so each file falls into exactly one group.
                     .map { (key, members) ->
                         val memberFiles = members.map { it.executedFileId }.distinct().flatMap { filesByExecuted[it].orEmpty() }
                         LibraryStatsGroup(key, totals(members, memberFiles))
