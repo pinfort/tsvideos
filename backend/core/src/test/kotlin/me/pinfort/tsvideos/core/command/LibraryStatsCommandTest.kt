@@ -101,6 +101,9 @@ class LibraryStatsCommandTest : ExpectSpec() {
             val channels = command.summarize(LibraryStatsQuery(LibraryStatsQuery.Group.CHANNEL)).groups
             channels.map { it.key } shouldBe listOf(null, "日本語", "空")
             channels[1].totals.registeredBytes shouldBe 150L
+            channels[1].totals.droppedFrameCount shouldBe 14L
+            channels[2].totals.droppedFrameCount shouldBe 0L
+            channels[2].totals.unknownDropsProgramCount shouldBe 1L
             val months = command.summarize(LibraryStatsQuery(LibraryStatsQuery.Group.MONTH)).groups
             months.map { it.key } shouldBe listOf(null, "2026-01", "2026-02")
             months.map { it.totals.programCount } shouldBe listOf(1L, 2L, 1L)

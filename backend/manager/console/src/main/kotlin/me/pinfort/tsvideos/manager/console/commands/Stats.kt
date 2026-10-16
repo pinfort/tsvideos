@@ -28,22 +28,23 @@ class Stats(
     }
     private val recordedFrom by option(
         "--recorded-from",
-        help = "inclusive local ISO date or date-time (date means start of day)",
+        help = "inclusive strict ISO local date or date-time, e.g. 2026-01-01 or 2026-01-01T00:00:00",
     ).convert {
         date(it)
     }
-    private val recordedTo by option("--recorded-to", help = "exclusive local ISO date or date-time (date means start of day)").convert {
+    private val recordedTo by option(
+        "--recorded-to",
+        help = "exclusive strict ISO local date or date-time; a date means its midnight",
+    ).convert {
         date(it)
     }
 
     override fun read() {
         if (idsOnly) throw UsageError("stats does not support --ids-only")
-        val query =
-            try {
-                LibraryStatsQuery(groupBy, recordedFrom, recordedTo)
-            } catch (_: IllegalArgumentException) {
-                throw UsageError("--recorded-from must precede --recorded-to")
-            }
+        val from = recordedFrom
+        val to = recordedTo
+        if (from != null && to != null && from >= to) throw UsageError("--recorded-from must precede --recorded-to")
+        val query = LibraryStatsQuery(groupBy, from, to)
         val stats = command.summarize(query)
         if (json) {
             outputJson(

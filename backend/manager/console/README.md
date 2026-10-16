@@ -24,6 +24,7 @@ informational text behavior.
 | `get program ID --json` | `program`: program object with `createdFiles`, `tags`, `checks` |
 | `get executed_file ID --json` | `executedFile`: executed-file object |
 | `duplicates --json` | `groups`: array of duplicate group objects |
+| `stats --json` | `stats`: `groupBy`, `recordedFrom`, `recordedTo` (nullable strings), `totals`, `groups` (see [Library statistics](../../README.md#library-statistics)) |
 
 Program fields: `id`, `executedFileId`, `drops`, `size` are integers; `duration`
 is a number in seconds; `name`, `status`, `recordedAt`, `channel`, `title`,
