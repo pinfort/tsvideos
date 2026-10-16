@@ -50,3 +50,37 @@ CREATE TABLE `test`.`program` (
   UNIQUE KEY `name` (`name`) USING HASH,
   KEY `executed_file_id` (`executed_file_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+-- Apply once to an existing installation before deploying issue 64.
+CREATE TABLE IF NOT EXISTS processing_job (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ identity_key CHAR(64) CHARACTER SET ascii NOT NULL UNIQUE,
+ input_path TEXT COLLATE utf8mb4_bin NOT NULL,
+ input_size BIGINT NOT NULL,
+ modified_millis BIGINT NOT NULL,
+ state VARCHAR(40) NOT NULL,
+ executed_file_id BIGINT NULL,
+ callback_claim VARCHAR(36) NULL,
+ callback_manifest CHAR(64) CHARACTER SET ascii NULL,
+ created_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+ updated_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
+ -- At most one job per executed file: retry() clears the link and reset removes the job.
+ KEY executed_file_id (executed_file_id),
+ -- Lookup hint for findByPath only; identity_key is what enforces uniqueness.
+ KEY input_path (input_path(255))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+DROP TABLE IF EXISTS `test`.`executed_file_tag`;
+CREATE TABLE `test`.`executed_file_tag` (
+  `executed_file_id` bigint(20) NOT NULL,
+  `tag` varchar(64) NOT NULL,
+  PRIMARY KEY (`executed_file_id`, `tag`),
+  KEY `tag` (`tag`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+DROP TABLE IF EXISTS `test`.`executed_file_check`;
+CREATE TABLE `test`.`executed_file_check` (
+  `executed_file_id` bigint(20) NOT NULL,
+  `checker` varchar(64) NOT NULL,
+  `checked_at` datetime NOT NULL,
+  PRIMARY KEY (`executed_file_id`, `checker`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
