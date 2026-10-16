@@ -6,28 +6,21 @@ import com.github.ajalt.clikt.core.CliktError
 import me.pinfort.tsvideos.core.command.EnvironmentDiagnosticCommand
 import me.pinfort.tsvideos.core.component.DatabaseDiagnosticProbe
 import me.pinfort.tsvideos.core.component.NasDiagnosticProbe
+import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
 import me.pinfort.tsvideos.core.domain.DiagnosticCheck
 import me.pinfort.tsvideos.core.domain.DiagnosticStatus
 import me.pinfort.tsvideos.core.external.samba.DiagnosticNasClient
 import me.pinfort.tsvideos.manager.console.commands.Doctor
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.springframework.boot.context.config.ConfigDataEnvironmentPostProcessor
-import org.springframework.core.env.SimpleCommandLinePropertySource
 import org.springframework.core.env.StandardEnvironment
 import tools.jackson.databind.json.JsonMapper
 
 /** Load Boot config data, but never create the manager's datasource or eager NAS command graph. */
 object DoctorBootstrap {
-    fun commandArguments(args: Array<String>): List<String> = args.filterNot { it.startsWith("--spring.") && '=' in it }
+    fun commandArguments(args: Array<String>): List<String> = DiagnosticEnvironment.commandArguments(args)
 
-    fun loadEnvironment(args: Array<String>): StandardEnvironment =
-        StandardEnvironment().apply {
-            propertySources.addFirst(
-                SimpleCommandLinePropertySource(*args.filter { it.startsWith("--spring.") && '=' in it }.toTypedArray()),
-            )
-            ConfigDataEnvironmentPostProcessor.applyTo(this)
-        }
+    fun loadEnvironment(args: Array<String>): StandardEnvironment = DiagnosticEnvironment.load(args)
 
     fun run(args: Array<String>): Int {
         // JDBC/SMB libraries may log credential-bearing exceptions. Doctor emits its own safe findings.

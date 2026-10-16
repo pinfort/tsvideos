@@ -20,6 +20,7 @@ class NasDiagnosticProbe(
         baseDir: String,
         checkWrite: Boolean,
     ): List<DiagnosticCheck> {
+        diagnosticCancellation()
         val checks = mutableListOf<DiagnosticCheck>()
         try {
             client.open(url, username, password).use { connection ->
@@ -31,10 +32,8 @@ class NasDiagnosticProbe(
                     }
                 }
             }
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            throw e
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            diagnosticCancellation(error)
             if (checks.none { it.id == "$id.read" }) {
                 checks +=
                     DiagnosticCheck(
@@ -59,6 +58,7 @@ class NasDiagnosticProbe(
                     },
                 )
         }
+        diagnosticCancellation()
         return checks
     }
 
@@ -104,20 +104,16 @@ class NasDiagnosticProbe(
                     check(input.readNBytes(PROBE_CONTENT.size + 1).contentEquals(PROBE_CONTENT))
                 }
                 checks += DiagnosticCheck("$id.write", DiagnosticStatus.PASS, "Isolated temporary file could be written and read")
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-                throw e
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                diagnosticCancellation(error)
                 checks += DiagnosticCheck("$id.write", DiagnosticStatus.FAIL, "Check NAS create, write and read permissions")
             } finally {
                 if (created) {
                     try {
                         probe.delete()
                         checks += DiagnosticCheck("$id.cleanup", DiagnosticStatus.PASS, "Temporary probe removed")
-                    } catch (e: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        throw e
-                    } catch (_: Exception) {
+                    } catch (error: Exception) {
+                        diagnosticCancellation(error)
                         checks +=
                             DiagnosticCheck(
                                 "$id.cleanup",

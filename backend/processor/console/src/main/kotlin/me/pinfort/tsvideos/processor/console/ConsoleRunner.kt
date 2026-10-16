@@ -4,6 +4,7 @@ import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.CliktError
 import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.core.parse
+import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
 import me.pinfort.tsvideos.processor.console.commands.TsVideosProcessor
 import org.springframework.boot.CommandLineRunner
 import org.springframework.stereotype.Component
@@ -15,7 +16,7 @@ class ConsoleRunner(
 ) : CommandLineRunner {
     override fun run(vararg args: String) {
         try {
-            processor.parseProcessor(args.toList())
+            processor.parseProcessor(DiagnosticEnvironment.commandArguments(args.toList().toTypedArray()))
         } catch (error: CliktError) {
             processor.echoFormattedHelp(error)
             exitProcess(error.statusCode)

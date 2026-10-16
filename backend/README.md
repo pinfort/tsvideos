@@ -133,3 +133,9 @@ The command reads metadata in one repeatable-read transaction. Group file totals
 `GET /api/v1/storage` and the web `/storage` page are read-only views over the shared library statistics. The largest 20 programs are ordered by distinct created-file metadata bytes descending, then program ID ascending, including programs without files. Per-program sizes are not additive when programs share files.
 
 Duplicate candidates use the existing duplicate detector and its keep recommendation. The estimated reclaimable bytes assume removing every nonrecommended program across all displayed groups. A normalized NAS path is counted once only when every program referencing it is in that removal set. Paths referenced by retained programs are excluded; separator/case/dot aliases are normalized conservatively, including when distinct NAS destinations cannot be inferred. Conflicting sizes use the smallest nonnegative registered value; a missing or negative size counts as 0, so one unknown alias zeroes that path's estimate. Per-program sizes clamp invalid negative values the same way; library totals sum registered values as stored. Pending records are included and labeled; both physical usage and verified reclaimable bytes remain null. No file is inspected or deleted. Overview statistics, references and duplicate detection use one repeatable-read transaction.
+
+## Processing preflight
+
+See [processing preflight](docs/processing-preflight.md) for CLI checks, space estimates, platform limitations and safe NAS write probes.
+
+> **Operator note:** `tvpcli process` (including `--dry-run`) now runs preflight first and exits 1 without processing when the database, NAS, tools or encoder are unreachable or misconfigured. Scheduled jobs that call `process` should treat exit 1 as "prerequisites failed" and check the printed FAIL lines.

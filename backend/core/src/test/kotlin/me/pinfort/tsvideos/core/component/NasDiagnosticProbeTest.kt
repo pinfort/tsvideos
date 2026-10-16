@@ -55,6 +55,15 @@ class NasDiagnosticProbeTest :
 
         fun run(write: Boolean = false) = probe.check("nas.test", "smb://host/share", "user", "secret", "base", write)
 
+        expect("interrupted owned write still cleans up and propagates cancellation") {
+            every { file.openInputStream() } throws IOException("wrapped", InterruptedException())
+            try {
+                shouldThrow<InterruptedException> { run(true) }
+                verify(exactly = 1) { file.delete() }
+            } finally {
+                Thread.interrupted()
+            }
+        }
         expect("default checks directory and listing but never writes") {
             val checks = run()
             checks.single { it.id.endsWith(".read") }.status shouldBe DiagnosticStatus.PASS
