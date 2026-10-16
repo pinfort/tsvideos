@@ -29,6 +29,8 @@ import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.core.domain.ExecutedFileTag
 import me.pinfort.tsvideos.core.domain.ProcessingJob
+import me.pinfort.tsvideos.core.domain.ProcessingOutcome
+import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
@@ -60,6 +62,7 @@ class FileProcessingPipelineTest :
         lateinit var sambaClient: SambaClient
         lateinit var jobs: ProcessingJobCommand
         lateinit var uploads: VerifiedUploadCommand
+        lateinit var history: me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
         lateinit var logger: Logger
         lateinit var fileProcessingPipeline: FileProcessingPipeline
 
@@ -96,6 +99,7 @@ class FileProcessingPipelineTest :
             logger = mockk(relaxed = true)
             jobs = mockk(relaxed = true)
             uploads = mockk(relaxed = true)
+            history = historyFixture()
             every { jobs.find(any()) } returns null
             every { jobs.findByPath(any()) } returns null
             every { jobs.claim(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "CLAIMED", null, null)
@@ -123,6 +127,7 @@ class FileProcessingPipelineTest :
                     logger = logger,
                     processingJobCommand = jobs,
                     verifiedUploadCommand = uploads,
+                    history = history,
                 )
         }
 
@@ -203,6 +208,12 @@ class FileProcessingPipelineTest :
                     verify { listOf(splittedFileCommand, createdFileCommand) wasNot Called }
                     verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
                     original.exists() shouldBe true
+                    if (dryRun) {
+                        verify(exactly = 0) { history.begin(any(), any()) }
+                    } else {
+                        verify { history.failed(44, any()) }
+                        verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                    }
                 }
             }
         }
@@ -270,6 +281,16 @@ class FileProcessingPipelineTest :
                 val result = fileProcessingPipeline.processFile(original)
 
                 result shouldBe FileProcessingPipeline.Result.PROCESSED
+                verifyOrder {
+                    history.begin(any(), any())
+                    history.stage<Any?>(44, ProcessingStage.INSPECT, any(), any())
+                    history.stage<Any?>(44, ProcessingStage.SPLIT, any(), any())
+                    history.stage<Any?>(44, ProcessingStage.COMPRESS, any(), any())
+                    history.stage<Any?>(44, ProcessingStage.UPLOAD_ORIGINAL, any(), any())
+                    history.stage<Any?>(44, ProcessingStage.FINALIZE, any(), any())
+                    history.stage<Any?>(44, ProcessingStage.SUBMIT_ENCODER, any(), any())
+                    history.finish(44, ProcessingOutcome.COMPLETED, null)
+                }
                 verify { amatsukazeAddTaskClient.addTask(any(), any(), "30fps_light") }
                 // the emergency broadcast detection result is recorded as tags, along with the check itself
                 verify {
@@ -593,6 +614,32 @@ class FileProcessingPipelineTest :
 
                 verify { executedFileCommand.delete(executedFile, false) }
                 verify { tsSplitterClient wasNot Called }
+                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
+            expect("a history failure after an acknowledged submission still reports the recording processed") {
+                val original = newOriginalFile()
+                stubThroughUpload(original)
+                every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
+                every { executedFileCommand.find(any()) } returns executedFileFixture(original)
+                every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } returns 0
+                every { history.finish(44, ProcessingOutcome.COMPLETED, null) } throws IllegalStateException("Attempt is not active")
+
+                fileProcessingPipeline.processFile(original) shouldBe FileProcessingPipeline.Result.PROCESSED
+
+                verify { jobs.acknowledgeSubmission(any()) }
+                verify(exactly = 0) { history.failed(any(), any()) }
+            }
+
+            expect("a failure to start history releases the claim for retry before any inspection") {
+                val original = newOriginalFile()
+                every { programCommand.findByName(original.name) } returns null
+                every { history.begin(any(), any()) } throws RuntimeException("db blip")
+
+                shouldThrow<RuntimeException> { fileProcessingPipeline.processFile(original) }
+
+                verify(exactly = 0) { tsSelectClient.check(any(), any()) }
+                verify(exactly = 0) { history.failed(any(), any()) }
                 verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
             }
 

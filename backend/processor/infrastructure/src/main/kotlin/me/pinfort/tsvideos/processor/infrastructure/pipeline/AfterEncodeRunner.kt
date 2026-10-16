@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
@@ -8,8 +9,15 @@ import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.MimeTypeComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
+import me.pinfort.tsvideos.core.domain.ProcessingArtifact
+import me.pinfort.tsvideos.core.domain.ProcessingArtifactType
+import me.pinfort.tsvideos.core.domain.ProcessingAttempt
+import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
+import me.pinfort.tsvideos.core.domain.ProcessingErrorCode
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingJob
+import me.pinfort.tsvideos.core.domain.ProcessingOutcome
+import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.external.samba.SambaClient
@@ -41,6 +49,7 @@ class AfterEncodeRunner(
     private val logger: Logger,
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
+    private val history: ProcessingHistoryCommand,
 ) {
     /**
      * Amatsukaze が実行後バッチに渡す環境変数のうち、この処理で使うもの。
@@ -65,6 +74,7 @@ class AfterEncodeRunner(
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ) {
         if (!input.success) {
+            if (!dryRun) recordEncoderFailure(input)
             notifyError(input)
             return
         }
@@ -92,10 +102,12 @@ class AfterEncodeRunner(
                 report("claiming encode callback failed. in_path:${input.inPath}", e)
                 return
             }
-        // claim 前のスナップショット。この呼び出し内での完了は finishProcess の中で完結し、catch には到達しない。
+        // claim 前のスナップショット。この呼び出し内で完了した後の失敗は履歴の記録だけなので、catch で completed として扱う。
         val alreadyCompleted = job?.state == "COMPLETED"
         var completed = false
+        var attempt: ProcessingAttempt? = null
         try {
+            if (!dryRun) attempt = history.begin(checkNotNull(job), ProcessingAttemptKind.CALLBACK)
             require(input.files.isNotEmpty()) { "Callback output list is empty" }
             val paths = input.files.map { it.toFile().canonicalPath }.sorted()
             require(paths.distinct().size == paths.size) { "Duplicate callback output paths" }
@@ -114,20 +126,49 @@ class AfterEncodeRunner(
                     logger.info("Dry run: would verify, register and remove callback output $path as $target (${mime.mime})")
                     return@forEach
                 }
+                val active = checkNotNull(attempt)
                 val receipt =
-                    verifiedUploadCommand.upload(
-                        checkNotNull(job).id,
-                        "encoded:${path.toFile().canonicalPath}",
-                        path.toFile(),
-                        SambaClient.NasType.VIDEO_STORE_NAS,
-                        target,
-                        onUploadProgress,
-                    )
-                verifiedUploadCommand.register(receipt, splittedFile.id, mime.mime, mime.encoding)
-                verifiedUploadCommand.deleteLocal(receipt)
+                    history.stage(
+                        active.id,
+                        ProcessingStage.UPLOAD_ENCODED,
+                        { ProcessingArtifact(ProcessingArtifactType.UPLOAD_MANIFEST, it.manifestId, target) },
+                    ) {
+                        val uploaded =
+                            verifiedUploadCommand.upload(
+                                checkNotNull(job).id,
+                                "encoded:${path.toFile().canonicalPath}",
+                                path.toFile(),
+                                SambaClient.NasType.VIDEO_STORE_NAS,
+                                target,
+                                history.progress(active.id, onUploadProgress),
+                            )
+                        verifiedUploadCommand.register(uploaded, splittedFile.id, mime.mime, mime.encoding)
+                        uploaded
+                    }
+                history.stage(active.id, ProcessingStage.FINALIZE) { verifiedUploadCommand.deleteLocal(receipt) }
             }
-            completed = finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
+            if (attempt == null) {
+                finishProcess(splittedFile.executedFileId, input.inPath, dryRun)
+            } else {
+                history.stage(attempt.id, ProcessingStage.FINALIZE, { ProcessingArtifact(ProcessingArtifactType.PROGRAM, it, null) }) {
+                    finishProcess(splittedFile.executedFileId, input.inPath, dryRun).also { completed = true }
+                }
+                history.finish(attempt.id, ProcessingOutcome.COMPLETED)
+            }
+            completed = true
         } catch (e: Exception) {
+            if (completed) {
+                // The program is already COMPLETED and its files are gone; only the history write failed.
+                report("recording completed callback history failed; program stays COMPLETED. in_path:${input.inPath}", e)
+                return
+            }
+            if (attempt != null) {
+                try {
+                    history.failed(attempt.id, e)
+                } catch (historyFailure: Exception) {
+                    e.addSuppressed(historyFailure)
+                }
+            }
             // アップロード済みのファイルや削除済みのローカルファイルは戻せないため、
             // 通知して番組を ERROR にするだけに留める。無人のバッチから呼ばれるので、
             // 例外をそのまま投げると誰も気づけない。
@@ -160,6 +201,20 @@ class AfterEncodeRunner(
         }
     }
 
+    /** Best effort: Slack is the only signal from this unattended batch, so history must not block notifyError. */
+    private fun recordEncoderFailure(input: Input) {
+        try {
+            val failedSplit = findOriginalSplittedFile(input.inPath)
+            val failedJob = failedSplit?.let { processingJobCommand.findByExecutedFile(it.executedFileId) } ?: return
+            val failedAttempt = history.begin(failedJob, ProcessingAttemptKind.CALLBACK)
+            val event = history.startStage(failedAttempt.id, ProcessingStage.FINALIZE)
+            history.finishStage(event, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
+            history.finish(failedAttempt.id, ProcessingOutcome.FAILED, ProcessingErrorCode.ENCODER_FAILURE)
+        } catch (e: Exception) {
+            logger.error("recording encoder failure history failed, inPath=${input.inPath}", e)
+        }
+    }
+
     private fun notifyError(input: Input) {
         logger.error("encode failed, amatsukazeId=${input.itemId}, inPath=${input.inPath}, reason=${input.errorMessage}")
         slackClient.notify(
@@ -188,46 +243,25 @@ class AfterEncodeRunner(
             SambaClient.NasType.VIDEO_STORE_NAS,
         )
 
-    /** 番組を COMPLETED にできたときだけ true を返す。失敗はここで通知済み。 */
+    /** 番組を COMPLETED にして番組IDを返す。失敗は例外として投げ、呼び出し元で履歴に記録してから通知する。 */
     private fun finishProcess(
         executedFileId: Long,
         inPath: Path,
         dryRun: Boolean,
-    ): Boolean {
-        val program = programCommand.findByExecutedFileId(executedFileId)
-        if (program == null) {
-            // この時点でNASへのアップロードは済んでいるため、他の失敗と同様に通知する
-            logger.error("program not found, executedFileId=$executedFileId")
-            slackClient.notify("program not found. executed_file_id:$executedFileId")
-            return false
+    ): Long {
+        val program = programCommand.findByExecutedFileId(executedFileId) ?: error("program not found. executed_file_id:$executedFileId")
+        check(validateCompletedComponent.validate(program.id)) { "program invalid. programId:${program.id}" }
+        if (!dryRun) {
+            val job = checkNotNull(processingJobCommand.findByExecutedFile(executedFileId))
+            verifiedUploadCommand.verifyRegistered(job.id, "original")
+            val raw = File(job.inputPath)
+            if (raw.exists()) check(ProcessingIdentity.from(raw).key == job.identityKey) { "Original recording changed; preserved" }
         }
-
-        try {
-            if (validateCompletedComponent.validate(program.id)) {
-                logger.info("program valid, status will be completed, programId=${program.id}")
-                if (!dryRun) {
-                    val job = checkNotNull(processingJobCommand.findByExecutedFile(executedFileId))
-                    verifiedUploadCommand.verifyRegistered(job.id, "original")
-                    val raw = File(job.inputPath)
-                    if (raw.exists()) {
-                        check(ProcessingIdentity.from(raw).key == job.identityKey) {
-                            "Original recording changed; preserved"
-                        }
-                    }
-                }
-                deleteLocalFile(inPath.toFile(), dryRun)
-                removeExecutedFile(executedFileId, dryRun)
-                programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.COMPLETED, dryRun)
-                if (!dryRun) completeJob(executedFileId)
-                return true
-            }
-            logger.error("program invalid, programId=${program.id}")
-            slackClient.notify("program invalid. programId:${program.id}")
-            programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.ERROR, dryRun)
-        } catch (e: Exception) {
-            notifyFailure(executedFileId, "program invalid. programId:${program.id}", e, dryRun)
-        }
-        return false
+        deleteLocalFile(inPath.toFile(), dryRun)
+        removeExecutedFile(executedFileId, dryRun)
+        programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.COMPLETED, dryRun)
+        if (!dryRun) completeJob(executedFileId)
+        return program.id
     }
 
     /**

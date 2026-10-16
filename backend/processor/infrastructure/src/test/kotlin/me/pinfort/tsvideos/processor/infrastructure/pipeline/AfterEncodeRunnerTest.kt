@@ -46,6 +46,7 @@ class AfterEncodeRunnerTest :
             val programs = mockk<ProgramCommand>(relaxed = true)
             val jobs = mockk<ProcessingJobCommand>(relaxed = true)
             val uploads = mockk<VerifiedUploadCommand>(relaxed = true)
+            val history = historyFixture()
             val validation = mockk<ValidateCompletedComponent>()
             val slack = mockk<SlackClient>(relaxed = true)
             val logger = mockk<Logger>(relaxed = true)
@@ -95,6 +96,7 @@ class AfterEncodeRunnerTest :
                         logger,
                         jobs,
                         uploads,
+                        history,
                     )
             }
 
@@ -127,6 +129,7 @@ class AfterEncodeRunnerTest :
                     f.uploads.verifyRegistered(1, "original")
                     f.jobs.complete(f.job)
                 }
+                verify { f.history.finish(44, me.pinfort.tsvideos.core.domain.ProcessingOutcome.COMPLETED, null) }
                 f.output.exists() shouldBe false
                 f.original.exists() shouldBe false
                 f.input.exists() shouldBe false
@@ -152,6 +155,7 @@ class AfterEncodeRunnerTest :
                     f.output.exists() shouldBe true
                     verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
                     verify { f.jobs.releaseCallback(f.job, "token") }
+                    verify { f.history.failed(44, any()) }
                     if (stage != "delete") verify(exactly = 0) { f.uploads.deleteLocal(any()) }
                 } finally {
                     f.cleanup()
@@ -214,12 +218,48 @@ class AfterEncodeRunnerTest :
                 f.cleanup()
             }
         }
+        expect("invalid program fails the callback with its ID and marks it ERROR, dryRun=false") {
+            val f = Fixture()
+            try {
+                every { f.validation.validate(1) } returns false
+                f.run()
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
+                verify { f.slack.notify(match { it.contains("program invalid. programId:1") }) }
+                f.original.exists() shouldBe true
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("dry run reports an invalid program without touching the program or files") {
+            val f = Fixture()
+            try {
+                every { f.validation.validate(1) } returns false
+                f.run(dryRun = true)
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, true) }
+                verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(any(), any(), false) }
+                verify { f.slack.notify(match { it.contains("program invalid. programId:1") }) }
+                listOf(f.output, f.original, f.input, f.split).forEach { it.exists() shouldBe true }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("failed encoder callback still notifies when recording its history fails") {
+            val f = Fixture()
+            try {
+                every { f.history.begin(any(), any()) } throws IllegalStateException("History identity conflict")
+                f.run(success = false)
+                verify { f.slack.notify(match { it.contains("encode failed") }) }
+            } finally {
+                f.cleanup()
+            }
+        }
         expect("missing split aborts before claiming or uploading") {
             val f = Fixture()
             try {
                 every { f.splits.findByFile(any()) } returns null
                 f.run()
                 verify(exactly = 0) { f.jobs.claimCallback(any()) }
+                verify(exactly = 0) { f.history.begin(any(), any()) }
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
                 f.output.exists() shouldBe true
             } finally {
@@ -244,6 +284,7 @@ class AfterEncodeRunnerTest :
                 listOf(f.output, f.original, f.input, f.split).forEach { it.exists() shouldBe true }
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
                 verify(exactly = 0) { f.jobs.claimCallback(any()) }
+                verify(exactly = 0) { f.history.begin(any(), any()) }
                 verify { f.logger.info(match<String> { it.contains("base/m/myprogram/video.mp4") }) }
                 verify(exactly = 0) { f.slack.notify(any()) }
             } finally {
@@ -363,6 +404,19 @@ class AfterEncodeRunnerTest :
                 verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
                 verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, any()) }
                 verify { f.slack.notify(match { it.contains("marking processing job completed failed") }) }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("keeps a completed program when recording the completed attempt fails") {
+            val f = Fixture()
+            try {
+                every { f.history.finish(44, any(), any()) } throws IllegalStateException("Attempt is not active")
+                f.run()
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, any()) }
+                verify(exactly = 0) { f.history.failed(any(), any()) }
+                verify { f.slack.notify(match { it.contains("program stays COMPLETED") }) }
             } finally {
                 f.cleanup()
             }

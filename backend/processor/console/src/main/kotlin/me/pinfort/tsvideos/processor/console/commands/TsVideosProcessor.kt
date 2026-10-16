@@ -12,9 +12,11 @@ class TsVideosProcessor(
     private val afterEncode: AfterEncodeCommand,
     private val reset: ResetCommand,
     private val releaseClaim: ReleaseClaimCommand,
+    private val status: StatusCommand,
+    private val history: HistoryCommand,
 ) : CliktCommand(name = "tvpcli") {
     init {
-        subcommands(process, afterEncode, reset, releaseClaim)
+        subcommands(process, afterEncode, reset, releaseClaim, status, history)
         versionOption(ApplicationVersion.value)
     }
 
