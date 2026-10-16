@@ -39,6 +39,24 @@ export interface ProgramDetail extends Program {
 
 export interface SearchProgramsResponse {
   programs: Program[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ProgramSearchQuery {
+  name?: string;
+  channel?: string;
+  recordedFrom?: string;
+  recordedTo?: string;
+  status?: ProgramStatus;
+  minDrops?: number;
+  maxDrops?: number;
+  fileType?: "TS" | "ENCODED";
+  sort?: "RECORDED_AT" | "DURATION" | "SIZE";
+  direction?: "ASC" | "DESC";
+  limit?: number;
+  offset?: number;
 }
 
 export interface ProgramDetailResponse {

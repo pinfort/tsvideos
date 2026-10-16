@@ -19,6 +19,32 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 `NEXT_PUBLIC_API_BASE_URL` — base URL of the `manager:api` backend. Defaults to `http://localhost:8080` if unset, so no `.env` file is needed to run against a locally running backend on its default port. This must be a browser-reachable URL, since the video playback/download page fetches video bytes directly from the backend rather than through the Next.js server.
 
+## Recording search
+
+The home page combines a literal name substring, exact channel ID, local
+recording timestamps, processing status, drop-count bounds and available file
+type. All fields are optional. The end timestamp is exclusive; for a whole day
+choose the next midnight. Timestamps use the recording environment's local
+time without timezone conversion. Numeric drop filters exclude unknown drops.
+TS/encoded availability uses `FILE_MOVED` file metadata, not a live NAS check;
+encoded means `video/*` except `video/vnd.dlna.mpeg-tts`.
+
+Sorting supports recording time, original duration and original byte size in
+either direction, with a stable program-ID tie-break. Search defaults to 10
+items per page. Filters, sorting and page size are kept in the URL and restored
+on reload; submitting the form resets the offset to zero. Invalid conditions
+show an editable error instead of silently changing the query. Empty results
+and service failures have separate messages.
+
+`GET /api/v1/programs` accepts `name`, `channel`, `recordedFrom`, `recordedTo`,
+`status`, `minDrops`, `maxDrops`, `fileType`, `sort`, `direction`, `limit`, and
+`offset`, and returns `{ programs, total, limit, offset }`. Enum values are
+uppercase: `REGISTERED|COMPLETED|ERROR`, `TS|ENCODED`,
+`RECORDED_AT|DURATION|SIZE`, `ASC|DESC`. The API defaults to limit 100, offset 0,
+recorded-time descending; limit must be 1–500. Invalid values or reversed
+bounds return HTTP 400. Existing name-only queries still work. Query semantics
+are shared with the manager CLI's `ProgramSearchQuery` in core.
+
 ## Scripts
 
 - `pnpm dev` - start the development server
