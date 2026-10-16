@@ -412,6 +412,21 @@ class BulkLibraryCommandTest :
             outcome.message.contains("nothing was changed") shouldBe true
             verify(exactly = 0) { programs.delete(any(), any()) }
         }
+        expect("an interrupt stops later targets from starting") {
+            val batch = BulkRequest(listOf(1, 2), BulkAction.DELETE)
+            every { programs.find(2) } returns program.copy(id = 2)
+            every { mapper.references(10) } returns emptyList()
+            val plan = command.preview(batch)
+            every { programs.delete(program, false) } throws InterruptedException("shutdown")
+            try {
+                val result = command.apply(BulkApplyRequest(batch, plan.targets.associate { it.id to it.fingerprint }))
+                result.outcomes.map { it.status } shouldBe listOf(BulkOutcomeStatus.FAILED, BulkOutcomeStatus.FAILED)
+                result.outcomes[1].message.contains("Interrupted") shouldBe true
+                verify(exactly = 0) { programs.delete(program.copy(id = 2), any()) }
+            } finally {
+                Thread.interrupted()
+            }
+        }
         expect("missing target is a per-target result") {
             val plan = command.preview(request)
             every { mapper.lockProgram(1) } returns null

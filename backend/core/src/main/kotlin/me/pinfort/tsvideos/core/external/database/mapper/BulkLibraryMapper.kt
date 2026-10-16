@@ -12,7 +12,8 @@ interface BulkLibraryMapper {
 
     // Lock normalized aliases too: SMB is case-insensitive and accepts both separators.
     // The scan takes next-key locks, preventing insertion of new aliases during apply.
-    // The bounded wait makes a busy table fail this target fast instead of queueing behind the pipeline.
+    // Every bulk lock uses the same bounded (MariaDB-only) wait, so a busy library fails this target fast
+    // instead of queueing behind the pipeline.
     @Select("SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT * FROM created_file ORDER BY id FOR UPDATE")
     fun lockFiles(): List<CreatedFileDto>
 
@@ -34,16 +35,18 @@ interface BulkLibraryMapper {
         @Param("ids") ids: List<Long>,
     ): List<CreatedFileDto>
 
-    @Select("SELECT id FROM program WHERE id = #{id} FOR UPDATE")
+    @Select("SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT id FROM program WHERE id = #{id} FOR UPDATE")
     fun lockProgram(id: Long): Long?
 
-    @Select("SELECT id FROM executed_file WHERE id = #{id} FOR UPDATE")
+    @Select("SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT id FROM executed_file WHERE id = #{id} FOR UPDATE")
     fun lockExecuted(id: Long): Long?
 
-    @Select("SELECT id FROM splitted_file WHERE executed_file_id = #{id} ORDER BY id FOR UPDATE")
+    @Select(
+        "SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT id FROM splitted_file WHERE executed_file_id = #{id} ORDER BY id FOR UPDATE",
+    )
     fun lockSplits(id: Long): List<Long>
 
-    @Select("SELECT id FROM program WHERE executed_file_id = #{id} ORDER BY id FOR UPDATE")
+    @Select("SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT id FROM program WHERE executed_file_id = #{id} ORDER BY id FOR UPDATE")
     fun lockReferences(id: Long): List<Long>
 
     @Select("SELECT id FROM program WHERE executed_file_id = #{id} ORDER BY id")

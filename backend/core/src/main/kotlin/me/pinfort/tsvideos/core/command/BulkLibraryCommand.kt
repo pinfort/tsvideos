@@ -75,7 +75,16 @@ class BulkLibraryCommand(
         // Selection-wide destination counts are computed once: other programs' existing paths are still
         // re-checked per target against the locked alias scan, and any change to a target's own files is STALE.
         val proposed = read.execute { proposed(request) }!!
-        return BulkResult(request.ids.map { id -> applyOne(id, request, proposed, input.fingerprints.getValue(id)) })
+        return BulkResult(
+            request.ids.map { id ->
+                // After an interrupt (e.g. shutdown) stop starting new targets rather than mutating more files.
+                if (Thread.currentThread().isInterrupted) {
+                    BulkOutcome(id, BulkOutcomeStatus.FAILED, "Interrupted before this target; nothing was changed.")
+                } else {
+                    applyOne(id, request, proposed, input.fingerprints.getValue(id))
+                }
+            },
+        )
     }
 
     private fun applyOne(
@@ -118,7 +127,10 @@ class BulkLibraryCommand(
             logger.warn("Bulk ${request.action} skipped, library busy, programId=$id", error)
             BulkOutcome(id, BulkOutcomeStatus.FAILED, "Library is busy (processing may be running); nothing was changed. Retry later.")
         } catch (error: Exception) {
-            if (error is InterruptedException) Thread.currentThread().interrupt()
+            // TransactionTemplate and CreatedFileCommand wrap checked exceptions, so look through the cause chain.
+            if (generateSequence<Throwable>(error) { it.cause }.any { it is InterruptedException }) {
+                Thread.currentThread().interrupt()
+            }
             if (mutating) return failedAfterMutation(id, request, error)
             logger.error("Bulk ${request.action} failed before any change, programId=$id", error)
             BulkOutcome(id, BulkOutcomeStatus.FAILED, "Operation failed before any change; nothing was changed. Preview again and retry.")

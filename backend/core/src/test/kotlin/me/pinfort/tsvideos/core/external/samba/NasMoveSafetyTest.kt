@@ -104,6 +104,13 @@ class NasMoveSafetyTest :
                 verify(exactly = 1) { file.delete() }
             }
         }
+        expect("case-only renames are refused because SMB treats them as the same file") {
+            shouldThrow<IllegalArgumentException> { nas.moveResource(old, old.uppercase()) }
+            verify(exactly = 0) {
+                video.resolve(any())
+                source.delete()
+            }
+        }
         expect("directory deletion and movement are refused without recursive effects") {
             every { source.isFile } returns false
             shouldThrow<IllegalStateException> { nas.deleteResource(old) }
