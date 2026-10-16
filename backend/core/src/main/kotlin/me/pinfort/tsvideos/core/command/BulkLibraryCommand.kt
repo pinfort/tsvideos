@@ -194,7 +194,7 @@ class BulkLibraryCommand(
         val proposedTwice = destinationKeys.values.any { context.proposed[it] != 1 }
         val alreadyReferenced = destinationKeys.any { (fileId, k) -> context.owners[k].orEmpty().any { it != fileId } }
         val collision = proposedTwice || alreadyReferenced || destinationKeys.values.distinct().size != destinationKeys.size
-        val unchanged = destinationKeys.any { (fileId, k) -> key(files.first { it.id == fileId }.file) == k }
+        val unchanged = files.any { destinationKeys[it.id] == key(it.file) }
         val reason =
             when {
                 snapshot == null -> "Recording not found"

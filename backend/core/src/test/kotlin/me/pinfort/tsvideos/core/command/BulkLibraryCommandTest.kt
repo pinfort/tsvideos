@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.core.command
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -67,7 +68,7 @@ class BulkLibraryCommandTest :
         val file = CreatedFileDto(30, 20, "base/a/alpha/video.mp4", 12, "video/mp4", null, CreatedFileDto.Status.FILE_MOVED)
         val request = BulkRequest(listOf(1), BulkAction.DELETE)
         beforeTest {
-            io.mockk.clearMocks(programs, executed, splits, created, mapper, tx, logger)
+            clearMocks(programs, executed, splits, created, mapper, tx, logger)
             every { tx.getTransaction(any()) } returns SimpleTransactionStatus()
             every { programs.find(any()) } returns program
             every { executed.find(10) } returns source

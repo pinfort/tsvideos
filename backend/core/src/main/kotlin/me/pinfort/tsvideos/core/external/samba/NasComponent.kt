@@ -79,7 +79,9 @@ class NasComponent(
     ): SambaClient.NasType {
         validateFilePath(oldFile)
         validateFilePath(newFile)
-        require(oldFile.replace('\\', '/').lowercase(Locale.ROOT) != newFile.replace('\\', '/').lowercase(Locale.ROOT))
+        require(oldFile.replace('\\', '/').lowercase(Locale.ROOT) != newFile.replace('\\', '/').lowercase(Locale.ROOT)) {
+            "Source and destination are the same path"
+        }
         val candidates =
             listOf(
                 videoStoreNas to SambaClient.NasType.VIDEO_STORE_NAS,

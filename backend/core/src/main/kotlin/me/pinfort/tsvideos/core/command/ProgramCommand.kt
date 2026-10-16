@@ -161,10 +161,18 @@ class ProgramCommand(
     ) {
         val createdFiles: List<CreatedFileDto> = createdFileMapper.selectByExecutedFileId(program.executedFileId)
 
-        createdFiles.forEach {
-            val oldPath = Path.of(it.file.replace('\\', '/'))
-            val newPath = directoryNameComponent.replaceWithGivenDirectoryName(oldPath, newDirectory)
-            createdFileCommand.move(it.toDomain(), newPath.toString().replace('/', '\\'), dryRun)
+        // NAS moves cannot roll back with the transaction, so earlier files are moved back if a later one fails.
+        val moved = mutableListOf<Pair<String, String>>()
+        try {
+            createdFiles.forEach {
+                val oldPath = Path.of(it.file.replace('\\', '/'))
+                val newFile = directoryNameComponent.replaceWithGivenDirectoryName(oldPath, newDirectory).toString().replace('/', '\\')
+                createdFileCommand.move(it.toDomain(), newFile, dryRun)
+                if (!dryRun) moved += it.file to newFile
+            }
+        } catch (e: Exception) {
+            createdFileCommand.restoreMoved(moved)
+            throw e
         }
 
         logger.info("Move created files, id=${program.id}, newDirectory=$newDirectory, program=$program")

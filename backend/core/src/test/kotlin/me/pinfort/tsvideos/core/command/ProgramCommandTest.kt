@@ -559,6 +559,20 @@ class ProgramCommandTest :
                 }
             }
 
+            expect("a later failure moves earlier files back and rethrows") {
+                val second = createdFileDto.copy(id = 2, file = "file\\file2")
+                every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto, second)
+                every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file1"), any()) } returns Path.of("new/file1")
+                every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file2"), any()) } returns Path.of("new/file2")
+                every { createdFileCommand.move(createdFile, "new\\file1") } returns SambaClient.NasType.VIDEO_STORE_NAS
+                every { createdFileCommand.move(second.toDomain(), "new\\file2") } throws RuntimeException("nas")
+                every { createdFileCommand.restoreMoved(any()) } just Runs
+
+                shouldThrow<RuntimeException> { programCommand.moveCreatedFiles(program, "newDirectory") }
+
+                verify(exactly = 1) { createdFileCommand.restoreMoved(listOf("file\\file1" to "new\\file1")) }
+            }
+
             expect("dryRun") {
                 every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto)
                 every { createdFileCommand.move(any(), any(), any()) } returns SambaClient.NasType.ORIGINAL_STORE_NAS
