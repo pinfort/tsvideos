@@ -396,6 +396,14 @@ class BulkLibraryCommandTest :
             outcome.message.contains("nothing was changed") shouldBe true
             verify(exactly = 0) { programs.delete(any(), any()) }
         }
+        expect("a lock failure after mutation started is not reported as harmless") {
+            val plan = command.preview(request)
+            every { programs.delete(program, any()) } throws CannotAcquireLockException("Lock wait timeout exceeded")
+            val outcome = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))).outcomes.single()
+            outcome.status shouldBe BulkOutcomeStatus.FAILED
+            outcome.message.contains("nothing was changed") shouldBe false
+            outcome.message.contains("partially") shouldBe true
+        }
         expect("missing target is a per-target result") {
             val plan = command.preview(request)
             every { mapper.lockProgram(1) } returns null

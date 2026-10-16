@@ -83,8 +83,10 @@ class BulkLibraryCommand(
         request: BulkRequest,
         proposed: Map<String, Int>,
         fingerprint: String,
-    ): BulkOutcome =
-        try {
+    ): BulkOutcome {
+        // Set just before the first NAS/DB mutation, so a lock failure is only reported as harmless before it.
+        var mutating = false
+        return try {
             write.execute {
                 // Same lock order for every bulk operation. Do not hold locks across targets.
                 val all = bulk.lockFiles()
@@ -102,6 +104,7 @@ class BulkLibraryCommand(
                         BulkOutcome(id, BulkOutcomeStatus.STALE, "Recording changed; preview again")
                     !current.eligible -> BulkOutcome(id, BulkOutcomeStatus.FAILED, current.reason!!)
                     else -> {
+                        mutating = true
                         when (request.action) {
                             BulkAction.DELETE -> programs.delete(program)
                             BulkAction.MOVE -> programs.moveCreatedFiles(program, request.directory!!)
@@ -111,18 +114,27 @@ class BulkLibraryCommand(
                 }
             }!!
         } catch (error: PessimisticLockingFailureException) {
-            // Nothing was changed: the lock wait timed out before any NAS or DB mutation.
+            if (mutating) return failedAfterMutation(id, request, error)
             logger.warn("Bulk ${request.action} skipped, library busy, programId=$id", error)
             BulkOutcome(id, BulkOutcomeStatus.FAILED, "Library is busy (processing may be running); nothing was changed. Retry later.")
         } catch (error: Exception) {
             if (error is InterruptedException) Thread.currentThread().interrupt()
-            logger.error("Bulk ${request.action} failed, programId=$id, directory=${request.directory}", error)
-            BulkOutcome(
-                id,
-                BulkOutcomeStatus.FAILED,
-                "Operation failed. NAS files may be partially deleted or moved; inspect preview paths before retry. Original recording preserved.",
-            )
+            failedAfterMutation(id, request, error)
         }
+    }
+
+    private fun failedAfterMutation(
+        id: Long,
+        request: BulkRequest,
+        error: Exception,
+    ): BulkOutcome {
+        logger.error("Bulk ${request.action} failed, programId=$id, directory=${request.directory}", error)
+        return BulkOutcome(
+            id,
+            BulkOutcomeStatus.FAILED,
+            "Operation failed. NAS files may be partially deleted or moved; inspect preview paths before retry. Original recording preserved.",
+        )
+    }
 
     private fun validate(input: BulkRequest): BulkRequest {
         val idsValid = input.ids.size in 1..100 && input.ids.all { it > 0 } && input.ids.distinct().size == input.ids.size
