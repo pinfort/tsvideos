@@ -617,6 +617,20 @@ class FileProcessingPipelineTest :
                 verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
             }
 
+            expect("a history failure after an acknowledged submission still reports the recording processed") {
+                val original = newOriginalFile()
+                stubThroughUpload(original)
+                every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
+                every { executedFileCommand.find(any()) } returns executedFileFixture(original)
+                every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } returns 0
+                every { history.finish(44, ProcessingOutcome.COMPLETED, null) } throws IllegalStateException("Attempt is not active")
+
+                fileProcessingPipeline.processFile(original) shouldBe FileProcessingPipeline.Result.PROCESSED
+
+                verify { jobs.acknowledgeSubmission(any()) }
+                verify(exactly = 0) { history.failed(any(), any()) }
+            }
+
             expect("a failure to start history releases the claim for retry before any inspection") {
                 val original = newOriginalFile()
                 every { programCommand.findByName(original.name) } returns null

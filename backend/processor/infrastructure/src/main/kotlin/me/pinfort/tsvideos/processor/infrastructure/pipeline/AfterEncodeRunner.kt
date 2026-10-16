@@ -249,8 +249,8 @@ class AfterEncodeRunner(
         inPath: Path,
         dryRun: Boolean,
     ): Long {
-        val program = programCommand.findByExecutedFileId(executedFileId) ?: error("program not found")
-        check(validateCompletedComponent.validate(program.id)) { "program invalid" }
+        val program = programCommand.findByExecutedFileId(executedFileId) ?: error("program not found. executed_file_id:$executedFileId")
+        check(validateCompletedComponent.validate(program.id)) { "program invalid. programId:${program.id}" }
         if (!dryRun) {
             val job = checkNotNull(processingJobCommand.findByExecutedFile(executedFileId))
             verifiedUploadCommand.verifyRegistered(job.id, "original")

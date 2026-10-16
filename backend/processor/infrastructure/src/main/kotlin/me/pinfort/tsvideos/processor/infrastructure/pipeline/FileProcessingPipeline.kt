@@ -114,6 +114,7 @@ class FileProcessingPipeline(
         val runner = RollbackRunner()
         var started: ProcessingAttempt? = null
         var uploadStarted = false
+        var submitted = false
         try {
             // Inside the try so that a failure to start history still releases the claim as RETRYABLE.
             val attempt = history.begin(job, ProcessingAttemptKind.PROCESS).also { started = it }
@@ -142,6 +143,8 @@ class FileProcessingPipeline(
                     }
                 }
             var splitInvoked = false
+            // A history write failing around SPLIT/COMPRESS rolls back work that succeeded. That is wasteful but
+            // safe: nothing has reached the NAS yet, so the job is released as RETRYABLE.
             val mainSplittedFile =
                 history.stage(
                     attempt.id,
@@ -170,9 +173,15 @@ class FileProcessingPipeline(
                 processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
                 amatsukazeAddTask(mainSplittedFile)
                 processingJobCommand.acknowledgeSubmission(job)
+                submitted = true
             }
             history.finish(attempt.id, ProcessingOutcome.COMPLETED)
         } catch (e: Exception) {
+            if (submitted) {
+                // The job is SUBMITTED and owned by the encoder now; only the history write failed.
+                logger.error("Recording history of submitted job ${job.id} failed; processing itself succeeded", e)
+                return Result.PROCESSED
+            }
             started?.let {
                 try {
                     history.failed(it.id, e)

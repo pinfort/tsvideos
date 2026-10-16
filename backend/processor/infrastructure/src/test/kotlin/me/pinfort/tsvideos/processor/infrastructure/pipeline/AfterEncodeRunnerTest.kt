@@ -218,6 +218,31 @@ class AfterEncodeRunnerTest :
                 f.cleanup()
             }
         }
+        expect("invalid program fails the callback with its ID and marks it ERROR, dryRun=false") {
+            val f = Fixture()
+            try {
+                every { f.validation.validate(1) } returns false
+                f.run()
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
+                verify { f.slack.notify(match { it.contains("program invalid. programId:1") }) }
+                f.original.exists() shouldBe true
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("dry run reports an invalid program without touching the program or files") {
+            val f = Fixture()
+            try {
+                every { f.validation.validate(1) } returns false
+                f.run(dryRun = true)
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, true) }
+                verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(any(), any(), false) }
+                verify { f.slack.notify(match { it.contains("program invalid. programId:1") }) }
+                listOf(f.output, f.original, f.input, f.split).forEach { it.exists() shouldBe true }
+            } finally {
+                f.cleanup()
+            }
+        }
         expect("failed encoder callback still notifies when recording its history fails") {
             val f = Fixture()
             try {
