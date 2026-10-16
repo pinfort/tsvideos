@@ -17,12 +17,7 @@ class LocalPreflightProbe {
         val usable: Long?,
     )
 
-    fun expand(path: Path): List<Path> =
-        if (Files.isDirectory(path)) {
-            Files.list(path).use { entries -> entries.filter { it.fileName.toString().endsWith(".m2ts") }.sorted().toList() }
-        } else {
-            listOf(path)
-        }
+    fun expand(path: Path): List<Path> = expandRecordingInputs(path)
 
     fun inspect(path: Path): Input {
         require(Files.isRegularFile(path) && Files.isReadable(path))
@@ -59,7 +54,9 @@ class LocalPreflightProbe {
                     extensions.map { Path.of(dir, value + it) }
                 }
             }
-        return candidates.any { Files.isRegularFile(it) && Files.isReadable(it) && (windows || windowsOnly || Files.isExecutable(it)) }
+        // Windows has no executable bit, and Windows-only tools cannot run here anyway (reported UNCHECKED).
+        val executionCheckable = !windows && !windowsOnly
+        return candidates.any { Files.isRegularFile(it) && Files.isReadable(it) && (!executionCheckable || Files.isExecutable(it)) }
     }
 
     fun windows(): Boolean = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)

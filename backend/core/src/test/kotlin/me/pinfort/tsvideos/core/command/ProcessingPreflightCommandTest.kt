@@ -91,6 +91,12 @@ class ProcessingPreflightCommandTest :
             report.toString().contains("secret") shouldBe false
             verify(exactly = 0) { tcp.check(any(), any()) }
         }
+        expect("unbracketed IPv6 encoder host is rejected without connecting") {
+            env.withProperty("processor-tool.amatsukaze.host", "::1")
+            val report = command.diagnose(listOf(one))
+            report.checks.single { it.id == "config.encoder.host" }.status shouldBe DiagnosticStatus.FAIL
+            verify(exactly = 0) { tcp.check(any(), any()) }
+        }
         expect("failed encoder does not suppress disk checks and explicit write request is forwarded") {
             every { tcp.check(any(), any()) } returns false
             val report = command.diagnose(listOf(one), true)
