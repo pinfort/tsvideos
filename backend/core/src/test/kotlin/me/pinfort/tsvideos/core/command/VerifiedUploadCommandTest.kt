@@ -381,6 +381,23 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 other.source.delete()
             }
         }
+        expect("a claim left by a dead owner keeps blocking until it is released manually") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                manifests.claim(receipt.manifestId, "dead-owner") shouldBe 1
+                listOf<() -> Unit>({ f.upload() }, { f.command.register(receipt, 1, "video/mp4", null) }).forEach { call ->
+                    shouldThrow<IllegalStateException> { call() }.message shouldStartWith "Upload already claimed"
+                }
+                f.manifest().state shouldBe State.FINALIZED
+                // The documented recovery: clear exactly this token once the owner is known to be gone.
+                manifests.release(receipt.manifestId, "dead-owner") shouldBe 1
+                f.command.register(receipt, 1, "video/mp4", null)
+                f.manifest().state shouldBe State.REGISTERED
+            } finally {
+                f.source.delete()
+            }
+        }
         expect("cleanup failure preserves ownership and local data") {
             val f = fixture()
             every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
