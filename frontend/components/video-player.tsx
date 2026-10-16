@@ -22,9 +22,11 @@ export function VideoPlayer({
   const video = useRef<HTMLVideoElement>(null);
   const loaded = useRef(false);
   const lastSaved = useRef(0);
-  // Set while restore's own seek is pending so it doesn't count as a user seek
+  // Target of restore's own seek, so that seek doesn't count as a user seek
   // (which would rewrite the entry and reorder history just by opening it).
-  const restoring = useRef(false);
+  // Cleared by the first seeked event either way, so it can't swallow a later
+  // user seek even if the browser fires no seeked for the restore.
+  const restoringTo = useRef<number | null>(null);
   // Read by restore so a speed change does not re-run the restore effect.
   const speedRef = useRef("1");
   const [unavailable, setUnavailable] = useState(false);
@@ -42,7 +44,7 @@ export function VideoPlayer({
         const position = Math.min(saved.position, player.duration);
         if (completed(position, player.duration)) removePlayback(videoId);
         else {
-          restoring.current = true;
+          restoringTo.current = position;
           player.currentTime = position;
           setNotice("前回の続きから再開します。");
         }
@@ -110,10 +112,15 @@ export function VideoPlayer({
         }}
         onPause={persist}
         onSeeked={() => {
-          if (restoring.current) restoring.current = false;
-          else persist();
+          const target = restoringTo.current;
+          restoringTo.current = null;
+          const player = video.current;
+          if (target === null || !player) persist();
+          else if (Math.abs(player.currentTime - target) > 1) persist();
         }}
         onEnded={() => {
+          // Later pagehide/unmount saves at the end position are dropped by
+          // savePlayback's completed() check, so the entry stays removed.
           removePlayback(videoId);
           setNotice("視聴を完了しました。");
         }}

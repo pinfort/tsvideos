@@ -45,4 +45,6 @@ A video is complete at 95% or within its final 10 seconds; completed and restart
 
 Continue-watching metadata checks use a same-origin Next.js route to avoid requiring cross-origin browser API access. Only program/file JSON is proxied; media streaming remains direct. API failures remain unchecked, while confirmed HTTP 404 means removed. The route (`/api/playback/programs/[id]`) returns only each video file's `id`, `mp4` and `status`, is unauthenticated like the backend it proxies, and each program is checked once per page load (a failed check is retried only after reload).
 
+The `title` and `programId` query parameters on `/video/[id]/view` are not verified against the backend; a hand-crafted link can store a misleading title or program in local history (display only, React-escaped, capped at 300 characters).
+
 History writes are read-modify-write on one localStorage key without locking, so two tabs saving different videos at the same instant can drop one update.

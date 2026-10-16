@@ -40,7 +40,7 @@ describe("VideoFilesTable", () => {
     expect(params.get("title")).toBe("番組 & 特集");
   });
 
-  it("falls back to the file name as the title", () => {
+  it("omits the title rather than exposing the file path", () => {
     render(
       <VideoFilesTable
         files={[makeFile({ id: 3, file: "video.mp4", mp4: true })]}
@@ -48,9 +48,7 @@ describe("VideoFilesTable", () => {
       />,
     );
     const href = screen.getByText("視聴").getAttribute("href")!;
-    expect(new URLSearchParams(href.split("?")[1]).get("title")).toBe(
-      "video.mp4",
-    );
+    expect(new URLSearchParams(href.split("?")[1]).has("title")).toBe(false);
   });
 
   it("shows a fallback message when there is no mp4 rendition", () => {

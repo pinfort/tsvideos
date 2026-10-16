@@ -3,10 +3,10 @@ import type { CreatedFile } from "@/lib/api/types";
 
 function viewHref(file: CreatedFile, programId?: number, title?: string) {
   if (!programId) return `/video/${file.id}/view`;
-  const params = new URLSearchParams({
-    programId: String(programId),
-    title: title || file.file,
-  });
+  // Without a program name, omit title so the viewer falls back to "動画 #id"
+  // rather than putting the NAS file path in the URL and history.
+  const params = new URLSearchParams({ programId: String(programId) });
+  if (title) params.set("title", title);
   return `/video/${file.id}/view?${params}`;
 }
 

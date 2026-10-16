@@ -111,6 +111,19 @@ describe("VideoPlayer", () => {
     fireEvent.seeked(video);
     expect(readPlayback()[0].position).toBe(80);
   });
+  it("persists a user seek even if the restore seek fired no event", () => {
+    savePlayback({
+      videoId: 1,
+      title: "番組",
+      position: 40,
+      duration: 200,
+      updatedAt: 1,
+    });
+    const video = setup();
+    video.currentTime = 120;
+    fireEvent.seeked(video);
+    expect(readPlayback()[0].position).toBe(120);
+  });
   it("saves the current position on unmount", () => {
     const view = render(<VideoPlayer videoId={1} programId={4} title="番組" />);
     const video = view.container.querySelector("video")!;
