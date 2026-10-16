@@ -73,6 +73,8 @@ class NasMoveSafetyTest :
             every { source.lastModified() } returnsMany listOf(10, 20)
             shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
             verify(exactly = 0) { source.delete() }
+            // Size and checksum failures remove the exclusively created copy; a changed source keeps it.
+            verify(exactly = 2) { target.delete() }
         }
         expect("NAS boundary rejects traversal, streams and control characters before opening anything") {
             for (unsafe in listOf(
@@ -111,12 +113,31 @@ class NasMoveSafetyTest :
                 source.openInputStream()
             }
         }
-        expect("read failure retains source and does not delete an uncertain destination") {
+        expect("read failure retains source and removes only its own partial destination") {
             every { source.openInputStream() } throws IllegalStateException("disconnected")
+            shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
+            verify(exactly = 0) { source.delete() }
+            verify(exactly = 1) { target.delete() }
+        }
+        expect("destination is kept when the source cannot be confirmed intact") {
+            every { source.openInputStream() } throws IllegalStateException("disconnected")
+            every { source.length() } returnsMany listOf(3L, 0L)
             shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
             verify(exactly = 0) {
                 source.delete()
                 target.delete()
             }
+        }
+        expect("a failed source delete removes the verified copy only while the source still exists") {
+            every { source.delete() } throws IllegalStateException("locked")
+            shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
+            verify(exactly = 1) { target.delete() }
+            every { source.openInputStream() } returns ByteArrayInputStream(byteArrayOf(1, 2, 3))
+            output = ByteArrayOutputStream()
+            every { target.openOutputStream(true, any(), any(), any()) } returns output
+            // Source vanished during the failed delete: the destination is now the only copy.
+            every { source.exists() } returnsMany listOf(true, true, false)
+            shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
+            verify(exactly = 1) { target.delete() }
         }
     })

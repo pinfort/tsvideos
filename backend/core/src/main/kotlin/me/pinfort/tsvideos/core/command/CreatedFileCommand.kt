@@ -110,6 +110,7 @@ class CreatedFileCommand(
     /**
      * Best-effort reverse of NAS moves that completed before a later file failed, newest first.
      * Uses the same verified move, so a failed restore keeps the moved copy rather than losing it.
+     * Only files whose forward move fully completed are listed; a move that failed cleans up after itself.
      */
     fun restoreMoved(moved: List<Pair<String, String>>) {
         moved.asReversed().forEach { (oldFile, newFile) ->
