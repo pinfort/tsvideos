@@ -86,8 +86,8 @@ class ReadOutputTest :
             result.statusCode shouldBe 0
             result.stderr shouldBe ""
             val json = mapper.readTree(result.stdout)["program"]
-            json["tags"].map { it.asText() } shouldBe listOf("ews")
-            json["checks"].map { it.asText() } shouldBe listOf("emergency_broadcast")
+            json["tags"].values().map { it.asString() } shouldBe listOf("ews")
+            json["checks"].values().map { it.asString() } shouldBe listOf("emergency_broadcast")
             val file = json["createdFiles"][0]
             file["id"].asLong() shouldBe 4
             file["mime"].isNull shouldBe true
