@@ -11,6 +11,7 @@ import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.domain.BulkResult
 import me.pinfort.tsvideos.core.domain.BulkSnapshot
 import me.pinfort.tsvideos.core.domain.BulkTarget
+import me.pinfort.tsvideos.core.domain.InvalidBulkRequestException
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
 import me.pinfort.tsvideos.core.external.database.mapper.BulkLibraryMapper
@@ -69,8 +70,8 @@ class BulkLibraryCommand(
 
     fun apply(input: BulkApplyRequest): BulkResult {
         val request = validate(input.request)
-        require(input.fingerprints.keys == request.ids.toSet()) { "Every target requires its preview fingerprint" }
-        require(input.fingerprints.values.all { it.matches(fingerprintPattern) }) { "Invalid fingerprint" }
+        ensure(input.fingerprints.keys == request.ids.toSet()) { "Every target requires its preview fingerprint" }
+        ensure(input.fingerprints.values.all { it.matches(fingerprintPattern) }) { "Invalid fingerprint" }
         // Selection-wide destination counts are computed once: other programs' existing paths are still
         // re-checked per target against the locked alias scan, and any change to a target's own files is STALE.
         val proposed = read.execute { proposed(request) }!!
@@ -125,17 +126,24 @@ class BulkLibraryCommand(
 
     private fun validate(input: BulkRequest): BulkRequest {
         val idsValid = input.ids.size in 1..100 && input.ids.all { it > 0 } && input.ids.distinct().size == input.ids.size
-        require(idsValid) { "Select 1 to 100 unique positive IDs" }
+        ensure(idsValid) { "Select 1 to 100 unique positive IDs" }
         if (input.action == BulkAction.DELETE) {
-            require(input.directory == null) { "DELETE does not accept a directory" }
+            ensure(input.directory == null) { "DELETE does not accept a directory" }
             return input.copy(ids = input.ids.sorted())
         }
-        val directory = input.directory ?: throw IllegalArgumentException("MOVE requires a directory")
-        require(safeLabel(directory)) { "Invalid directory label" }
+        val directory = input.directory ?: throw InvalidBulkRequestException("MOVE requires a directory")
+        ensure(safeLabel(directory)) { "Invalid directory label" }
         val normalized = normalize.normalize(directory.trim())
         // Normalization must never introduce a character the raw check would have refused.
-        require(safeLabel(normalized) && safeSegment(normalized)) { "Invalid normalized directory" }
+        ensure(safeLabel(normalized) && safeSegment(normalized)) { "Invalid normalized directory" }
         return input.copy(ids = input.ids.sorted(), directory = normalized)
+    }
+
+    private inline fun ensure(
+        condition: Boolean,
+        message: () -> String,
+    ) {
+        if (!condition) throw InvalidBulkRequestException(message())
     }
 
     private fun safeLabel(label: String): Boolean =
