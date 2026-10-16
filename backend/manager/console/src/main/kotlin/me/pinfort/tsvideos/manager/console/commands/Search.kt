@@ -93,6 +93,9 @@ class Search(
         }
         if (idsOnly) {
             programs.forEach { echo(it.id) }
+            // Scripts that expected every match (the old 500-row search) get a hint on stderr; stdout stays IDs only.
+            val remaining = page.total - page.offset - programs.size
+            if (remaining > 0) echo("warning: $remaining more programs match; use --offset ${page.offset + programs.size}", err = true)
             return
         }
         println("id\trecorded_at\t\tchannelName\t\tdrops\ttsExists\ttitle")

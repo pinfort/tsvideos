@@ -54,6 +54,16 @@ class ReadOutputTest :
             result.stdout.contains("of 7 programs") shouldBe false
         }
 
+        expect("ID-only search warns on stderr when more programs match than the page holds") {
+            val programs = mockk<ProgramCommand>()
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(program), 7, 1, 3)
+            val partial = Search(programs, mockk()).testRead("--name x --ids-only")
+            partial.stdout shouldBe "9\n"
+            partial.stderr shouldBe "warning: 3 more programs match; use --offset 4\n"
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(program), 4, 1, 3)
+            Search(programs, mockk()).testRead("--name x --ids-only").stderr shouldBe ""
+        }
+
         expect("recordedAt always carries seconds, even when they are zero") {
             val programs = mockk<ProgramCommand>()
             val zeroSeconds = program.copy(recordedAt = LocalDateTime.of(2026, 10, 12, 1, 2))

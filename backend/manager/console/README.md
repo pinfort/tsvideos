@@ -116,6 +116,8 @@ oldest first. It now defaults to newest first (`--direction asc` restores the
 old order) with a page size of 100, so pass `--limit 500` or page with
 `--offset` to get more. The short-lived JSON `truncated` flag is replaced by
 `total`; a page is incomplete when `offset + programs.length < total`.
+`--ids-only` prints a warning to stderr naming the next `--offset` when more
+programs match.
 
 ```sh
 java -jar manager-console.jar search --channel BS1 --status completed --max-drops 0 --json
