@@ -31,6 +31,10 @@ export interface CreatedFile {
 
 export interface ProgramDetail extends Program {
   createdFiles: CreatedFile[];
+  // Tags attached to the recording by detectors (see lib/api/tags.ts), and the
+  // detectors that have run on it - used to tell "not detected" from "not checked".
+  tags: string[];
+  checks: string[];
 }
 
 export interface SearchProgramsResponse {

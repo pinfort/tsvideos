@@ -1,14 +1,17 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.Runs
+import io.mockk.andThenJust
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.domain.ExecutedFile
@@ -34,6 +37,7 @@ class ResetRunnerTest :
         lateinit var executedFileCommand: ExecutedFileCommand
         lateinit var programCommand: ProgramCommand
         lateinit var splittedFileCommand: SplittedFileCommand
+        lateinit var jobs: ProcessingJobCommand
         lateinit var logger: Logger
         lateinit var resetRunner: ResetRunner
 
@@ -82,7 +86,8 @@ class ResetRunnerTest :
             programCommand = mockk()
             splittedFileCommand = mockk()
             logger = mockk(relaxed = true)
-            resetRunner = ResetRunner(executedFileCommand, programCommand, splittedFileCommand, logger)
+            jobs = mockk(relaxed = true)
+            resetRunner = ResetRunner(executedFileCommand, programCommand, splittedFileCommand, logger, jobs)
         }
 
         context("run") {
@@ -113,6 +118,55 @@ class ResetRunnerTest :
                 fixture.splitFile.exists() shouldBe true
                 fixture.succeededSplitFile.exists() shouldBe true
                 verify { programCommand.delete(program, true) }
+            }
+
+            expect("an interrupted reset can be replayed while its rows still exist") {
+                val fixture = ResetFixture()
+                every { executedFileCommand.findByFile(fixture.executedFile.absolutePath) } returns executedFileOf(fixture)
+                every { programCommand.findByExecutedFileId(1) } returns program
+                every { splittedFileCommand.selectByExecutedFileId(1) } returns listOf(splittedFileOf(fixture))
+                every { programCommand.delete(any(), any()) } throws RuntimeException("nas down") andThenJust Runs
+
+                shouldThrow<RuntimeException> { resetRunner.run(fixture.executedFile.toPath(), dryRun = false) }
+                fixture.splitFile.exists() shouldBe true
+                verify(exactly = 0) { jobs.reset(any()) }
+
+                resetRunner.run(fixture.executedFile.toPath(), dryRun = false)
+
+                fixture.splitFile.exists() shouldBe false
+                verify(exactly = 2) { jobs.prepareReset(1) }
+                verify(exactly = 1) { jobs.reset(1) }
+            }
+
+            expect("leaves a RESETTING job for manual cleanup once its rows are gone") {
+                every { executedFileCommand.findByFile(any()) } returns null
+
+                resetRunner.run(File("/rec/half-reset.m2ts").toPath(), dryRun = false)
+
+                verify(exactly = 0) { jobs.prepareReset(any()) }
+                verify(exactly = 0) { jobs.reset(any()) }
+            }
+
+            expect("finds a pre-064 executed file registered through a symlinked path") {
+                val fixture = ResetFixture()
+                val linkRoot = Files.createTempDirectory("reset-link").toFile()
+                try {
+                    val link = Files.createSymbolicLink(File(linkRoot, "link").toPath(), fixture.root.toPath())
+                    val linkedRecording = link.resolve("myprogram/rec.m2ts").toFile()
+                    every { executedFileCommand.findByFile(linkedRecording.canonicalPath) } returns null
+                    every { executedFileCommand.findByFile(linkedRecording.absolutePath) } returns executedFileOf(fixture)
+                    every { programCommand.findByExecutedFileId(1) } returns program
+                    every { splittedFileCommand.selectByExecutedFileId(1) } returns listOf(splittedFileOf(fixture))
+                    every { programCommand.delete(any(), any()) } just Runs
+
+                    resetRunner.run(linkedRecording.toPath(), dryRun = false)
+
+                    verify { programCommand.delete(program, false) }
+                    verify { jobs.reset(1) }
+                } finally {
+                    linkRoot.deleteRecursively()
+                    fixture.root.deleteRecursively()
+                }
             }
 
             expect("aborts when the executed file is not found") {
