@@ -43,7 +43,9 @@ class VerifiedUploadCommand(
         private val token: String,
     ) {
         fun transition(next: State) {
-            check(transaction.execute { manifests.transition(manifest.id, token, manifest.state, next) } == 1) { "Upload state changed" }
+            check(transaction.execute { manifests.transition(manifest.id, token, manifest.state, next) } == 1) {
+                "Upload ${manifest.id} is no longer ${manifest.state} under this claim; cannot move to $next"
+            }
             manifest = manifest.copy(state = next)
         }
     }
@@ -366,6 +368,8 @@ class VerifiedUploadCommand(
                 runCatching { transaction.execute { manifests.release(id, token) } }.exceptionOrNull()?.let(e::addSuppressed)
                 throw e
             }
+        // Deliberately not swallowed: a caller must not continue as if the claim were free. The completed state is
+        // durable, so after `tvpcli release-claim` the next call resumes from it instead of redoing the work.
         transaction.execute { manifests.release(id, token) }
         return result
     }

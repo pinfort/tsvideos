@@ -406,6 +406,32 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.source.delete()
             }
         }
+        expect("release failure after a successful upload surfaces, keeps the durable state and resumes after release-claim") {
+            val f = fixture()
+            try {
+                val failing = mockk<UploadManifestMapper>()
+                every { failing.find(any(), any()) } answers { manifests.find(firstArg(), secondArg()) }
+                every { failing.insert(any()) } answers { manifests.insert(firstArg()) }
+                every { failing.claim(any(), any()) } answers { manifests.claim(firstArg(), secondArg()) }
+                every { failing.get(any()) } answers { manifests.get(firstArg()) }
+                every { failing.transition(any(), any(), any(), any()) } answers {
+                    manifests.transition(firstArg(), secondArg(), thirdArg(), arg(3))
+                }
+                every { failing.release(any(), any()) } throws IllegalStateException("db blip")
+                val created = CreatedFileCommand(files, mockk(), mockk(), mockk(relaxed = true))
+                val command = VerifiedUploadCommand(failing, f.nas, created, files, transactions, true)
+                shouldThrow<IllegalStateException> {
+                    command.upload(f.job, "output", f.source, SambaClient.NasType.VIDEO_STORE_NAS, f.target)
+                }.message shouldBe "db blip"
+                f.manifest().state shouldBe State.FINALIZED
+                f.command.releaseAbandonedClaim(f.command.claimed(f.job).single())
+                f.upload()
+                verify(exactly = 1) { f.nas.transfer(any(), any(), any(), any(), any()) }
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
         expect("cleanup failure preserves ownership and local data") {
             val f = fixture()
             every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
