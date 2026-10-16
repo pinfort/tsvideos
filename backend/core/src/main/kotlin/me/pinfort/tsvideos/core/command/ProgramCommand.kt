@@ -4,6 +4,8 @@ import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
+import me.pinfort.tsvideos.core.domain.ProgramSearchPage
+import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
 import me.pinfort.tsvideos.core.external.database.dto.ProgramDto
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
@@ -12,6 +14,7 @@ import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import me.pinfort.tsvideos.core.external.database.mapper.SplittedFileMapper
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
 import java.nio.file.Path
 import java.time.LocalDateTime
@@ -26,7 +29,13 @@ class ProgramCommand(
     private val logger: Logger,
     private val splittedFileCommand: SplittedFileCommand,
     private val directoryNameComponent: DirectoryNameComponent,
+    private val executedFileTagCommand: ExecutedFileTagCommand,
 ) {
+    // One REPEATABLE_READ snapshot keeps total consistent with the page under concurrent writes.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    fun search(query: ProgramSearchQuery): ProgramSearchPage =
+        ProgramSearchPage(programMapper.search(query).map { it.toDomain() }, programMapper.countSearch(query), query.limit, query.offset)
+
     fun selectByName(
         name: String,
         limit: Int = 100,
@@ -112,7 +121,11 @@ class ProgramCommand(
     fun findDetail(id: Long): ProgramDetail? {
         val program: ProgramDto = programMapper.find(id) ?: return null
         val createdFiles: List<CreatedFileDto> = createdFileMapper.selectByExecutedFileId(program.executedFileId)
-        return program.toProgramDetail(createdFiles)
+        return program.toProgramDetail(
+            createdFiles,
+            executedFileTagCommand.selectTags(program.executedFileId),
+            executedFileTagCommand.selectChecks(program.executedFileId),
+        )
     }
 
     @Transactional
