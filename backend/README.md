@@ -115,3 +115,15 @@ Processor status/history, migration, activity semantics and explicit retention: 
 
 See [manager/console/README.md](manager/console/README.md) for JSON fields,
 ID-only output, stdout/stderr separation, and exit codes.
+
+### Library statistics
+
+`tvmcli stats [--group-by CHANNEL|MONTH] [--recorded-from 2026-01-01T00:00:00] [--recorded-to 2026-02-01T00:00:00] [--json]`
+
+The read-only core aggregation is shared with future web consumers. Bounds use the recording environment's local timezone, include the start and exclude the end; a date without a time (`2026-01-01`) means the start of that day; offsets are rejected. Month groups use local `YYYY-MM`. Missing recording metadata has a null group key (human output `(unknown)`); date filters exclude those programs. Empty libraries return zero totals and empty groups with exit 0.
+
+Program counts count each program ID once, including orphan program rows; failed programs have status `ERROR`. Dropped frames sum known nonnegative counts per program; negative or absent counts contribute to `unknownDropsProgramCount`, not the sum. Two programs referring to one executed recording still count as two programs, and each adds that recording's drops to `droppedFrameCount` (drops are per program, unlike file bytes, which are deduplicated).
+
+Storage sums distinct created-file IDs associated with selected programs, including all statuses. Multiple programs referencing the same recording do not multiply file bytes. `originalTsBytes` includes MIME `video/vnd.dlna.mpeg-tts` with encoding `gzip`; `encodedBytes` includes other `video/*` MIME types; `otherBytes` includes uncompressed TS, subtitles, unknown MIME and other artifacts. Original executed-file sizes and split-file sizes are not added. `movedFileBytes` covers `FILE_MOVED`; `pendingFileBytes` covers all other statuses. These are registered metadata bytes, not proof of remote existence or current size. No NAS scan occurs; `verifiedPhysicalBytes` is always null, even for an empty library. Unassociated created-file rows are outside the selected program library.
+
+The command reads metadata in one repeatable-read transaction. Group file totals use the same deduplication as overall totals. JSON uses `{schemaVersion:1, stats:{groupBy,recordedFrom,recordedTo,totals,groups}}`, integer counts/bytes, and nullable physical usage. Human output labels units and verification status. `--ids-only` is unsupported; invalid options/ranges exit 2 and operational errors exit 1 without partial JSON. The aggregation materializes selected metadata (not file contents) in memory.
