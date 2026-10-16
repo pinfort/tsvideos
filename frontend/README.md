@@ -37,6 +37,8 @@ To learn more about Next.js, take a look at the following resources:
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
+The `/storage` page shows registered original TS/encoded/other storage, the largest recordings and duplicate cleanup candidates. It uses the read-only `/api/v1/storage` endpoint and links to recording details; no deletion action is offered. Physical usage and actual reclaimable capacity remain unknown until verified. Pending metadata and excluded shared paths are labeled explicitly.
+
 ## Browser-local playback history
 
 The responsive player supports 0.5–2× speed and a restart button. Position is stored per video in this browser's localStorage (`tsvideos.playback.v1`), at most every five seconds during playback and on pause, seek, page hide, or navigation. No account/server storage or cross-device synchronization is used. Up to 50 unfinished videos are kept; clearing browser data removes this history. Disabled or malformed storage does not prevent playback.
