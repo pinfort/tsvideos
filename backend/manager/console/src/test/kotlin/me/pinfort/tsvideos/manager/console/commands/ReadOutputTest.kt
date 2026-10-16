@@ -15,6 +15,7 @@ import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.core.domain.ExecutedFileTag
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
+import me.pinfort.tsvideos.core.domain.ProgramSearchPage
 import me.pinfort.tsvideos.manager.console.parseManager
 import tools.jackson.databind.json.JsonMapper
 import java.time.LocalDateTime
@@ -27,7 +28,7 @@ class ReadOutputTest :
 
         expect("search JSON preserves scalar types, escapes text and emits only the envelope") {
             val programs = mockk<ProgramCommand>()
-            every { programs.selectByName(any(), any(), any()) } returns listOf(program)
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(program), 1, 100, 0)
             every { programs.hasTsFile(any()) } returns true
             val result = Search(programs, mockk()).testRead("--name 番組 --json")
             result.statusCode shouldBe 0
@@ -40,29 +41,33 @@ class ReadOutputTest :
             root["programs"][0]["recordedAt"].asString() shouldBe "2026-10-12T01:02:03"
             root["programs"][0]["status"].asString() shouldBe "COMPLETED"
             root["programs"][0]["tsExists"].asBoolean() shouldBe true
-            root["truncated"].asBoolean() shouldBe false
+            root["total"].asInt() shouldBe 1
         }
 
-        expect("search signals truncation at the result limit in JSON and on stderr") {
+        expect("human search sends the page summary to stderr, not the stdout table") {
             val programs = mockk<ProgramCommand>()
-            val overLimit = (1L..Search.LIMIT + 1L).map { program.copy(id = it) }
-            every { programs.selectByName(any(), Search.LIMIT + 1, 0) } returns overLimit
-            every { programs.hasTsFile(any()) } returns false
-            val json = Search(programs, mockk()).testRead("--name x --json")
-            json.statusCode shouldBe 0
-            val root = mapper.readTree(json.stdout)
-            root["truncated"].asBoolean() shouldBe true
-            root["programs"].size() shouldBe Search.LIMIT
-            json.stderr.contains("truncated") shouldBe true
-            val ids = Search(programs, mockk()).testRead("--name x --ids-only")
-            ids.stdout shouldBe (1..Search.LIMIT).joinToString("") { "$it\n" }
-            ids.stderr.contains("truncated") shouldBe true
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(program), 7, 1, 3)
+            every { programs.hasTsFile(any()) } returns true
+            val result = Search(programs, mockk()).testRead("--name x")
+            result.statusCode shouldBe 0
+            result.stderr shouldBe "1 of 7 programs (limit=1, offset=3)\n"
+            result.stdout.contains("of 7 programs") shouldBe false
+        }
+
+        expect("ID-only search warns on stderr when more programs match than the page holds") {
+            val programs = mockk<ProgramCommand>()
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(program), 7, 1, 3)
+            val partial = Search(programs, mockk()).testRead("--name x --ids-only")
+            partial.stdout shouldBe "9\n"
+            partial.stderr shouldBe "warning: 3 more programs match; use --offset 4\n"
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(program), 4, 1, 3)
+            Search(programs, mockk()).testRead("--name x --ids-only").stderr shouldBe ""
         }
 
         expect("recordedAt always carries seconds, even when they are zero") {
             val programs = mockk<ProgramCommand>()
             val zeroSeconds = program.copy(recordedAt = LocalDateTime.of(2026, 10, 12, 1, 2))
-            every { programs.selectByName(any(), any(), any()) } returns listOf(zeroSeconds)
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(zeroSeconds), 1, 100, 0)
             every { programs.hasTsFile(any()) } returns false
             val result = Search(programs, mockk()).testRead("--name x --json")
             mapper.readTree(result.stdout)["programs"][0]["recordedAt"].asString() shouldBe "2026-10-12T01:02:00"
@@ -70,13 +75,13 @@ class ReadOutputTest :
 
         expect("search IDs are deterministic with timestamp ties and require no extra queries") {
             val programs = mockk<ProgramCommand>()
-            every { programs.selectByName(any(), any(), any()) } returns listOf(program, program.copy(id = 1))
-            Search(programs, mockk()).testRead("--name 番組 --ids-only").stdout shouldBe "1\n9\n"
+            every { programs.search(any()) } returns ProgramSearchPage(listOf(program, program.copy(id = 1)), 2, 100, 0)
+            Search(programs, mockk()).testRead("--name 番組 --ids-only").stdout shouldBe "9\n1\n"
         }
 
         expect("empty lists succeed with empty arrays or no ID lines") {
             val programs = mockk<ProgramCommand>()
-            every { programs.selectByName(any(), any(), any()) } returns emptyList()
+            every { programs.search(any()) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
             val json = Search(programs, mockk()).testRead("--name x --json")
             json.statusCode shouldBe 0
             mapper.readTree(json.stdout)["programs"].size() shouldBe 0
@@ -168,7 +173,7 @@ class ReadOutputTest :
 
         expect("operational failures never expose driver details or partial JSON") {
             val programs = mockk<ProgramCommand>()
-            every { programs.selectByName(any(), any(), any()) } throws IllegalStateException("password=secret")
+            every { programs.search(any()) } throws IllegalStateException("password=secret")
             val result = Search(programs, mockk()).testRead("--name x --json")
             result.statusCode shouldBe 1
             result.stdout shouldBe ""
