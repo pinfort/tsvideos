@@ -123,11 +123,11 @@ class ProcessingHistoryCommand(
         listener: (Long, Long) -> Unit,
         clock: () -> Long = System::nanoTime,
     ): (Long, Long) -> Unit {
-        val last = AtomicLong(0)
+        val last = AtomicLong(NEVER)
         return { value, total ->
             val now = clock()
             val previous = last.get()
-            if ((previous == 0L || now - previous >= HEARTBEAT_INTERVAL_NANOS) && last.compareAndSet(previous, now)) {
+            if ((previous == NEVER || now - previous >= HEARTBEAT_INTERVAL_NANOS) && last.compareAndSet(previous, now)) {
                 try {
                     heartbeat(attemptId)
                 } catch (e: Exception) {
@@ -176,7 +176,13 @@ class ProcessingHistoryCommand(
                 require(jobId == null || jobId > 0)
                 val identities = mapper.identities(jobId).associateBy { it.jobId }
                 val attempts = mapper.attempts(jobId)
-                val stages = if (attempts.isEmpty()) emptyMap() else mapper.stagesOf(attempts.map { it.id }).groupBy { it.attemptId }
+                // Chunked so that --all over a large history stays well under max_allowed_packet.
+                val stages =
+                    attempts
+                        .map { it.id }
+                        .chunked(STAGE_CHUNK)
+                        .flatMap { mapper.stagesOf(it) }
+                        .groupBy { it.attemptId }
                 attempts.map { ProcessingAttemptHistory(checkNotNull(identities[it.jobId]), it, stages[it.id].orEmpty()) }
             },
         )
@@ -233,5 +239,9 @@ class ProcessingHistoryCommand(
 
     private companion object {
         const val HEARTBEAT_INTERVAL_NANOS = 10_000_000_000L
+
+        // System.nanoTime() may return any value, including 0, so "no heartbeat yet" needs its own sentinel.
+        const val NEVER = Long.MIN_VALUE
+        const val STAGE_CHUNK = 1000
     }
 }
