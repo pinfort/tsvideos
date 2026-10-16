@@ -21,7 +21,7 @@ informational text behavior.
 | Command | Payload |
 | --- | --- |
 | `search --json` | `programs`: array of program objects with `tsExists` |
-| `get program ID --json` | `program`: program object with `createdFiles` |
+| `get program ID --json` | `program`: program object with `createdFiles`, `tags`, `checks` |
 | `get executed_file ID --json` | `executedFile`: executed-file object |
 | `duplicates --json` | `groups`: array of duplicate group objects |
 
@@ -33,6 +33,11 @@ their precision. `recordedAt` is ISO local date-time without an offset, using
 the existing recording environment's local time convention (normally Japan
 time); it is not converted to UTC. `tsExists` is a boolean indicating registered
 TS metadata, not a live NAS integrity check.
+
+`tags` is a string array of detection tags on the recording (`ews`,
+`superimpose`); `checks` is a string array of detectors that have run on it
+(`emergency_broadcast`). A tag absent from `tags` means "not detected" only when
+its detector is listed in `checks`; otherwise the recording was never checked.
 
 `createdFiles` contains objects with integer `id`, `splittedFileId`, `size`
 (bytes), string `file`, nullable strings `mime`, `encoding`, and string `status`

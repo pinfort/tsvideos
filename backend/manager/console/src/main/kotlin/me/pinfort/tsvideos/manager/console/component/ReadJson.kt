@@ -27,7 +27,11 @@ object ReadJson {
     fun detail(detail: ProgramDetail): Map<String, Any?> =
         with(detail) {
             program(Program(id, name, executedFileId, status, drops, size, recordedAt, channel, title, channelName, duration)) +
-                ("createdFiles" to createdFiles.map(::createdFile))
+                linkedMapOf(
+                    "createdFiles" to createdFiles.map(::createdFile),
+                    "tags" to tags,
+                    "checks" to checks,
+                )
         }
 
     fun executedFile(executedFile: ExecutedFile): Map<String, Any?> =

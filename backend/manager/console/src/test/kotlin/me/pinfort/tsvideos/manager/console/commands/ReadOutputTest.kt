@@ -11,6 +11,8 @@ import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.DuplicateGroup
 import me.pinfort.tsvideos.core.domain.ExecutedFile
+import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
+import me.pinfort.tsvideos.core.domain.ExecutedFileTag
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
 import me.pinfort.tsvideos.manager.console.parseManager
@@ -77,11 +79,16 @@ class ReadOutputTest :
                     "局",
                     12.5,
                     listOf(CreatedFile(4, 3, "folder\\file.mp4", 500, null, null, CreatedFile.Status.FILE_MOVED)),
+                    tags = listOf(ExecutedFileTag.EWS),
+                    checks = listOf(ExecutedFileCheck.EMERGENCY_BROADCAST),
                 )
             val result = Get(programs, mockk(), mockk()).testRead("program 9 --json")
             result.statusCode shouldBe 0
             result.stderr shouldBe ""
-            val file = mapper.readTree(result.stdout)["program"]["createdFiles"][0]
+            val json = mapper.readTree(result.stdout)["program"]
+            json["tags"].map { it.asText() } shouldBe listOf("ews")
+            json["checks"].map { it.asText() } shouldBe listOf("emergency_broadcast")
+            val file = json["createdFiles"][0]
             file["id"].asLong() shouldBe 4
             file["mime"].isNull shouldBe true
             file.has("isMp4") shouldBe false
