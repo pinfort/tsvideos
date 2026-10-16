@@ -10,6 +10,8 @@ The SMB implementation explicitly uses O_CREAT | O_EXCL with no sharing, not jci
 
 ## Recovery and temporary cleanup
 
+After a processor/callback crash, stop every processor/callback process and run `tvpcli release-claim <original-recording-path>`. It lists the job's claimed uploads (state, NAS, final path, token), asks for confirmation and clears exactly those tokens; it never changes a state or touches the NAS, so the next run resumes or reports the reconciliation needed. `--dry-run` only lists them. A claim taken over after the listing is not released.
+
 Manual recovery SQL (stop every processor/callback process first, back up the row, and always match the exact `id`):
 
 ```sql

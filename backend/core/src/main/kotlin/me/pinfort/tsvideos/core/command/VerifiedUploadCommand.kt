@@ -284,6 +284,23 @@ class VerifiedUploadCommand(
         }
     }
 
+    /** Uploads of a job that still hold a claim; after a crash these are candidates for [releaseAbandonedClaim]. */
+    fun claimed(jobId: Long): List<UploadManifest> {
+        val uploads = checkNotNull(transaction.execute { manifests.forJob(jobId) })
+        return uploads.filter { it.claimToken != null }
+    }
+
+    /**
+     * Operator recovery once every processor/callback process is stopped: clears exactly the claim that was inspected.
+     * State and NAS are untouched, so the next run resumes or asks for reconciliation as usual.
+     */
+    fun releaseAbandonedClaim(manifest: UploadManifest) {
+        val token = checkNotNull(manifest.claimToken) { "Upload ${manifest.id} is not claimed" }
+        check(transaction.execute { manifests.release(manifest.id, token) } == 1) {
+            "Claim of upload ${manifest.id} changed since it was inspected; inspect again"
+        }
+    }
+
     /** Explicit reset only: no glob/age sweep and no unproven temporary ownership. */
     fun retireAfterReset(jobId: Long) {
         checkNotNull(transaction.execute { manifests.forJob(jobId) }).forEach { entry ->

@@ -81,4 +81,4 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | TsSelect | ドロップ数のカウントなどを JVM 内で行うライブラリ (`TsSelectClient`) |
 | Amatsukaze | TS をエンコードするソフトウェア。`AmatsukazeAddTaskClient` でタスクを追加する |
 | NAS | 圧縮ファイルや作成ファイルの保管先。Samba 経由でアクセスする |
-| `tvpcli` | processor のコマンドラインツール (`process` / `after-encode` / `reset`) |
+| `tvpcli` | processor のコマンドラインツール (`process` / `after-encode` / `reset` / `release-claim`) |

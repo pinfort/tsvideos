@@ -381,17 +381,25 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 other.source.delete()
             }
         }
-        expect("a claim left by a dead owner keeps blocking until it is released manually") {
+        expect("a claim left by a dead owner keeps blocking until the inspected claim is released") {
             val f = fixture()
             try {
                 val receipt = f.upload()
+                f.command.claimed(f.job) shouldBe emptyList()
                 manifests.claim(receipt.manifestId, "dead-owner") shouldBe 1
                 listOf<() -> Unit>({ f.upload() }, { f.command.register(receipt, 1, "video/mp4", null) }).forEach { call ->
                     shouldThrow<IllegalStateException> { call() }.message shouldStartWith "Upload already claimed"
                 }
                 f.manifest().state shouldBe State.FINALIZED
-                // The documented recovery: clear exactly this token once the owner is known to be gone.
+                val stale = f.command.claimed(f.job).single()
+                stale.claimToken shouldBe "dead-owner"
+                // A claim taken over after inspection is never released blindly.
                 manifests.release(receipt.manifestId, "dead-owner") shouldBe 1
+                manifests.claim(receipt.manifestId, "new-owner") shouldBe 1
+                shouldThrow<IllegalStateException> { f.command.releaseAbandonedClaim(stale) }
+                f.manifest().claimToken shouldBe "new-owner"
+                f.command.releaseAbandonedClaim(f.command.claimed(f.job).single())
+                f.manifest().claimToken shouldBe null
                 f.command.register(receipt, 1, "video/mp4", null)
                 f.manifest().state shouldBe State.REGISTERED
             } finally {
