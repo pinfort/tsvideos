@@ -11,6 +11,7 @@ import me.pinfort.tsvideos.core.component.LocalPreflightProbe
 import me.pinfort.tsvideos.core.domain.DiagnosticReport
 import me.pinfort.tsvideos.core.domain.DiagnosticStatus
 import org.springframework.mock.env.MockEnvironment
+import java.nio.file.FileStore
 import java.nio.file.Path
 
 class ProcessingPreflightCommandTest :
@@ -20,6 +21,7 @@ class ProcessingPreflightCommandTest :
         lateinit var local: LocalPreflightProbe
         lateinit var tcp: EncoderConnectivityProbe
         lateinit var command: ProcessingPreflightCommand
+        val sameStore = mockk<FileStore>()
         val one = Path.of("one").toAbsolutePath()
         val two = Path.of("two").toAbsolutePath()
         beforeTest {
@@ -40,7 +42,7 @@ class ProcessingPreflightCommandTest :
                 mockk {
                     every { expand(any()) } answers { listOf(firstArg()) }
                     every { inspect(any()) } answers
-                        { LocalPreflightProbe.Input(firstArg(), 10, "same-store", 50) }
+                        { LocalPreflightProbe.Input(firstArg(), 10, sameStore, 50) }
                     every { tool(any(), any()) } returns true
                     every {
                         windows()
@@ -60,7 +62,7 @@ class ProcessingPreflightCommandTest :
             verify(exactly = 1) { shared.diagnose(false) }
         }
         expect("zero usable space fails while unavailable space stays unchecked and overflow is explicit") {
-            every { local.inspect(any()) } returns LocalPreflightProbe.Input(one, 10, "store", 0)
+            every { local.inspect(any()) } returns LocalPreflightProbe.Input(one, 10, sameStore, 0)
             command
                 .diagnose(listOf(one))
                 .checks
@@ -72,7 +74,7 @@ class ProcessingPreflightCommandTest :
                 .checks
                 .single { it.id == "space.0" }
                 .status shouldBe DiagnosticStatus.UNCHECKED
-            every { local.inspect(any()) } returns LocalPreflightProbe.Input(one, Long.MAX_VALUE, "store", Long.MAX_VALUE)
+            every { local.inspect(any()) } returns LocalPreflightProbe.Input(one, Long.MAX_VALUE, sameStore, Long.MAX_VALUE)
             command
                 .diagnose(listOf(one))
                 .checks

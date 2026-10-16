@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.core.component
 import org.springframework.stereotype.Component
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.nio.file.FileStore
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.Executors
@@ -13,7 +14,7 @@ class LocalPreflightProbe {
     data class Input(
         val canonical: Path,
         val bytes: Long,
-        val storage: Any?,
+        val storage: FileStore?,
         val usable: Long?,
     )
 

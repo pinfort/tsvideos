@@ -89,7 +89,7 @@ class ProcessingPreflightCommand(
         listOf("ts-splitter-path" to true, "amatsukaze-add-task-path" to true, "ffprobe-path" to false).forEach { (name, windowsOnly) ->
             diagnosticCancellation()
             val value = setting("processor-tool.$name")
-            val configured = !value.isNullOrBlank() && value.none(Char::isISOControl)
+            val configured = isPlainSetting(value)
             val found = configured && safe { local.tool(value!!, windowsOnly) }
             val executionChecked = !windowsOnly && !local.windows()
             val passReason =
@@ -112,7 +112,7 @@ class ProcessingPreflightCommand(
     private fun checkEncoder(checks: MutableList<DiagnosticCheck>) {
         listOf("default-profile", "atx-div-profile").forEach { name ->
             val value = setting("processor-tool.amatsukaze.$name")
-            val valid = !value.isNullOrBlank() && value.none(Char::isISOControl)
+            val valid = isPlainSetting(value)
             checks.add(
                 "config.encoder.$name",
                 if (valid) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
@@ -152,6 +152,8 @@ class ProcessingPreflightCommand(
             checks.add("encoder.connectivity", DiagnosticStatus.UNCHECKED, "Correct host and port configuration before connecting")
         }
     }
+
+    private fun isPlainSetting(value: String?): Boolean = !value.isNullOrBlank() && value.none(Char::isISOControl)
 
     private fun isBareHost(host: String): Boolean {
         val uri = URI("tcp://$host")

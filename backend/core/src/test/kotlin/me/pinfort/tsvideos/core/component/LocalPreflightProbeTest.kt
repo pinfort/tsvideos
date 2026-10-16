@@ -25,6 +25,17 @@ class LocalPreflightProbeTest :
                 dir.toFile().deleteRecursively()
             }
         }
+        expect("inputs in different directories of one filesystem share an equal FileStore for grouping") {
+            val dir = Files.createTempDirectory("preflight-store")
+            try {
+                val probe = LocalPreflightProbe()
+                val first = Files.writeString(dir.resolve("a.m2ts"), "a")
+                val second = Files.writeString(Files.createDirectory(dir.resolve("sub")).resolve("b.m2ts"), "b")
+                probe.inspect(first).storage shouldBe probe.inspect(second).storage
+            } finally {
+                dir.toFile().deleteRecursively()
+            }
+        }
         expect("bounded TCP confirms connectivity only and handles refusal") {
             val probe = EncoderConnectivityProbe()
             val port =

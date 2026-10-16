@@ -58,6 +58,8 @@ class PreflightCommandTest :
         expect("spring property arguments are split from command arguments") {
             val args = arrayOf("preflight", "--spring.config.additional-location=/x.yaml", "--spring.flag", "/recording")
             DiagnosticEnvironment.commandArguments(args) shouldBe listOf("preflight", "--spring.flag", "/recording")
+            DiagnosticEnvironment.commandArguments(arrayOf("process", "--", "--spring.x=y")) shouldBe
+                listOf("process", "--", "--spring.x=y")
         }
         expect("unloadable configuration reports config.load as JSON and exits 1") {
             val out = ByteArrayOutputStream()
