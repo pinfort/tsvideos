@@ -37,6 +37,7 @@ class TsSelectClient {
         tsDump(
             file,
             ProgressListener { progress ->
+                if (Thread.interrupted()) throw InterruptedException("Inspection interrupted")
                 val processed =
                     if (progress.finished && progress.totalBytes > 0) progress.totalBytes else progress.bytesProcessed
                 onProgress(processed, progress.totalBytes)

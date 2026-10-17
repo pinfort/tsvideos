@@ -17,6 +17,10 @@ data class DuplicateGroup(
         OVERLAP,
     }
 
+    init {
+        require(programs.size >= 2) { "a duplicate group needs at least two programs" }
+    }
+
     val recommended: Program get() = programs.first()
 
     val others: List<Program> get() = programs.drop(1)

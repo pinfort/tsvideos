@@ -18,9 +18,15 @@ data class RecordingQualityPolicy(
     val unavailableAction: QualityAction = QualityAction.WARN,
 ) {
     init {
-        require(maxDroppedFrames == null || maxDroppedFrames.threshold >= 0)
-        require(minDurationSeconds == null || (minDurationSeconds.threshold.isFinite() && minDurationSeconds.threshold > 0))
-        require(requiredStreams == null || requiredStreams.threshold.isNotEmpty())
+        require(maxDroppedFrames == null || maxDroppedFrames.threshold >= 0) {
+            "processor-quality.max-dropped-frames must be zero or more"
+        }
+        require(minDurationSeconds == null || (minDurationSeconds.threshold.isFinite() && minDurationSeconds.threshold > 0)) {
+            "processor-quality.min-duration-seconds must be a finite positive number"
+        }
+        require(requiredStreams == null || requiredStreams.threshold.isNotEmpty()) {
+            "processor-quality.required-streams must not be empty"
+        }
     }
 }
 

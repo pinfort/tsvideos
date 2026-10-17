@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.external.tool
 
+import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.external.shell.ShellClient
 import org.slf4j.Logger
@@ -14,7 +15,7 @@ class DurationProbeClient(
     private val processorToolConfigurationProperties: ProcessorToolConfigurationProperties,
     private val logger: Logger,
 ) {
-    // never throws; any failure (non-zero exit, malformed output, timeout, missing binary) is swallowed to 0.0
+    // Ordinary probe failures return 0.0; interruption must propagate to stop the invocation.
     fun probe(
         file: File,
         timeoutSec: Long = 60,
@@ -45,6 +46,7 @@ class DurationProbeClient(
                 }
             }
         } catch (e: Exception) {
+            if (ProcessingCancellation.isInterrupted(e)) throw e
             logger.warn("Failed to probe duration, file=$file", e)
             0.0
         }

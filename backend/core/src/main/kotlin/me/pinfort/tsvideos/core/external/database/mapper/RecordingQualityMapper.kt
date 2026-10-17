@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
 import me.pinfort.tsvideos.core.domain.ProcessingJob
+import me.pinfort.tsvideos.core.domain.QualityAction
 import me.pinfort.tsvideos.core.domain.RecordingQualityReport
 import org.apache.ibatis.annotations.Insert
 import org.apache.ibatis.annotations.Mapper
@@ -10,7 +11,7 @@ import org.apache.ibatis.annotations.Update
 @Mapper
 interface RecordingQualityMapper {
     @Select(
-        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest FROM processing_job WHERE id=#{id} FOR UPDATE",
+        "SELECT id,identity_key,input_path,input_size,modified_millis,state,executed_file_id,callback_claim,callback_manifest,updated_at FROM processing_job WHERE id=#{id} FOR UPDATE",
     )
     fun lockJob(id: Long): ProcessingJob?
 
@@ -38,7 +39,14 @@ interface RecordingQualityMapper {
         VALUES(#{attemptId},#{jobId},#{action},#{sourcePath},#{identityKey},#{findingsJson})
     """,
     )
-    fun insert(report: RecordingQualityReport): Int
+    fun insert(
+        attemptId: Long,
+        jobId: Long,
+        action: QualityAction,
+        sourcePath: String,
+        identityKey: String,
+        findingsJson: String,
+    ): Int
 
     @Select(
         """

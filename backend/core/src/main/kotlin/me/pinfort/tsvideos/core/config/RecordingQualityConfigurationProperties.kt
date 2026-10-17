@@ -16,6 +16,7 @@ data class RecordingQualityConfigurationProperties(
     val streamsAction: QualityAction = QualityAction.WARN,
     val unavailableAction: QualityAction = QualityAction.WARN,
 ) {
+    // Built once only to validate: a misconfigured policy fails application startup instead of the first recording.
     init {
         policy()
     }

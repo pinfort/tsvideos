@@ -12,6 +12,8 @@ import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
 import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.RecordingQualityCommand
 import me.pinfort.tsvideos.core.domain.QualityAction
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
 
@@ -42,12 +44,18 @@ abstract class QualityJobCommand(
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             throw CliktError("Quality operation interrupted", statusCode = 130)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            // The CLI message stays generic; the cause (job ID and exception, no configuration values) goes to the log.
+            logger.error("Quality $commandName failed for job $jobId", error)
             throw CliktError("Unable to complete quality operation", statusCode = 1)
         }
     }
 
     protected abstract fun execute()
+
+    private companion object {
+        val logger: Logger = LoggerFactory.getLogger(QualityJobCommand::class.java)
+    }
 }
 
 @Component
@@ -57,8 +65,9 @@ class QualityReportCommand(
 ) : QualityJobCommand("report", history) {
     private val json by option("--json", help = "schema version 1 JSON on stdout").flag()
 
+    private val mapper = JsonMapper.builder().build()
+
     override fun execute() {
-        val mapper = JsonMapper.builder().build()
         val reports =
             quality.reports(jobId).map { report ->
                 val findings = mapper.readTree(report.findingsJson)

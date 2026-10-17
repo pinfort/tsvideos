@@ -31,12 +31,7 @@ class RecordingStreamProbeClient(
         }
 
     internal fun parse(json: String): Set<RecordingStream>? {
-        val streams =
-            JsonMapper
-                .builder()
-                .build()
-                .readTree(json)
-                .get("streams") ?: return null
+        val streams = json.let(JSON::readTree).get("streams") ?: return null
         if (!streams.isArray) return null
         val result = mutableSetOf<RecordingStream>()
         for (stream in streams) {
@@ -49,5 +44,9 @@ class RecordingStreamProbeClient(
             }
         }
         return result
+    }
+
+    private companion object {
+        val JSON: JsonMapper = JsonMapper.builder().build()
     }
 }

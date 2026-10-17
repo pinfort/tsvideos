@@ -8,6 +8,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.RecordingStream
+import me.pinfort.tsvideos.core.exception.ShellCommandTimeoutException
 import me.pinfort.tsvideos.core.external.shell.ShellClient
 import me.pinfort.tsvideos.core.external.shell.ShellResult
 import java.io.File
@@ -38,6 +39,11 @@ class RecordingStreamProbeClientTest :
             }
             every { shell.executeCapturingOutput(any(), any(), any()) } returns ShellResult(1, "", "password")
             client.probe(file) shouldBe null
+        }
+        expect("a probe timeout is an unavailable measurement, not an interruption") {
+            every { shell.executeCapturingOutput(any(), any(), any()) } throws ShellCommandTimeoutException("Command timed out after 60s")
+            client.probe(file) shouldBe null
+            Thread.currentThread().isInterrupted shouldBe false
         }
         expect("interruption propagates rather than becoming an unknown measurement") {
             every { shell.executeCapturingOutput(any(), any(), any()) } throws InterruptedException()

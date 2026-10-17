@@ -5,13 +5,17 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
+import io.mockk.every
+import io.mockk.mockk
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
+import me.pinfort.tsvideos.core.domain.ProcessingErrorCode
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.QualityAction
 import me.pinfort.tsvideos.core.domain.RecordingQualityDecision
 import me.pinfort.tsvideos.core.external.database.mapper.ProcessingHistoryMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ProcessingJobMapper
+import me.pinfort.tsvideos.core.external.database.mapper.RecordingQualityMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -22,6 +26,7 @@ import org.springframework.test.context.junit.jupiter.SpringJUnitConfig
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 import java.nio.file.Files
 import java.time.Instant
 
@@ -40,7 +45,7 @@ class RecordingQualityCommandTest : ExpectSpec() {
 
     @Autowired private lateinit var histories: ProcessingHistoryMapper
 
-    @Autowired private lateinit var qualityMapper: me.pinfort.tsvideos.core.external.database.mapper.RecordingQualityMapper
+    @Autowired private lateinit var qualityMapper: RecordingQualityMapper
 
     @Autowired private lateinit var transactions: PlatformTransactionManager
 
@@ -52,19 +57,21 @@ class RecordingQualityCommandTest : ExpectSpec() {
                 val identity = ProcessingIdentity.from(source)
                 jobs.claim(identity.key, identity.path, identity.size, identity.modifiedMillis)
                 val job = checkNotNull(jobs.find(identity.key))
-                val history = ProcessingHistoryCommand(histories, transactions)
+                val history = ProcessingHistoryCommand(histories, transactions, mockk(relaxed = true))
                 val attempt = history.begin(job, ProcessingAttemptKind.PROCESS)
                 command.record(job, attempt.id, RecordingQualityDecision(QualityAction.QUARANTINE, emptyList()))
                 jobs.find(identity.key)?.state shouldBe "QUARANTINED"
+                // The quarantine finishes its own attempt, so nothing is left ACTIVE to block release.
+                checkNotNull(histories.attempt(attempt.id)).let {
+                    it.outcome shouldBe ProcessingOutcome.FAILED
+                    it.errorCode shouldBe ProcessingErrorCode.QUALITY_QUARANTINED
+                }
                 val saved = command.reports(job.id).single()
                 saved.sourcePath shouldBe source.canonicalPath
                 Instant.parse(saved.checkedAt).isAfter(Instant.EPOCH) shouldBe true
+                val other = history.begin(job, ProcessingAttemptKind.PROCESS)
                 shouldThrow<IllegalStateException> { command.release(job.id) }
-                history.finish(
-                    attempt.id,
-                    ProcessingOutcome.FAILED,
-                    me.pinfort.tsvideos.core.domain.ProcessingErrorCode.QUALITY_QUARANTINED,
-                )
+                history.finish(other.id, ProcessingOutcome.FAILED, ProcessingErrorCode.OPERATION_FAILED)
                 source.appendText("changed")
                 shouldThrow<IllegalStateException> { command.release(job.id) }
                 source.writeText("original")
@@ -79,8 +86,38 @@ class RecordingQualityCommandTest : ExpectSpec() {
                 jobs.link(job.id, 987654321) shouldBe 1
                 jobs.transition(job.id, "CLAIMED", "RETRYABLE") shouldBe 1
                 jobs.removeReset(987654321) shouldBe 1
-                RecordingQualityCommand(qualityMapper).reports(job.id).single() shouldBe saved
+                RecordingQualityCommand(qualityMapper, histories).reports(job.id).single() shouldBe saved
                 history.status(job.id).single().jobState shouldBe "RETIRED"
+            } finally {
+                source.delete()
+            }
+        }
+
+        expect("a failed quarantine commits nothing and leaves the attempt ACTIVE for the caller to fail") {
+            val source = Files.createTempFile("quality-", ".m2ts").toFile()
+            try {
+                source.writeText("original")
+                val identity = ProcessingIdentity.from(source)
+                jobs.claim(identity.key, identity.path, identity.size, identity.modifiedMillis)
+                val job = checkNotNull(jobs.find(identity.key))
+                val history = ProcessingHistoryCommand(histories, transactions, mockk(relaxed = true))
+                val attempt = history.begin(job, ProcessingAttemptKind.PROCESS)
+                val failing = mockk<RecordingQualityMapper>()
+                every { failing.lockJob(any()) } answers { qualityMapper.lockJob(firstArg()) }
+                every { failing.ownedAttempt(any(), any()) } answers { qualityMapper.ownedAttempt(firstArg(), secondArg()) }
+                every { failing.insert(any(), any(), any(), any(), any(), any()) } answers {
+                    qualityMapper.insert(arg(0), arg(1), arg(2), arg(3), arg(4), arg(5))
+                }
+                every { failing.transition(any(), any(), any()) } returns 0
+                shouldThrow<IllegalStateException> {
+                    TransactionTemplate(transactions).executeWithoutResult {
+                        RecordingQualityCommand(failing, histories)
+                            .record(job, attempt.id, RecordingQualityDecision(QualityAction.QUARANTINE, emptyList()))
+                    }
+                }.message shouldBe "Job ${job.id} could not be quarantined"
+                jobs.find(identity.key)?.state shouldBe "CLAIMED"
+                command.reports(job.id) shouldBe emptyList()
+                checkNotNull(histories.attempt(attempt.id)).outcome shouldBe ProcessingOutcome.ACTIVE
             } finally {
                 source.delete()
             }

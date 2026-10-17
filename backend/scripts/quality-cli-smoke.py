@@ -27,7 +27,8 @@ try:
             time.sleep(1)
     else:
         raise RuntimeError('Dedicated MariaDB failed to start')
-    sql((root / 'core/src/test/resources/ddl/01_create_database.sql').read_text())
+    # Same schema source as core:generateTestDdl: every migration in filename order.
+    sql('\n'.join(p.read_text() for p in sorted((root / 'core/src/main/resources/db/migrations').glob('*.sql'))))
     port = run(['docker', 'port', container, '3306']).stdout.strip().split(':')[-1]
     with tempfile.TemporaryDirectory(prefix='quality71-') as directory:
         work = Path(directory)

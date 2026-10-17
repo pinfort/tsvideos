@@ -12,6 +12,7 @@ import me.pinfort.tsvideos.processor.infrastructure.pipeline.PathProcessingRunne
 import org.springframework.stereotype.Component
 import java.nio.file.Path
 
+/** PreflightCommand's process gate parses these same arguments first; add new options there too. */
 @Component
 class ProcessCommand(
     private val pathProcessingRunner: PathProcessingRunner,
@@ -22,29 +23,24 @@ class ProcessCommand(
     private val dryRun by option("-d", "--dry-run").flag(default = false)
 
     private val dropCheckProgressPrinter = ProgressPrinter("Drop checking")
+    private val emergencyCheckProgressPrinter = ProgressPrinter("Emergency checking")
     private val compressProgressPrinter = ProgressPrinter("Compressing")
     private val uploadProgressPrinter = ProgressPrinter("Uploading")
 
     override fun run() {
         var summary = PathProcessingRunner.Summary()
-        try {
-            paths.forEach {
-                summary +=
-                    pathProcessingRunner.processPath(
-                        Path.of(it),
-                        dryRun,
-                        dropCheckProgressPrinter::render,
-                        compressProgressPrinter::render,
-                        uploadProgressPrinter::render,
-                    )
-            }
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-            throw CliktError("Processing interrupted", statusCode = 130)
+        paths.forEach {
+            summary +=
+                pathProcessingRunner.processPath(
+                    Path.of(it),
+                    dryRun,
+                    dropCheckProgressPrinter::render,
+                    emergencyCheckProgressPrinter::render,
+                    compressProgressPrinter::render,
+                    uploadProgressPrinter::render,
+                )
         }
-        if (summary.quarantined >
-            0
-        ) {
+        if (summary.quarantined > 0) {
             throw CliktError("${summary.quarantined} recording(s) quarantined; ${summary.failed} failed", statusCode = 4)
         }
         if (summary.failed > 0) throw CliktError("${summary.failed} recording(s) failed", statusCode = 1)
