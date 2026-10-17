@@ -34,7 +34,9 @@ class DuplicateReviewMapperTest : ExpectSpec() {
     private fun command() = DuplicateReviewCommand(DuplicateProgramCommand(programs), files)
 
     init {
-        beforeTest { sql(listOf("created_file", "splitted_file", "program", "executed_file").map { "DELETE FROM $it" }) }
+        beforeTest { clear() }
+        // Leave the shared container empty so later specs' fixed names and IDs don't collide.
+        afterTest { clear() }
         expect("empty and deleted recordings do not produce groups") {
             command().review().groups shouldBe emptyList()
             seed()
@@ -107,6 +109,8 @@ class DuplicateReviewMapperTest : ExpectSpec() {
                 "INSERT INTO program VALUES (1,'a',1,'COMPLETED'),(2,'b',2,'COMPLETED')",
             ),
         )
+
+    private fun clear() = sql(listOf("created_file", "splitted_file", "program", "executed_file").map { "DELETE FROM $it" })
 
     private fun sql(statements: List<String>) {
         dataSource.connection.use { c ->

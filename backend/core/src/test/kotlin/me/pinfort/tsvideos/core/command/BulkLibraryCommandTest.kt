@@ -1,8 +1,11 @@
 package me.pinfort.tsvideos.core.command
 
 import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -20,9 +23,13 @@ import me.pinfort.tsvideos.core.external.database.mapper.BulkLibraryMapper
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ExecutedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.SplittedFileMapper
+import org.slf4j.Logger
+import org.springframework.dao.CannotAcquireLockException
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
 import java.time.LocalDateTime
+import kotlin.reflect.full.memberProperties
+import kotlin.reflect.full.primaryConstructor
 
 class BulkLibraryCommandTest :
     ExpectSpec({
@@ -32,7 +39,9 @@ class BulkLibraryCommandTest :
         val created = mockk<CreatedFileMapper>()
         val mapper = mockk<BulkLibraryMapper>(relaxed = true)
         val tx = mockk<PlatformTransactionManager>(relaxed = true)
-        val command =
+        val logger = mockk<Logger>(relaxed = true)
+
+        fun command(normalize: NormalizeComponent = NormalizeComponent()) =
             BulkLibraryCommand(
                 programs,
                 executed,
@@ -40,9 +49,11 @@ class BulkLibraryCommandTest :
                 created,
                 mapper,
                 DirectoryNameComponent(NormalizeComponent()),
-                NormalizeComponent(),
+                normalize,
                 tx,
+                logger,
             )
+        val command = command()
         val program =
             Program(1, "first", 10, Program.Status.COMPLETED, 0, 12, LocalDateTime.of(2026, 1, 1, 0, 0), "1", "title", "channel", 12.0)
         val source =
@@ -62,7 +73,7 @@ class BulkLibraryCommandTest :
         val file = CreatedFileDto(30, 20, "base/a/alpha/video.mp4", 12, "video/mp4", null, CreatedFileDto.Status.FILE_MOVED)
         val request = BulkRequest(listOf(1), BulkAction.DELETE)
         beforeTest {
-            io.mockk.clearMocks(programs, executed, splits, created, mapper, tx)
+            clearMocks(programs, executed, splits, created, mapper, tx, logger)
             every { tx.getTransaction(any()) } returns SimpleTransactionStatus()
             every { programs.find(any()) } returns program
             every { executed.find(10) } returns source
@@ -71,6 +82,9 @@ class BulkLibraryCommandTest :
             every { mapper.references(10) } returns listOf(1)
             every { mapper.allFiles() } returns listOf(file)
             every { mapper.lockFiles() } answers { mapper.allFiles() }
+            every { mapper.createdFilesOfPrograms(any()) } answers {
+                firstArg<List<Long>>().filter { programs.find(it) != null }.flatMap { created.selectByExecutedFileId(10) }
+            }
             every { mapper.lockProgram(any()) } answers { firstArg() }
         }
         expect("preview is read only and includes all records and original preservation") {
@@ -114,6 +128,80 @@ class BulkLibraryCommandTest :
                 .status shouldBe
                 BulkOutcomeStatus.STALE
             verify(exactly = 0) { programs.delete(any(), any()) }
+        }
+        expect("every snapshot field is covered by the fingerprint") {
+            // Fails when a DTO gains a field that BulkLibraryCommand.fingerprint does not encode.
+            fun <T : Any> variants(value: T): List<Pair<String, T>> {
+                val constructor = value::class.primaryConstructor!!
+                return constructor.parameters.map { parameter ->
+                    val current =
+                        value::class
+                            .memberProperties
+                            .single { it.name == parameter.name }
+                            .getter
+                            .call(value)
+                    val changed: Any =
+                        when (current) {
+                            is Long -> current + 1000
+                            is Int -> current + 1
+                            is Double -> current + 0.5
+                            is String -> current + "x"
+                            is LocalDateTime -> current.plusDays(1)
+                            is Enum<*> -> current.javaClass.enumConstants.first { it != current }
+                            null -> "x"
+                            else -> error("Add a variant for ${parameter.name}: ${current::class}")
+                        }
+                    val arguments =
+                        constructor.parameters.associateWith { p ->
+                            value::class
+                                .memberProperties
+                                .single { it.name == p.name }
+                                .getter
+                                .call(value)
+                        }
+                    @Suppress("UNCHECKED_CAST")
+                    parameter.name!! to constructor.callBy(arguments + (parameter to changed)) as T
+                }
+            }
+            val baseline =
+                command
+                    .preview(request)
+                    .targets
+                    .single()
+                    .fingerprint
+
+            fun fingerprintWith(setup: () -> Unit): String {
+                setup()
+                return command.preview(request).targets.single().fingerprint.also {
+                    every { programs.find(any()) } returns program
+                    every { executed.find(any()) } returns source
+                    every { splits.selectByExecutedFileId(any()) } returns listOf(split)
+                    every { created.selectByExecutedFileId(any()) } returns listOf(file)
+                    every { mapper.references(any()) } returns listOf(1)
+                }
+            }
+            every { executed.find(any()) } returns source
+            every { splits.selectByExecutedFileId(any()) } returns listOf(split)
+            every { created.selectByExecutedFileId(any()) } returns listOf(file)
+            every { mapper.references(any()) } returns listOf(1)
+            for ((name, changed) in variants(program)) {
+                withClue("Program.$name") { fingerprintWith { every { programs.find(any()) } returns changed } shouldNotBe baseline }
+            }
+            for ((name, changed) in variants(source)) {
+                withClue(
+                    "ExecutedFileDto.$name",
+                ) { fingerprintWith { every { executed.find(any()) } returns changed } shouldNotBe baseline }
+            }
+            for ((name, changed) in variants(split)) {
+                withClue("SplittedFileDto.$name") {
+                    fingerprintWith { every { splits.selectByExecutedFileId(any()) } returns listOf(changed) } shouldNotBe baseline
+                }
+            }
+            for ((name, changed) in variants(file)) {
+                withClue("CreatedFileDto.$name") {
+                    fingerprintWith { every { created.selectByExecutedFileId(any()) } returns listOf(changed) } shouldNotBe baseline
+                }
+            }
         }
         expect("executed and split changes invalidate snapshots") {
             val plan = command.preview(request)
@@ -160,6 +248,11 @@ class BulkLibraryCommandTest :
                 .targets
                 .single()
                 .destinations shouldBe mapOf(30L to "base\\B\\Beta\\video.mp4")
+            command
+                .preview(move)
+                .targets
+                .single()
+                .estimatedMetadataBytes shouldBe 12
             command
                 .preview(BulkRequest(listOf(1), BulkAction.MOVE, "alpha"))
                 .targets
@@ -233,6 +326,106 @@ class BulkLibraryCommandTest :
                 .message
                 .contains("secret") shouldBe false
             verify(exactly = 1) { programs.delete(program.copy(id = 2), false) }
+            verify(exactly = 1) { logger.error(match { it.contains("programId=1") }, any<IllegalStateException>()) }
+        }
+        expect("a program that disappears between lock and lookup is NOT_FOUND rather than FAILED") {
+            val plan = command.preview(request)
+            every { programs.find(1) } returns null
+            command
+                .apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+                .outcomes
+                .single()
+                .status shouldBe
+                BulkOutcomeStatus.NOT_FOUND
+        }
+        expect("directory labels are re-checked after normalization") {
+            val normalize = mockk<NormalizeComponent>()
+            for (normalized in listOf("a/b", "a\\b", "a#b", "a%b", "a:b", "x.", ".")) {
+                every { normalize.normalize(any<String>()) } returns normalized
+                shouldThrow<IllegalArgumentException> {
+                    command(normalize).preview(BulkRequest(listOf(1), BulkAction.MOVE, "valid"))
+                }
+            }
+        }
+        expect("move without generated files is refused instead of reporting a no-op success") {
+            every { created.selectByExecutedFileId(10) } returns emptyList()
+            command
+                .preview(BulkRequest(listOf(1), BulkAction.MOVE, "beta"))
+                .targets
+                .single()
+                .reason shouldBe "No generated files to move"
+        }
+        expect("earlier committed moves in the same apply do not make later targets stale") {
+            val second = program.copy(id = 2, name = "second", executedFileId = 11)
+            val secondFile = file.copy(id = 31, splittedFileId = 21, file = "base/s/second/video2.mp4")
+            val files = mutableListOf(file, secondFile)
+            every { programs.find(2) } returns second
+            every { executed.find(11) } returns source.copy(id = 11)
+            every { splits.selectByExecutedFileId(11) } returns listOf(split.copy(id = 21, executedFileId = 11))
+            every { created.selectByExecutedFileId(10) } answers { listOf(files[0]) }
+            every { created.selectByExecutedFileId(11) } answers { listOf(files[1]) }
+            every { mapper.references(11) } returns listOf(2)
+            every { mapper.allFiles() } answers { files.toList() }
+            every { mapper.createdFilesOfPrograms(any()) } answers { files.toList() }
+            every { programs.moveCreatedFiles(program, "beta", any()) } answers {
+                files[0] = file.copy(file = "base/B/beta/video.mp4")
+            }
+            val move = BulkRequest(listOf(1, 2), BulkAction.MOVE, "beta")
+            val plan = command.preview(move)
+            command
+                .apply(BulkApplyRequest(move, plan.targets.associate { it.id to it.fingerprint }))
+                .outcomes
+                .map { it.status } shouldBe listOf(BulkOutcomeStatus.SUCCESS, BulkOutcomeStatus.SUCCESS)
+        }
+        expect("a 100-target move preview issues a linear number of queries") {
+            val ids = (1L..100L).toList()
+            every { programs.find(any()) } answers { program.copy(id = firstArg()) }
+            every { mapper.createdFilesOfPrograms(ids) } returns ids.map { file }
+            command.preview(BulkRequest(ids, BulkAction.MOVE, "beta")).targets.size shouldBe 100
+            verify(exactly = 1) {
+                mapper.allFiles()
+                mapper.createdFilesOfPrograms(ids)
+            }
+            verify(exactly = 100) { created.selectByExecutedFileId(10) }
+        }
+        expect("a lock wait timeout reports a busy library without mutating anything") {
+            val plan = command.preview(request)
+            every { mapper.lockFiles() } throws CannotAcquireLockException("Lock wait timeout exceeded")
+            val outcome = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))).outcomes.single()
+            outcome.status shouldBe BulkOutcomeStatus.FAILED
+            outcome.message.contains("nothing was changed") shouldBe true
+            verify(exactly = 0) { programs.delete(any(), any()) }
+        }
+        expect("a lock failure after mutation started is not reported as harmless") {
+            val plan = command.preview(request)
+            every { programs.delete(program, any()) } throws CannotAcquireLockException("Lock wait timeout exceeded")
+            val outcome = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))).outcomes.single()
+            outcome.status shouldBe BulkOutcomeStatus.FAILED
+            outcome.message.contains("nothing was changed") shouldBe false
+            outcome.message.contains("partially") shouldBe true
+        }
+        expect("a non-lock failure before mutation says nothing was changed") {
+            val plan = command.preview(request)
+            every { mapper.lockExecuted(any()) } throws IllegalStateException("db down")
+            val outcome = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))).outcomes.single()
+            outcome.status shouldBe BulkOutcomeStatus.FAILED
+            outcome.message.contains("nothing was changed") shouldBe true
+            verify(exactly = 0) { programs.delete(any(), any()) }
+        }
+        expect("an interrupt stops later targets from starting") {
+            val batch = BulkRequest(listOf(1, 2), BulkAction.DELETE)
+            every { programs.find(2) } returns program.copy(id = 2)
+            every { mapper.references(10) } returns emptyList()
+            val plan = command.preview(batch)
+            every { programs.delete(program, false) } throws InterruptedException("shutdown")
+            try {
+                val result = command.apply(BulkApplyRequest(batch, plan.targets.associate { it.id to it.fingerprint }))
+                result.outcomes.map { it.status } shouldBe listOf(BulkOutcomeStatus.FAILED, BulkOutcomeStatus.FAILED)
+                result.outcomes[1].message.contains("Interrupted") shouldBe true
+                verify(exactly = 0) { programs.delete(program.copy(id = 2), any()) }
+            } finally {
+                Thread.interrupted()
+            }
         }
         expect("missing target is a per-target result") {
             val plan = command.preview(request)

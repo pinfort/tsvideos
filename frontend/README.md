@@ -45,7 +45,7 @@ recorded-time descending; limit must be 1–500. Invalid values or reversed
 bounds return HTTP 400. Existing name-only queries still work. Query semantics
 are shared with the manager CLI's `ProgramSearchQuery` in core.
 
-## Development scripts
+## Scripts
 
 - `pnpm dev` - start the development server
 - `pnpm build` - build for production
@@ -64,3 +64,17 @@ To learn more about Next.js, take a look at the following resources:
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
 The `/duplicates` page compares the existing CLI duplicate groups and recommendation order. Selection starts empty; cleanup uses the same server actions and preview/confirmation UI as bulk library management. Saved failure results remain visible even when refreshing removes the last duplicate group. FILE_MOVED file listings are metadata, not a new NAS verification.
+
+The `/storage` page shows registered original TS/encoded/other storage, the largest recordings and duplicate cleanup candidates. It uses the read-only `/api/v1/storage` endpoint and links to recording details; no deletion action is offered. Physical usage and actual reclaimable capacity remain unknown until verified. Pending metadata and excluded shared paths are labeled explicitly.
+
+## Browser-local playback history
+
+The responsive player supports 0.5–2× speed and a restart button. Position is stored per video in this browser's localStorage (`tsvideos.playback.v1`), at most every five seconds during playback and on pause, seek, page hide, or navigation. No account/server storage or cross-device synchronization is used. Up to 50 unfinished videos are kept; clearing browser data removes this history. Disabled or malformed storage does not prevent playback.
+
+A video is complete at 95% or within its final 10 seconds; completed and restarted entries are removed. Saved positions beyond a newly shortened duration restart at zero. The home page offers continue-watching links, checks known program/file metadata, distinguishes deleted files from unavailable checks, and allows history removal. Direct video links without program metadata remain usable and are labeled unchecked. Media bytes still stream directly from the configured backend URL.
+
+Continue-watching metadata checks use a same-origin Next.js route to avoid requiring cross-origin browser API access. Only program/file JSON is proxied; media streaming remains direct. API failures remain unchecked, while confirmed HTTP 404 means removed. The route (`/api/playback/programs/[id]`) returns only each video file's `id`, `mp4` and `status`, is unauthenticated like the backend it proxies, and each program is checked once per page load (a failed check is retried only after reload).
+
+The `title` and `programId` query parameters on `/video/[id]/view` are not verified against the backend; a hand-crafted link can store a misleading title or program in local history (display only, React-escaped, capped at 300 characters).
+
+History writes are read-modify-write on one localStorage key without locking, so two tabs saving different videos at the same instant can drop one update.

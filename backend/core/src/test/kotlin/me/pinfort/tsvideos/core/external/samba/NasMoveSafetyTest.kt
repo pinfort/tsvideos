@@ -73,13 +73,39 @@ class NasMoveSafetyTest :
             every { source.lastModified() } returnsMany listOf(10, 20)
             shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
             verify(exactly = 0) { source.delete() }
+            // Size and checksum failures remove the exclusively created copy; a changed source keeps it.
+            verify(exactly = 2) { target.delete() }
         }
-        expect("NAS boundary rejects URI delimiters and encoded traversal before opening anything") {
-            for (unsafe in listOf("base/a/alpha/%2e%2e%2fother", "base/a/alpha/file#fragment", "base/a/alpha/file?query", "../file")) {
+        expect("NAS boundary rejects traversal, streams and control characters before opening anything") {
+            for (unsafe in listOf(
+                "../file",
+                "base/a/../file",
+                "/base/a/alpha/file",
+                "base//alpha/file",
+                "base/a/alpha/file:stream",
+                "base/a/alpha/a\u0000b",
+            )) {
                 shouldThrow<IllegalArgumentException> { nas.moveResource(unsafe, new) }
                 shouldThrow<IllegalArgumentException> { nas.deleteResource(unsafe) }
                 shouldThrow<IllegalArgumentException> { nas.moveResource(old, unsafe) }
             }
+            verify(exactly = 0) {
+                video.resolve(any())
+                source.delete()
+            }
+        }
+        expect("registered names with URL-special characters are deleted verbatim") {
+            for (name in listOf("base/a/alpha/アニメ #01 100%.mp4", "base/a/alpha/a%2e%2e%2fb.mp4", "base/a/alpha/Dr.")) {
+                val file = mockk<SmbResource>(relaxed = true)
+                every { video.resolve(name) } returns file
+                every { file.exists() } returns true
+                every { file.isFile } returns true
+                nas.deleteResource(name) shouldBe SambaClient.NasType.VIDEO_STORE_NAS
+                verify(exactly = 1) { file.delete() }
+            }
+        }
+        expect("case-only renames are refused because SMB treats them as the same file") {
+            shouldThrow<IllegalArgumentException> { nas.moveResource(old, old.uppercase()) }
             verify(exactly = 0) {
                 video.resolve(any())
                 source.delete()
@@ -94,12 +120,31 @@ class NasMoveSafetyTest :
                 source.openInputStream()
             }
         }
-        expect("read failure retains source and does not delete an uncertain destination") {
+        expect("read failure retains source and removes only its own partial destination") {
             every { source.openInputStream() } throws IllegalStateException("disconnected")
+            shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
+            verify(exactly = 0) { source.delete() }
+            verify(exactly = 1) { target.delete() }
+        }
+        expect("destination is kept when the source cannot be confirmed intact") {
+            every { source.openInputStream() } throws IllegalStateException("disconnected")
+            every { source.length() } returnsMany listOf(3L, 0L)
             shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
             verify(exactly = 0) {
                 source.delete()
                 target.delete()
             }
+        }
+        expect("a failed source delete removes the verified copy only while the source still exists") {
+            every { source.delete() } throws IllegalStateException("locked")
+            shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
+            verify(exactly = 1) { target.delete() }
+            every { source.openInputStream() } returns ByteArrayInputStream(byteArrayOf(1, 2, 3))
+            output = ByteArrayOutputStream()
+            every { target.openOutputStream(true, any(), any(), any()) } returns output
+            // Source vanished during the failed delete: the destination is now the only copy.
+            every { source.exists() } returnsMany listOf(true, true, false)
+            shouldThrow<IllegalStateException> { nas.moveResource(old, new) }
+            verify(exactly = 1) { target.delete() }
         }
     })

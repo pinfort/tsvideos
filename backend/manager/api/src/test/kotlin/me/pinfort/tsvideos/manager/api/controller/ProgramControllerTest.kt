@@ -117,25 +117,38 @@ class ProgramControllerTest : DescribeSpec() {
                     .andExpect(jsonPath("$.programs[0].id").value(1))
                     .andExpect(jsonPath("$.total").value(10))
             }
-            it("rejects invalid parse and shared constructor validation with 400") {
-                val cases =
-                    listOf(
-                        mapOf("limit" to "0"),
-                        mapOf("limit" to "501"),
-                        mapOf("limit" to "1.5"),
-                        mapOf("offset" to "-1"),
-                        mapOf("minDrops" to "-1"),
-                        mapOf("maxDrops" to "-1"),
-                        mapOf("minDrops" to "3", "maxDrops" to "2"),
-                        mapOf("recordedFrom" to "2026-02-30T00:00:00"),
-                        mapOf("recordedFrom" to "2026-10-12T00:00:00Z"),
-                        mapOf("recordedFrom" to "2026-10-12T00:00:00", "recordedTo" to "2026-10-12T00:00:00"),
-                        mapOf("status" to "wrong"),
-                        mapOf("fileType" to "jpg"),
-                        mapOf("sort" to "name"),
-                        mapOf("direction" to "up"),
-                    )
-                cases.forEach { params ->
+            it("treats an empty recordedFrom as absent") {
+                every { programCommand.search(ProgramSearchQuery()) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
+                mockMvc
+                    .perform(get("/api/v1/programs").param("recordedFrom", ""))
+                    .andExpect(status().isOk)
+            }
+
+            it("accepts recordedTo without recordedFrom") {
+                val query = ProgramSearchQuery(recordedTo = LocalDateTime.parse("2026-11-01T00:00:00"))
+                every { programCommand.search(query) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
+                mockMvc
+                    .perform(get("/api/v1/programs").param("recordedTo", "2026-11-01T00:00:00"))
+                    .andExpect(status().isOk)
+            }
+
+            listOf(
+                mapOf("limit" to "0"),
+                mapOf("limit" to "501"),
+                mapOf("limit" to "1.5"),
+                mapOf("offset" to "-1"),
+                mapOf("minDrops" to "-1"),
+                mapOf("maxDrops" to "-1"),
+                mapOf("minDrops" to "3", "maxDrops" to "2"),
+                mapOf("recordedFrom" to "2026-02-30T00:00:00"),
+                mapOf("recordedFrom" to "2026-10-12T00:00:00Z"),
+                mapOf("recordedFrom" to "2026-10-12T00:00:00", "recordedTo" to "2026-10-12T00:00:00"),
+                mapOf("status" to "wrong"),
+                mapOf("fileType" to "jpg"),
+                mapOf("sort" to "name"),
+                mapOf("direction" to "up"),
+            ).forEach { params ->
+                it("rejects $params with 400") {
                     val request = get("/api/v1/programs")
                     params.forEach { (key, value) -> request.param(key, value) }
                     mockMvc.perform(request).andExpect(status().isBadRequest)

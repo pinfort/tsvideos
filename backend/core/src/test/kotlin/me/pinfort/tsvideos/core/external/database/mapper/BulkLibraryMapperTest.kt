@@ -9,6 +9,7 @@ import io.mockk.mockk
 import me.pinfort.tsvideos.core.command.BulkLibraryCommand
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.DirectoryNameComponent
@@ -89,16 +90,18 @@ class BulkLibraryMapperTest : ExpectSpec() {
                 every { nas.deleteResource(any()) } returns SambaClient.NasType.VIDEO_STORE_NAS
                 val logger = mockk<org.slf4j.Logger>(relaxed = true)
                 val directories = DirectoryNameComponent(NormalizeComponent())
+                val tags = mockk<ExecutedFileTagCommand>(relaxed = true)
                 val programCommand =
                     ProgramCommand(
                         programMapper,
                         createdMapper,
-                        ExecutedFileCommand(executedMapper, logger),
+                        ExecutedFileCommand(executedMapper, tags, logger),
                         CreatedFileCommand(createdMapper, mockk(), nas, logger),
                         splitMapper,
                         logger,
                         SplittedFileCommand(splitMapper, logger),
                         directories,
+                        tags,
                     )
                 val command =
                     BulkLibraryCommand(
@@ -110,6 +113,7 @@ class BulkLibraryMapperTest : ExpectSpec() {
                         directories,
                         NormalizeComponent(),
                         transactionManager,
+                        logger,
                     )
                 val request = BulkRequest(listOf(4), BulkAction.DELETE)
                 val initial = command.preview(request)
@@ -153,6 +157,37 @@ class BulkLibraryMapperTest : ExpectSpec() {
             sql("INSERT INTO created_file(id,splitted_file_id,file,size,status) VALUES(5,99,'BASE/A/ALPHA/FILE.MP4',3,'FILE_MOVED')")
             mapper.allFiles().map { it.id } shouldBe listOf(1L, 5L)
             mapper.references(3) shouldBe listOf(4L)
+        }
+        expect("created files of programs follow each program's executed record and skip unknown ids") {
+            seed()
+            sql("INSERT INTO program(id,name,executed_file_id,status) VALUES(7,'shared',3,'COMPLETED')")
+            mapper.createdFilesOfPrograms(listOf(4, 7, 404)).map { it.id } shouldBe listOf(1L, 1L)
+            mapper.lockFiles().map { it.id } shouldBe listOf(1L)
+        }
+        expect("a second bulk lock gives up after the bounded wait with a locking failure") {
+            seed()
+            val locked = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val executor = Executors.newSingleThreadExecutor()
+            try {
+                val holding =
+                    executor.submit {
+                        TransactionTemplate(transactionManager).execute {
+                            mapper.lockFiles()
+                            locked.countDown()
+                            check(release.await(30, TimeUnit.SECONDS))
+                        }
+                    }
+                check(locked.await(10, TimeUnit.SECONDS))
+                io.kotest.assertions.throwables.shouldThrow<org.springframework.dao.PessimisticLockingFailureException> {
+                    TransactionTemplate(transactionManager).execute { mapper.lockFiles() }
+                }
+                release.countDown()
+                holding.get(10, TimeUnit.SECONDS)
+            } finally {
+                release.countDown()
+                executor.shutdownNow()
+            }
         }
         expect("apply locks prevent concurrent aliases or split additions until transaction completes") {
             seed()
