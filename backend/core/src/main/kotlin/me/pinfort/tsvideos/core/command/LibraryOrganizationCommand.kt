@@ -108,7 +108,8 @@ class LibraryOrganizationCommand(
         positive(programId)
         val name = name(input)
         val key = GeneratedKeyHolder()
-        // Same program-then-label order as assign; a missing program also never burns an AUTO_INCREMENT value.
+        // Same program-then-label order as assign. Reusing an existing tag still consumes an AUTO_INCREMENT
+        // value (InnoDB upsert), which is harmless with BIGINT IDs.
         if (mapper.lockProgram(programId) == null) throw LibraryItemNotFoundException()
         mapper.reuse(LibraryKind.TAG, name, key(name), key)
         mapper.assign(LibraryKind.TAG, key.id, programId)
