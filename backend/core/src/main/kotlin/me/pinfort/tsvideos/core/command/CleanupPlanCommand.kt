@@ -166,9 +166,10 @@ class CleanupPlanCommand(
             snapshot(ids, "${criteria.mode.name} candidate").map { target ->
                 val reason =
                     when (criteria.mode) {
-                        CleanupMode.DUPLICATES -> "Duplicate broadcast candidate; preserve selected copy ${groups.single {
-                            target.id in it.memberIds
-                        }.keepId}"
+                        CleanupMode.DUPLICATES -> {
+                            val keepId = groups.single { target.id in it.memberIds }.keepId
+                            "Duplicate broadcast candidate; preserve selected copy $keepId"
+                        }
                         CleanupMode.RETENTION -> "Recorded before ${criteria.recordedBefore}; channel ${criteria.channel ?: "any"}"
                     }
                 target.copy(reason = if (target.eligible) reason else "$reason; ${target.reason}")

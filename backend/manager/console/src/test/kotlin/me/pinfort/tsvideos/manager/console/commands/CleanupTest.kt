@@ -102,6 +102,19 @@ class CleanupTest :
                 executor.shutdownNow()
             }
         }
+        expect("malformed dates in criteria or an imported plan are usage errors, not crashes") {
+            val core = mockk<CleanupPlanCommand>()
+            every { core.plan(any()) } throws java.time.format.DateTimeParseException("bad date", "not-a-date", 0)
+            Cleanup(core).testCleanup(listOf("plan", "--recorded-before", "not-a-date")).statusCode shouldBe 2
+            val file = Files.createTempFile("cleanup-plan", ".json")
+            try {
+                Files.writeString(file, CleanupPlanJson.write(plan.copy(createdAt = "yesterday")))
+                every { core.apply(any(), true) } throws java.time.format.DateTimeParseException("bad date", "yesterday", 0)
+                Cleanup(core).testCleanup(listOf("apply", file.toString(), "--dry-run")).statusCode shouldBe 2
+            } finally {
+                Files.deleteIfExists(file)
+            }
+        }
         expect("interrupted apply still prints the outcomes completed before the interrupt") {
             val file = Files.createTempFile("cleanup-plan", ".json")
             val executor =
