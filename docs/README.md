@@ -18,3 +18,7 @@
 | `backend/<module>/README.md` | そのモジュール固有の利用方法 (例: `backend/manager/console/README.md` は CLI の出力形式) |
 
 置き場所の目安: 複数パートにまたがる → `docs/`、backend の一機能に閉じる → `backend/docs/`、単一モジュールに閉じる → そのモジュールの README。
+
+## 言語
+
+人が読むドキュメント (各 README、`docs/`、`backend/docs/`) は日本語で書く。`AGENTS.md` / `CLAUDE.md` はエージェント向けの指示のため英語で書く。コードの識別子、CLI のフラグ、コードブロック、SQL、ドメイン用語 (録画、番組など) は言語を問わずそのまま記載する。
