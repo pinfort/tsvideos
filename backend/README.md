@@ -213,3 +213,7 @@ Duplicate candidates use the existing duplicate detector and its keep recommenda
 See [processing preflight](docs/processing-preflight.md) for CLI checks, space estimates, platform limitations and safe NAS write probes.
 
 > **Operator note:** `tvpcli process` (including `--dry-run`) now runs preflight first and exits 1 without processing when the database, NAS, tools or encoder are unreachable or misconfigured. Scheduled jobs that call `process` should treat exit 1 as "prerequisites failed" and check the printed FAIL lines.
+
+### Manual collections and tags
+
+See [library organization](docs/library-organization.md) for the required `053_library_organization.sql` migration, name normalization, APIs and recording-preserving deletion rules.

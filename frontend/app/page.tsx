@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ContinueWatching } from "@/components/continue-watching";
+import { getOrganizationOptions } from "@/lib/api/organization";
 import {
   parseProgramQuery,
   type ParsedProgramQuery,
@@ -18,6 +19,12 @@ export default async function HomePage({
   searchParams: Promise<ProgramQueryParams>;
 }) {
   const values = await searchParams;
+  let organization;
+  try {
+    organization = await getOrganizationOptions();
+  } catch {
+    /* Search remains available if organization metadata is unavailable. */
+  }
   let query: ParsedProgramQuery | undefined;
   let validationError: string | undefined;
   try {
@@ -44,7 +51,16 @@ export default async function HomePage({
         <Link href="/duplicates" className="mr-4 mb-4 inline-block underline">重複録画のレビュー</Link>
         <Link href="/storage" className="mb-4 inline-block underline">ストレージ概要</Link>
         {/* Keyed on the URL params so the uncontrolled inputs reset their defaults on navigation. */}
-        <SearchForm key={JSON.stringify(values)} values={values} />
+        <SearchForm
+          key={JSON.stringify(values)}
+          values={values}
+          organization={organization}
+        />
+        {!organization && (
+          <p role="status">
+            コレクション・手動タグの候補を取得できませんでした。検索は引き続き利用できます。
+          </p>
+        )}
       </header>
       <ContinueWatching />
       <main>

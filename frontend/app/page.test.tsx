@@ -1,3 +1,8 @@
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("@/lib/api/organization", () => ({
+  getOrganizationOptions: async () => ({ collections: [], tags: [] }),
+  getProgramOrganization: async () => ({ collections: [], tags: [] }),
+}));
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Program } from "@/lib/api/types";

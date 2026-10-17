@@ -95,6 +95,8 @@ export function parseProgramQuery(
   const query: ParsedProgramQuery = {
     name: value("name"),
     channel: value("channel"),
+    collectionId: integer("collectionId", 1, Number.MAX_SAFE_INTEGER),
+    libraryTagId: integer("libraryTagId", 1, Number.MAX_SAFE_INTEGER),
     recordedFrom: date("recordedFrom"),
     recordedTo: date("recordedTo"),
     status: option("status", ["REGISTERED", "COMPLETED", "ERROR"] as const),

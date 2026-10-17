@@ -31,6 +31,7 @@ services:
       # (applied in filename order). Add a line here when adding a migration.
       - ./backend/core/src/main/resources/db/migrations/001_base_schema.sql:/docker-entrypoint-initdb.d/001_base_schema.sql:ro
       - ./backend/core/src/main/resources/db/migrations/002_executed_file_tag.sql:/docker-entrypoint-initdb.d/002_executed_file_tag.sql:ro
+      - ./backend/core/src/main/resources/db/migrations/053_library_organization.sql:/docker-entrypoint-initdb.d/053_library_organization.sql:ro
       - ./backend/core/src/main/resources/db/migrations/064_processing_job.sql:/docker-entrypoint-initdb.d/064_processing_job.sql:ro
       - ./backend/core/src/main/resources/db/migrations/067_processing_history.sql:/docker-entrypoint-initdb.d/067_processing_history.sql:ro
       - ./backend/core/src/main/resources/db/migrations/072_upload_manifest.sql:/docker-entrypoint-initdb.d/072_upload_manifest.sql:ro
