@@ -12,6 +12,7 @@ import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
 import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.RecordingQualityCommand
 import me.pinfort.tsvideos.core.domain.QualityAction
+import me.pinfort.tsvideos.core.exception.QualityReleaseRefusedException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -104,6 +105,7 @@ class QualityReleaseCommand(
 
     override fun execute() {
         try {
+            // Early eligibility check so a refusal never prompts; the real release below revalidates and is authoritative.
             quality.release(jobId, dryRun = true)
             if (dryRun) {
                 echo("Job $jobId is eligible for release; no changes made")
@@ -115,8 +117,9 @@ class QualityReleaseCommand(
             }
             quality.release(jobId)
             echo("Job $jobId released to RETRYABLE; original remains in place")
-        } catch (_: IllegalStateException) {
-            throw CliktError("Release refused: job must be quarantined and terminal, with its original source unchanged", statusCode = 4)
+            echo("Processing it under an unchanged quality policy quarantines it again.")
+        } catch (refused: QualityReleaseRefusedException) {
+            throw CliktError("Release refused (${refused.reason}): ${refused.reason.description}", statusCode = 4)
         }
     }
 }

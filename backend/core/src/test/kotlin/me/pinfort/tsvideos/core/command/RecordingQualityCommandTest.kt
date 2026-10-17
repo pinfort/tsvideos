@@ -13,6 +13,8 @@ import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.QualityAction
 import me.pinfort.tsvideos.core.domain.RecordingQualityDecision
+import me.pinfort.tsvideos.core.exception.QualityReleaseRefusedException
+import me.pinfort.tsvideos.core.exception.QualityReleaseRefusedException.Reason
 import me.pinfort.tsvideos.core.external.database.mapper.ProcessingHistoryMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ProcessingJobMapper
 import me.pinfort.tsvideos.core.external.database.mapper.RecordingQualityMapper
@@ -70,10 +72,10 @@ class RecordingQualityCommandTest : ExpectSpec() {
                 saved.sourcePath shouldBe source.canonicalPath
                 Instant.parse(saved.checkedAt).isAfter(Instant.EPOCH) shouldBe true
                 val other = history.begin(job, ProcessingAttemptKind.PROCESS)
-                shouldThrow<IllegalStateException> { command.release(job.id) }
+                shouldThrow<QualityReleaseRefusedException> { command.release(job.id) }.reason shouldBe Reason.ACTIVE_ATTEMPT
                 history.finish(other.id, ProcessingOutcome.FAILED, ProcessingErrorCode.OPERATION_FAILED)
                 source.appendText("changed")
-                shouldThrow<IllegalStateException> { command.release(job.id) }
+                shouldThrow<QualityReleaseRefusedException> { command.release(job.id) }.reason shouldBe Reason.SOURCE_CHANGED
                 source.writeText("original")
                 source.setLastModified(identity.modifiedMillis) shouldBe true
                 command.release(job.id, dryRun = true)
@@ -81,7 +83,7 @@ class RecordingQualityCommandTest : ExpectSpec() {
                 command.release(job.id)
                 jobs.find(identity.key)?.state shouldBe "RETRYABLE"
                 command.reports(job.id).single().action shouldBe QualityAction.QUARANTINE
-                shouldThrow<IllegalStateException> { command.release(job.id) }
+                shouldThrow<QualityReleaseRefusedException> { command.release(job.id) }.reason shouldBe Reason.NOT_QUARANTINED
                 jobs.retry(identity.key) shouldBe 1
                 jobs.link(job.id, 987654321) shouldBe 1
                 jobs.transition(job.id, "CLAIMED", "RETRYABLE") shouldBe 1

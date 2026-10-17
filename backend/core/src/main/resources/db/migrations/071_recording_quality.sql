@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS processing_quality_report (
  attempt_id BIGINT NOT NULL PRIMARY KEY,
  job_id BIGINT NOT NULL,
+ -- Always UTC: RecordingQualityMapper.forJob formats it with a literal Z suffix.
  checked_at DATETIME(6) NOT NULL DEFAULT UTC_TIMESTAMP(6),
  action VARCHAR(20) NOT NULL,
  source_path TEXT NOT NULL,

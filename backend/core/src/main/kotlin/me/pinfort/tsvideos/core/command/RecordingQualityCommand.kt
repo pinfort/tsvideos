@@ -7,6 +7,8 @@ import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.QualityAction
 import me.pinfort.tsvideos.core.domain.RecordingQualityDecision
 import me.pinfort.tsvideos.core.domain.RecordingQualityReport
+import me.pinfort.tsvideos.core.exception.QualityReleaseRefusedException
+import me.pinfort.tsvideos.core.exception.QualityReleaseRefusedException.Reason
 import me.pinfort.tsvideos.core.external.database.mapper.ProcessingHistoryMapper
 import me.pinfort.tsvideos.core.external.database.mapper.RecordingQualityMapper
 import org.springframework.stereotype.Component
@@ -57,11 +59,18 @@ class RecordingQualityCommand(
     ) {
         require(jobId > 0)
         val job = checkNotNull(mapper.lockJob(jobId)) { "Processing job not found" }
-        check(job.state == "QUARANTINED" && job.executedFileId == null && job.callbackClaim == null) { "Job is not quarantined" }
-        check(mapper.activeAttempts(jobId) == 0) { "Quality invocation is still active" }
+        refuseUnless(job.state == "QUARANTINED" && job.executedFileId == null && job.callbackClaim == null, Reason.NOT_QUARANTINED)
+        refuseUnless(mapper.activeAttempts(jobId) == 0, Reason.ACTIVE_ATTEMPT)
         val source = File(job.inputPath)
-        check(source.isFile && ProcessingIdentity.from(source).key == job.identityKey) { "Quarantined source changed or is missing" }
+        refuseUnless(source.isFile && ProcessingIdentity.from(source).key == job.identityKey, Reason.SOURCE_CHANGED)
         if (dryRun) return
-        check(mapper.transition(jobId, "QUARANTINED", "RETRYABLE") == 1) { "Job changed" }
+        refuseUnless(mapper.transition(jobId, "QUARANTINED", "RETRYABLE") == 1, Reason.CHANGED_CONCURRENTLY)
+    }
+
+    private fun refuseUnless(
+        condition: Boolean,
+        reason: Reason,
+    ) {
+        if (!condition) throw QualityReleaseRefusedException(reason)
     }
 }

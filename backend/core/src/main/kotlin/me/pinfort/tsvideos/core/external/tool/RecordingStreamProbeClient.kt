@@ -3,6 +3,8 @@ package me.pinfort.tsvideos.core.external.tool
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.RecordingStream
 import me.pinfort.tsvideos.core.external.shell.ShellClient
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
 import java.io.File
@@ -21,7 +23,12 @@ class RecordingStreamProbeClient(
                     listOf(tools.ffprobePath, "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", file.absolutePath),
                     60,
                 )
-            if (result.exitCode != 0) null else parse(result.stdout)
+            if (result.exitCode != 0) {
+                logger.debug("ffprobe stream inspection exited with {}; streams unavailable", result.exitCode)
+                null
+            } else {
+                parse(result.stdout)
+            }
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             throw interrupted
@@ -48,5 +55,6 @@ class RecordingStreamProbeClient(
 
     private companion object {
         val JSON: JsonMapper = JsonMapper.builder().build()
+        val logger: Logger = LoggerFactory.getLogger(RecordingStreamProbeClient::class.java)
     }
 }

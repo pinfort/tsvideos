@@ -141,10 +141,6 @@ Processor upload ownership, verification, migration and recovery: [verified-uplo
 
 Processor status/history, migration, activity semantics and explicit retention: [processing-history.md](docs/processing-history.md).
 
-## Recording quality
-
-See [quality rules and in-place quarantine](docs/recording-quality.md) for opt-in configuration, schema migration, retained reports and explicit release.
-
 Processor interruption: on SIGINT/SIGTERM `tvpcli` stops cooperatively, records the attempt as INTERRUPTED, keeps partial evidence instead of rolling back, and exits 130 (a native signal shutdown may report 143). `PROCESSOR_SHUTDOWN_GRACE_SECONDS` (default 30, 1–300) bounds the whole shutdown; see [graceful-shutdown.md](docs/graceful-shutdown.md).
 
 既存の DB には次のテーブルを一度だけ作成してください（DDL は `core/src/main/resources/db/migrations/064_processing_job.sql` と `067_processing_history.sql`、`071_recording_quality.sql`、`072_upload_manifest.sql` をこの順に適用してください）。**processor を停止してから、この機能を含むビルドをデプロイする前に**作成する必要があります。
@@ -152,6 +148,10 @@ Processor interruption: on SIGINT/SIGTERM `tvpcli` stops cooperatively, records 
 ### DDL の管理
 
 スキーマの単一の情報源は `core/src/main/resources/db/migrations/` の番号付き SQL ファイルです（ファイル名順に適用、すべて `IF NOT EXISTS` で再実行可能）。テスト用の初期化 SQL（Testcontainers の `ddl/01_create_database.sql`）は Gradle の `core:generateTestDdl` がこれらを連結して生成し、`docker-compose.test.yml` も同じファイルをマウントします。スキーマを変更するときは新しい番号のファイルを追加し、`docker-compose.test.yml` のマウントに 1 行足してください。
+
+## Recording quality
+
+See [quality rules and in-place quarantine](docs/recording-quality.md) for opt-in configuration, schema migration, retained reports and explicit release.
 
 ## Manager CLI structured output
 

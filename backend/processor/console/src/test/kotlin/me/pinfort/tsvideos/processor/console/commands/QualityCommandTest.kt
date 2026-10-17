@@ -4,6 +4,7 @@ import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.testing.test
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -13,6 +14,7 @@ import me.pinfort.tsvideos.core.command.RecordingQualityCommand
 import me.pinfort.tsvideos.core.domain.ProcessingStatus
 import me.pinfort.tsvideos.core.domain.QualityAction
 import me.pinfort.tsvideos.core.domain.RecordingQualityReport
+import me.pinfort.tsvideos.core.exception.QualityReleaseRefusedException
 import me.pinfort.tsvideos.processor.console.parseProcessor
 import tools.jackson.databind.json.JsonMapper
 
@@ -82,18 +84,26 @@ class QualityCommandTest :
                 verify(exactly = if (confirm) 1 else 0) { quality.release(3, false) }
             }
         }
-        expect("yes bypasses only prompt and refusal has safe exit four") {
+        expect("yes bypasses only prompt and refusal has exit four with its reason") {
             val quality = mockk<RecordingQualityCommand>(relaxed = true)
-            every { quality.release(3, false) } throws IllegalStateException("password=secret")
+            every { quality.release(3, false) } throws
+                QualityReleaseRefusedException(QualityReleaseRefusedException.Reason.CHANGED_CONCURRENTLY)
             val question = mockk<UserQuestionComponent>()
             val result = QualityReleaseCommand(quality, history(), question).qualityTest("--job-id 3 --yes")
             result.statusCode shouldBe 4
-            result.stderr.contains("secret") shouldBe false
+            result.stderr shouldContain "CHANGED_CONCURRENTLY"
             verify(exactly = 1) {
                 quality.release(3, true)
                 quality.release(3, false)
             }
             verify(exactly = 0) { question.askDefaultFalse(any()) }
+        }
+        expect("an unexpected release failure is an operational error and stays generic") {
+            val quality = mockk<RecordingQualityCommand>(relaxed = true)
+            every { quality.release(3, true) } throws IllegalStateException("password=secret")
+            val result = QualityReleaseCommand(quality, history(), mockk()).qualityTest("--job-id 3 --yes")
+            result.statusCode shouldBe 1
+            result.stderr.contains("secret") shouldBe false
         }
     })
 
