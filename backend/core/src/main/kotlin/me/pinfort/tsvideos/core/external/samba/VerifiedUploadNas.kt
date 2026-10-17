@@ -74,6 +74,7 @@ class VerifiedUploadNas(
                             var transferred = 0L
                             progress(0, total)
                             while (true) {
+                                if (Thread.interrupted()) throw InterruptedException("Upload interrupted")
                                 val count = input.read(buffer)
                                 if (count < 0) break
                                 output.write(buffer, 0, count)

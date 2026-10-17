@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
 import me.pinfort.tsvideos.core.domain.ProcessingAttempt
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptHistory
@@ -27,6 +28,7 @@ class ProcessingHistoryCommand(
     private val mapper: ProcessingHistoryMapper,
     transactionManager: PlatformTransactionManager,
     private val logger: Logger,
+    private val cancellation: ProcessingCancellation = ProcessingCancellation(),
 ) {
     private val transaction =
         TransactionTemplate(transactionManager).apply {
@@ -125,6 +127,7 @@ class ProcessingHistoryCommand(
     ): (Long, Long) -> Unit {
         val last = AtomicLong(NEVER)
         return { value, total ->
+            cancellation.check()
             val now = clock()
             val previous = last.get()
             if ((previous == NEVER || now - previous >= HEARTBEAT_INTERVAL_NANOS) && last.compareAndSet(previous, now)) {
@@ -144,14 +147,15 @@ class ProcessingHistoryCommand(
         artifact: (T) -> ProcessingArtifact? = { null },
         operation: () -> T,
     ): T {
+        cancellation.check()
         val event = startStage(attemptId, stage)
         val result =
             try {
-                operation()
+                operation().also { cancellation.check() }
             } catch (failure: Exception) {
                 val code = classify(failure)
                 try {
-                    withInterruptCleared { finishStage(event, outcome(code), code) }
+                    ProcessingCancellation.recovery { finishStage(event, outcome(code), code) }
                 } catch (historyFailure: Exception) {
                     failure.addSuppressed(historyFailure)
                 }
@@ -167,7 +171,7 @@ class ProcessingHistoryCommand(
         failure: Exception,
     ) {
         val code = classify(failure)
-        withInterruptCleared { finish(attemptId, outcome(code), code) }
+        ProcessingCancellation.recovery { finish(attemptId, outcome(code), code) }
     }
 
     fun history(jobId: Long? = null): List<ProcessingAttemptHistory> =
@@ -209,19 +213,6 @@ class ProcessingHistoryCommand(
                 }
             },
         )
-
-    /**
-     * An interrupted thread can make the JDBC write itself fail, which would leave the stage/attempt ACTIVE forever.
-     * Clear the flag for the closing write only and restore it so the caller still observes the interruption.
-     */
-    private fun <T> withInterruptCleared(write: () -> T): T {
-        val interrupted = Thread.interrupted()
-        try {
-            return write()
-        } finally {
-            if (interrupted) Thread.currentThread().interrupt()
-        }
-    }
 
     private fun outcome(code: ProcessingErrorCode) =
         if (code == ProcessingErrorCode.INTERRUPTED) ProcessingOutcome.INTERRUPTED else ProcessingOutcome.FAILED

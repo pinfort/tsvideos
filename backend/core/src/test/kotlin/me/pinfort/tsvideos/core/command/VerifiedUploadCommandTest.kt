@@ -26,6 +26,7 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import java.util.UUID
 
@@ -105,6 +106,57 @@ class VerifiedUploadCommandTest : ExpectSpec() {
 
         fun Fixture.manifest() = checkNotNull(manifests.find(job, ProcessingIdentity.hash("output")))
 
+        expect("interruption cleans only an owned partial upload and releases its claim") {
+            val f = fixture()
+            every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
+                arg<() -> Unit>(3)()
+                f.remote[secondArg()] = byteArrayOf(1)
+                throw InterruptedException()
+            }
+            try {
+                shouldThrow<InterruptedException> { f.upload() }
+                f.remote.isEmpty() shouldBe true
+                f.source.exists() shouldBe true
+                f.manifest().state shouldBe State.NEW
+                f.manifest().claimToken shouldBe null
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("failed interruption cleanup is suppressed and leaves the owned temporary for reconciliation") {
+            val f = fixture()
+            every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
+                arg<() -> Unit>(3)()
+                f.remote[secondArg()] = byteArrayOf(1)
+                throw InterruptedException()
+            }
+            every { f.nas.delete(any(), any()) } throws IOException("share unavailable")
+            try {
+                val failure = shouldThrow<InterruptedException> { f.upload() }
+                failure.suppressed.single().message shouldBe "share unavailable"
+                f.remote.size shouldBe 1
+                f.manifest().state shouldBe State.TRANSFERRING
+                f.manifest().claimToken shouldBe null
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("interruption after rename preserves ambiguous remote ownership") {
+            val f = fixture()
+            every { f.nas.finalize(any(), any(), any()) } answers {
+                f.remote[f.target] = f.remote.remove(secondArg())!!
+                throw InterruptedException()
+            }
+            try {
+                shouldThrow<InterruptedException> { f.upload() }
+                f.remote.keys shouldBe setOf(f.target)
+                f.manifest().state shouldBe State.FINALIZING
+                f.source.exists() shouldBe true
+            } finally {
+                f.source.delete()
+            }
+        }
         expect("Spring upload commits ownership before real SMB effects") {
             val container =
                 org.testcontainers.containers

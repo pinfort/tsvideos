@@ -11,6 +11,8 @@ fun InputStream.sha256Hex(): String {
     // Large reads amortize SMB round trips for multi-GB recordings.
     val buffer = ByteArray(1 shl 20)
     while (true) {
+        // Hashing a multi-GB recording must still honour a stop request between reads.
+        if (Thread.interrupted()) throw InterruptedException("Hashing interrupted")
         val count = read(buffer)
         if (count < 0) break
         digest.update(buffer, 0, count)

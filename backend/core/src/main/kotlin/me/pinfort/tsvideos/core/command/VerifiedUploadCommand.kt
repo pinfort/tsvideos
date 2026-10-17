@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest
@@ -75,11 +76,16 @@ class VerifiedUploadCommand(
                 return@withClaim
             }
             checkIdentity(initial, ProcessingIdentity.from(source))
-            recoverInterrupted(claimed)
-            // A temporary file verified earlier in this call need not be read back again before the rename.
-            val resumed = claimed.manifest.state == State.TEMP_VERIFIED
-            if (claimed.manifest.state == State.NEW) transferTemporary(claimed, source, progress)
-            finalizeTemporary(claimed, reverifyTemporary = resumed)
+            try {
+                recoverInterrupted(claimed)
+                // A temporary file verified earlier in this call need not be read back again before the rename.
+                val resumed = claimed.manifest.state == State.TEMP_VERIFIED
+                if (claimed.manifest.state == State.NEW) transferTemporary(claimed, source, progress)
+                finalizeTemporary(claimed, reverifyTemporary = resumed)
+            } catch (failure: Exception) {
+                if (ProcessingCancellation.isInterrupted(failure)) discardOwnedTemporary(claimed, failure)
+                throw failure
+            }
         }
         return VerifiedUploadReceipt(manifest.id)
     }
@@ -160,6 +166,23 @@ class VerifiedUploadCommand(
                 claimed.transition(State.NEW)
             }
             else -> Unit
+        }
+    }
+
+    /** A stop request leaves no owned temporary behind, so the next run starts from NEW instead of reconciling. */
+    private fun discardOwnedTemporary(
+        claimed: Claimed,
+        failure: Exception,
+    ) {
+        val current = claimed.manifest
+        if (current.state !in State.OWNED_TEMPORARY) return
+        try {
+            ProcessingCancellation.recovery {
+                nas.delete(current.nasType, current.temporaryPath)
+                claimed.transition(State.NEW)
+            }
+        } catch (cleanup: Exception) {
+            failure.addSuppressed(cleanup)
         }
     }
 
@@ -364,13 +387,15 @@ class VerifiedUploadCommand(
             try {
                 action(checkNotNull(transaction.execute { manifests.get(id) }), token)
             } catch (e: Throwable) {
-                // A release failure must not hide why the action failed.
-                runCatching { transaction.execute { manifests.release(id, token) } }.exceptionOrNull()?.let(e::addSuppressed)
+                // A release failure must not hide why the action failed. An interrupted owner still releases.
+                runCatching { ProcessingCancellation.recovery { transaction.execute { manifests.release(id, token) } } }
+                    .exceptionOrNull()
+                    ?.let(e::addSuppressed)
                 throw e
             }
         // Deliberately not swallowed: a caller must not continue as if the claim were free. The completed state is
         // durable, so after `tvpcli release-claim` the next call resumes from it instead of redoing the work.
-        transaction.execute { manifests.release(id, token) }
+        ProcessingCancellation.recovery { transaction.execute { manifests.release(id, token) } }
         return result
     }
 }

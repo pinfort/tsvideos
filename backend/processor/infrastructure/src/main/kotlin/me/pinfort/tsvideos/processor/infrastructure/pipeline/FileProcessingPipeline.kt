@@ -10,6 +10,7 @@ import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
+import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
@@ -58,6 +59,7 @@ class FileProcessingPipeline(
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
     private val history: ProcessingHistoryCommand,
+    private val cancellation: ProcessingCancellation = ProcessingCancellation(),
 ) {
     enum class Result {
         PROCESSED,
@@ -81,6 +83,7 @@ class FileProcessingPipeline(
         onCompressProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
         onUploadProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit = { _, _ -> },
     ): Result {
+        cancellation.check()
         if (!file.isFile) throw TsVideosException("file not found or not a regular file, file=$file")
         val identity = ProcessingIdentity.from(file)
         if (dryRun) {
@@ -170,8 +173,11 @@ class FileProcessingPipeline(
             saveArchive(mainSplittedFile, archive, attempt.id, history.progress(attempt.id, onUploadProgress))
             // Once submission starts rollback would destroy input possibly already consumed by the encoder.
             history.stage(attempt.id, ProcessingStage.SUBMIT_ENCODER) {
+                cancellation.check()
                 processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
+                cancellation.check()
                 amatsukazeAddTask(mainSplittedFile)
+                cancellation.check()
                 processingJobCommand.acknowledgeSubmission(job)
                 submitted = true
             }

@@ -55,6 +55,11 @@ class DurationProbeClientTest :
                 }
             }
 
+            expect("does not swallow interruption as unknown duration") {
+                every { shellClient.executeCapturingOutput(any(), any(), any()) } throws InterruptedException()
+                io.kotest.assertions.throwables
+                    .shouldThrow<InterruptedException> { durationProbeClient.probe(file) }
+            }
             expect("returns 0.0 on non-zero exit code") {
                 every { shellClient.executeCapturingOutput(any(), any(), any()) } returns ShellResult(1, "", "error")
 

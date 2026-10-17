@@ -30,5 +30,5 @@ fun main(args: Array<String>) {
         val status = PreflightBootstrap.run(args, processGate = true)
         if (status != 0) exitProcess(status)
     }
-    runApplication<ConsoleApplication>(*args)
+    runApplication<ConsoleApplication>(*args) { setRegisterShutdownHook(false) }.close()
 }

@@ -6,6 +6,7 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
+import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
 import me.pinfort.tsvideos.core.domain.ProcessingArtifactType
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
@@ -57,6 +58,41 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
         }
 
     init {
+        expect("owned interruption persists across command restart and leaves other attempts active") {
+            val cancellation = ProcessingCancellation()
+            val command = ProcessingHistoryCommand(mapper, transactions, mockk(relaxed = true), cancellation)
+            val job = job()
+            val owned = command.begin(job, ProcessingAttemptKind.PROCESS)
+            val other = command.begin(job, ProcessingAttemptKind.CALLBACK)
+            val entered = CountDownLatch(1)
+            val worker =
+                Thread {
+                    try {
+                        cancellation.runOwned {
+                            command.stage(owned.id, ProcessingStage.SPLIT) {
+                                entered.countDown()
+                                // Blocks until the stop request interrupts this owner.
+                                CountDownLatch(1).await()
+                            }
+                        }
+                    } catch (failure: InterruptedException) {
+                        command.failed(owned.id, failure)
+                    }
+                }
+            worker.start()
+            entered.await(10, TimeUnit.SECONDS) shouldBe true
+            cancellation.requestStop()
+            worker.join(5000)
+            worker.isAlive shouldBe false
+            val persisted = command().history(job.id)
+            persisted.first { it.attempt.id == owned.id }.attempt.outcome shouldBe ProcessingOutcome.INTERRUPTED
+            persisted
+                .first { it.attempt.id == owned.id }
+                .stages
+                .single()
+                .outcome shouldBe ProcessingOutcome.INTERRUPTED
+            persisted.first { it.attempt.id == other.id }.attempt.outcome shouldBe ProcessingOutcome.ACTIVE
+        }
         expect("attempt numbers are monotonic across concurrent starts and new command instances") {
             val job = job()
             val pool = Executors.newFixedThreadPool(6)

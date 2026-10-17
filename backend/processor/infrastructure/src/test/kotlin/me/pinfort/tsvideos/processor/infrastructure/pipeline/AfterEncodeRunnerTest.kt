@@ -111,6 +111,22 @@ class AfterEncodeRunnerTest :
                 root.deleteRecursively()
             }
         }
+        expect("callback interruption propagates, preserves originals and releases ownership") {
+            val f = Fixture()
+            every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws InterruptedException()
+            try {
+                io.kotest.assertions.throwables
+                    .shouldThrow<InterruptedException> { f.run() }
+                f.original.exists() shouldBe true
+                f.output.exists() shouldBe true
+                verify { f.history.failed(any(), any()) }
+                verify { f.jobs.releaseCallback(f.job, "token") }
+                verify(exactly = 0) { f.uploads.deleteLocal(any()) }
+                verify(exactly = 0) { f.slack.notify(any()) }
+            } finally {
+                f.cleanup()
+            }
+        }
         expect("verified receipt is registered before output deletion and original archive checked before completion") {
             val f = Fixture()
             try {
