@@ -1,19 +1,17 @@
-これは tsvideos のフロントエンドで、[Next.js](https://nextjs.org) で構築されている。
+# tsvideos frontend
+
+録画データの検索・管理・動画再生を行う、Next.js 製の Web フロントエンド。`manager:api` バックエンドに接続する。
 
 ## はじめに
 
-依存関係をインストールし、開発サーバーを起動する:
+[バックエンドの手順](../backend/README.md#ローカルでの動作確認)に従って `manager:api` を起動し、`frontend/` ディレクトリで依存関係をインストールして開発サーバーを起動する:
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-ブラウザで [http://localhost:3000](http://localhost:3000) を開くと結果を確認できる。
-
-`app/page.tsx` を編集するとページを変更できる。ファイルを編集すると、ページは自動的に更新される。
-
-このプロジェクトは [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) を使い、Vercel の新しいフォントファミリーである [Geist](https://vercel.com/font) を自動的に最適化して読み込む。
+ブラウザで [http://localhost:3000](http://localhost:3000) を開くと録画一覧を確認できる。
 
 ## 設定
 
@@ -55,14 +53,11 @@ TS/エンコード済みの有無は、NAS の実際のチェックではなく 
 - `pnpm test:watch` - テストスイートをウォッチモードで実行する
 - `pnpm coverage` - カバレッジレポート付きでテストスイートを実行する
 
-## さらに学ぶ
-
-Next.js について詳しく知るには、次のリソースを参照:
-
-- [Next.js Documentation](https://nextjs.org/docs) - Next.js の機能と API について学ぶ。
-- [Learn Next.js](https://nextjs.org/learn) - インタラクティブな Next.js のチュートリアル。
+## 重複録画の整理
 
 `/duplicates` ページは、既存の CLI の重複グループと推奨順を比較する。選択は空の状態から始まり、グループのすべてのメンバーが選択されている間は警告が表示される (その放送のものが何も残らないため)。クリーンアップは、一括ライブラリ管理と同じ server action とプレビュー/確認の UI を使う。保存された失敗結果は、更新によって最後の重複グループが消えても表示され続ける。FILE_MOVED のファイル一覧はメタデータであり、新たな NAS の検証ではない。
+
+## ストレージの確認
 
 `/storage` ページは、登録済みの元の TS/エンコード済み/その他のストレージ、最大の録画、重複クリーンアップの候補を表示する。読み取り専用の `/api/v1/storage` エンドポイントを使い、録画の詳細へのリンクを持つ。削除の操作は提供しない。物理的な使用量と実際に解放可能な容量は、検証されるまで不明のままである。保留中のメタデータと除外された共有パスは明示的にラベル付けされる。
 
