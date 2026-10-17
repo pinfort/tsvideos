@@ -44,6 +44,8 @@ class RecordingStreamProbeClient(
         if (!streams.isArray) return null
         val result = mutableSetOf<RecordingStream>()
         for (stream in streams) {
+            // A stream without a codec_type means the output is not what we expect, so the whole result is unavailable;
+            // known-but-unsupported types (data, attachment, unknown) are simply ignored below.
             val type = stream.get("codec_type") ?: return null
             if (!type.isString) return null
             when (type.asString()) {
