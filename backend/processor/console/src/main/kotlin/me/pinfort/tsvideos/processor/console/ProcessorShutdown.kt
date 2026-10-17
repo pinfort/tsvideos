@@ -19,12 +19,18 @@ class ProcessorShutdown(
     fun stop() {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(graceSeconds)
         cancellation.requestStop()
-        if (!cancellation.awaitStopped(graceSeconds * 1000)) {
-            logger.warn("Processing did not stop within ${graceSeconds}s; closing anyway, inspect ACTIVE attempts after exit")
+        // Keep the last fifth of the grace for closing the context, so even a hung owner leaves time for a clean DB close.
+        val waitMillis = graceSeconds * 1000 * (100 - CLOSE_SHARE_PERCENT) / 100
+        if (!cancellation.awaitStopped(waitMillis)) {
+            logger.warn("Processing did not stop within ${waitMillis}ms; closing anyway, inspect ACTIVE attempts after exit")
         }
         val closer = Thread(close, "processor-context-close").apply { isDaemon = true }
         closer.start()
         val remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
         if (remaining > 0) closer.join(remaining)
+    }
+
+    private companion object {
+        const val CLOSE_SHARE_PERCENT = 20
     }
 }

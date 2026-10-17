@@ -20,7 +20,7 @@ class ConsoleRunner(
     private val context: ConfigurableApplicationContext,
     @Value("\${processor.shutdown.grace-seconds:30}") graceSeconds: Long,
 ) : CommandLineRunner {
-    // Built with the bean so an out-of-range grace fails context startup rather than the first run.
+    // Built with the bean so an out-of-range grace fails before any work starts.
     private val shutdown = ProcessorShutdown(cancellation, graceSeconds) { context.close() }
 
     override fun run(vararg args: String) {
@@ -31,6 +31,8 @@ class ConsoleRunner(
             // A normal return needs no stop; main closes the context itself.
             removeHook(hook)
         } catch (error: InterruptedException) {
+            // The hook stays registered on every exitProcess path: Spring's own hook is disabled and main's close() is
+            // never reached, so the hook is what closes the context. With no owner left, its stop returns at once.
             exitProcess(130)
         } catch (error: CliktError) {
             processor.echoFormattedHelp(error)

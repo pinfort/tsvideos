@@ -34,20 +34,28 @@ class ShellClient {
         require(timeoutSec > 0)
         if (Thread.interrupted()) throw InterruptedException("Command interrupted before start")
         val redirect = if (capture) ProcessBuilder.Redirect.PIPE else ProcessBuilder.Redirect.INHERIT
-        val process =
-            ProcessBuilder(command)
-                .directory(workingDir)
-                .redirectOutput(redirect)
-                .redirectError(redirect)
-                .start()
-        val owned = linkedSetOf<ProcessHandle>()
+        // Created before the process so nothing between start() and the try below can leak a running process.
         val drains = if (capture) Executors.newFixedThreadPool(2, DRAIN_THREADS) else null
-        val stdout = drains?.submit<String> { process.inputStream.bufferedReader().readText() }
-        val stderr = drains?.submit<String> { process.errorStream.bufferedReader().readText() }
+        val process =
+            try {
+                ProcessBuilder(command)
+                    .directory(workingDir)
+                    .redirectOutput(redirect)
+                    .redirectError(redirect)
+                    .start()
+            } catch (failure: Exception) {
+                drains?.shutdownNow()
+                throw failure
+            }
+        val owned = linkedSetOf<ProcessHandle>()
+        var stdout: Future<String>? = null
+        var stderr: Future<String>? = null
         var exitedNormally = false
         val started = System.nanoTime()
         val deadline = started + TimeUnit.SECONDS.toNanos(timeoutSec)
         try {
+            stdout = drains?.submit<String> { process.inputStream.bufferedReader().readText() }
+            stderr = drains?.submit<String> { process.errorStream.bufferedReader().readText() }
             while (true) {
                 process.descendants().use { children -> children.forEach { owned.add(it) } }
                 // waitFor returns as soon as the process exits; the interval only bounds descendant sampling,
