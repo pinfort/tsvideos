@@ -105,6 +105,17 @@ class ProcessingPreflightCommandTest :
             report.toString().contains("secret") shouldBe false
             verify(exactly = 0) { tcp.check(any(), any()) }
         }
+        expect("missing tool and encoder settings skip their probes") {
+            val report = ProcessingPreflightCommand(MockEnvironment(), shared, local, tcp).diagnose(emptyList())
+            report.checks
+                .filter { it.id.startsWith("tool.") && !it.id.endsWith(".execution") }
+                .map { it.status } shouldBe List(3) { DiagnosticStatus.FAIL }
+            report.checks.single { it.id == "encoder.connectivity" }.status shouldBe DiagnosticStatus.UNCHECKED
+            verify(exactly = 0) {
+                local.tool(any(), any())
+                tcp.check(any(), any())
+            }
+        }
         expect("LAN hostnames with underscores and bracketed IPv6 literals are accepted") {
             listOf("win_pc", "my-encoder.local", "192.168.0.10", "[::1]", "[fe80::1%eth0]").forEach { host ->
                 env.withProperty("processor-tool.amatsukaze.host", host)

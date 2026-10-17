@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.core.external.database.mapper
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.mockk.Called
 import io.mockk.every
@@ -358,7 +359,8 @@ class CleanupPlanMapperTest : ExpectSpec() {
                             } finally {
                                 Thread.interrupted()
                             }
-                        }.get(20, TimeUnit.SECONDS)!!
+                        }.get(20, TimeUnit.SECONDS)
+                        .shouldNotBeNull()
                 interrupted.completed.map { it.id to it.status } shouldBe listOf(2L to BulkOutcomeStatus.SUCCESS)
                 interrupted.interruptedId shouldBe 3L
                 programMapper.selectAllIds() shouldBe listOf(1L, 3L)

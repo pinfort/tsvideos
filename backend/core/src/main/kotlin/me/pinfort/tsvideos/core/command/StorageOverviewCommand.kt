@@ -34,7 +34,12 @@ class StorageOverviewCommand(
             }
         // Duplicate groups are a partition (union-find), so no program is retained in one group and removable in another.
         val removalIds = candidates.flatMap { it.removable }.map { it.id }.toSet()
-        val paths = references.filter { it.fileId != null && !it.file.isNullOrBlank() }.groupBy { normalizedPath(it.file!!) }
+        val paths =
+            references
+                .mapNotNull { reference ->
+                    val file = reference.file
+                    if (reference.fileId == null || file.isNullOrBlank()) null else normalizedPath(file) to reference
+                }.groupBy({ it.first }, { it.second })
         var bytes = 0L
         var excluded = 0L
         paths.values.forEach { rows ->

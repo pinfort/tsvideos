@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.core.command
 
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
@@ -40,7 +41,7 @@ class LibraryVerificationCommandTest :
         }
         expect("selected program includes file identity and per-status summary") {
             every { session.verify(file.file, 12) } returns NasFileVerifier.Result(VerificationStatus.SIZE_MISMATCH, 11)
-            val report = command.verify(1)!!
+            val report = command.verify(1).shouldNotBeNull()
             report.findings.single().programId shouldBe 1
             report.findings.single().fileId shouldBe 2
             report.findings.single().expectedBytes shouldBe 12
@@ -55,7 +56,7 @@ class LibraryVerificationCommandTest :
             every { files.selectAllWithExecutedFileId() } returns listOf(executedCreated(10, file))
             every { session.verify(any(), any()) } returns NasFileVerifier.Result(VerificationStatus.VERIFIED, 12)
             val progress = mutableListOf<Pair<Int, Int>>()
-            val report = command.verify { checked, total -> progress += checked to total }!!
+            val report = command.verify { checked, total -> progress += checked to total }.shouldNotBeNull()
             report.findings.map { it.status } shouldBe listOf(VerificationStatus.VERIFIED, VerificationStatus.UNCHECKED)
             report.findings.last().fileId shouldBe null
             progress shouldBe listOf(1 to 2, 2 to 2)
@@ -68,7 +69,8 @@ class LibraryVerificationCommandTest :
         expect("incomplete transfers remain unchecked without accessing NAS") {
             every { files.selectByExecutedFileId(10) } returns listOf(file.copy(status = CreatedFileDto.Status.REGISTERED))
             command
-                .verify(1)!!
+                .verify(1)
+                .shouldNotBeNull()
                 .findings
                 .single()
                 .status shouldBe VerificationStatus.UNCHECKED
@@ -78,7 +80,11 @@ class LibraryVerificationCommandTest :
             every { files.selectByExecutedFileId(10) } returns listOf(file.copy(id = 4, file = "base/second.mp4"), file)
             every { session.verify(file.file, 12) } returns NasFileVerifier.Result(VerificationStatus.INACCESSIBLE)
             every { session.verify("base/second.mp4", 12) } returns NasFileVerifier.Result(VerificationStatus.VERIFIED, 12)
-            command.verify(1)!!.findings.map { it.status } shouldBe
+            command
+                .verify(1)
+                .shouldNotBeNull()
+                .findings
+                .map { it.status } shouldBe
                 listOf(VerificationStatus.INACCESSIBLE, VerificationStatus.VERIFIED)
         }
         expect("missing requested program differs from an empty library") {
@@ -86,6 +92,6 @@ class LibraryVerificationCommandTest :
             command.verify(99) shouldBe null
             every { programs.selectAllOrderById() } returns emptyList()
             every { files.selectAllWithExecutedFileId() } returns emptyList()
-            command.verify()!!.hasIssues shouldBe false
+            command.verify().shouldNotBeNull().hasIssues shouldBe false
         }
     })

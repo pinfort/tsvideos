@@ -36,10 +36,10 @@ class EnvironmentDiagnosticCommand(
                 validate(checks, "spring.datasource.password", databasePassword != null, "Set the database password"),
             ).all { it }
         checks +=
-            if (databaseValid) {
+            if (databaseValid && databaseUrl != null && databaseUser != null && databasePassword != null) {
                 val success =
                     try {
-                        databaseProbe.check(databaseUrl!!, databaseUser!!, databasePassword!!).also { diagnosticCancellation() }
+                        databaseProbe.check(databaseUrl, databaseUser, databasePassword).also { diagnosticCancellation() }
                     } catch (error: Exception) {
                         diagnosticCancellation(error)
                         false
@@ -71,8 +71,8 @@ class EnvironmentDiagnosticCommand(
                         "Set a relative NAS base directory without .., :, %, ?, # or control characters, or empty for the share root",
                     ),
                 ).all { it }
-            if (valid) {
-                checks += nasProbe.check(id, url!!, user!!, password!!, baseDir!!, checkWrite)
+            if (valid && url != null && user != null && password != null && baseDir != null) {
+                checks += nasProbe.check(id, url, user, password, baseDir, checkWrite)
             } else {
                 checks += DiagnosticCheck("$id.read", DiagnosticStatus.UNCHECKED, "Correct NAS configuration before connecting")
                 checks += DiagnosticCheck("$id.write", DiagnosticStatus.UNCHECKED, "Correct NAS configuration before checking permissions")

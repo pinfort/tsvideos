@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.core.command
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.mockk.clearMocks
@@ -92,7 +93,8 @@ class BulkLibraryCommandTest :
             plan.targets.single().eligible shouldBe true
             plan.targets
                 .single()
-                .snapshot!!
+                .snapshot
+                .shouldNotBeNull()
                 .executed shouldBe source
             plan.targets.single().estimatedMetadataBytes shouldBe 12
             plan.originalSourcePreserved shouldBe true
@@ -132,7 +134,7 @@ class BulkLibraryCommandTest :
         expect("every snapshot field is covered by the fingerprint") {
             // Fails when a DTO gains a field that BulkLibraryCommand.fingerprint does not encode.
             fun <T : Any> variants(value: T): List<Pair<String, T>> {
-                val constructor = value::class.primaryConstructor!!
+                val constructor = value::class.primaryConstructor.shouldNotBeNull()
                 return constructor.parameters.map { parameter ->
                     val current =
                         value::class
@@ -160,7 +162,7 @@ class BulkLibraryCommandTest :
                                 .call(value)
                         }
                     @Suppress("UNCHECKED_CAST")
-                    parameter.name!! to constructor.callBy(arguments + (parameter to changed)) as T
+                    parameter.name.shouldNotBeNull() to constructor.callBy(arguments + (parameter to changed)) as T
                 }
             }
             val baseline =

@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.mockk.Called
@@ -165,7 +166,10 @@ class FileProcessingPipelineTest :
 
                 verify { logger.info(match<String> { it.contains("would register, split, compress, upload and submit encoding") }) }
                 verify { jobs wasNot Called }
-                original.parentFile.listFiles()!!.toList() shouldBe listOf(original)
+                original.parentFile
+                    .listFiles()
+                    .shouldNotBeNull()
+                    .toList() shouldBe listOf(original)
                 verify(exactly = 1) { tsSelectClient.check(original, any()) }
                 verify(exactly = 1) { durationProbeClient.probe(original, any()) }
                 verify {

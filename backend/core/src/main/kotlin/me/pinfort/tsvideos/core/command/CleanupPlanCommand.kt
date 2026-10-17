@@ -37,7 +37,7 @@ class CleanupPlanCommand(
 
     private val fingerprintPattern = Regex("[a-f0-9]{64}")
 
-    fun plan(criteria: CleanupCriteria): CleanupPlan = read.execute { generate(criteria, Instant.now().toString()) }!!
+    fun plan(criteria: CleanupCriteria): CleanupPlan = read.execute { generate(criteria, Instant.now().toString()) }
 
     fun apply(
         plan: CleanupPlan,
@@ -56,7 +56,7 @@ class CleanupPlanCommand(
                             )
                     },
                 )
-            }!!
+            }
         }
         if (plan.targets.isEmpty()) return BulkResult(emptyList())
         return bulk.applyGuarded(
@@ -144,7 +144,7 @@ class CleanupPlanCommand(
             }
             CleanupMode.RETENTION -> {
                 groups = emptyList()
-                val before = LocalDateTime.parse(criteria.recordedBefore!!)
+                val before = LocalDateTime.parse(requireNotNull(criteria.recordedBefore) { "RETENTION requires recordedBefore" })
                 ids =
                     programs
                         .selectAll()
