@@ -6,6 +6,7 @@ import java.io.File
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.locks.LockSupport
@@ -40,14 +41,7 @@ class ShellClient {
                 .redirectError(redirect)
                 .start()
         val owned = linkedSetOf<ProcessHandle>()
-        val drains =
-            if (capture) {
-                Executors.newFixedThreadPool(
-                    2,
-                ) { runnable -> Thread(runnable, "shell-stream").apply { isDaemon = true } }
-            } else {
-                null
-            }
+        val drains = if (capture) Executors.newFixedThreadPool(2, DRAIN_THREADS) else null
         val stdout = drains?.submit<String> { process.inputStream.bufferedReader().readText() }
         val stderr = drains?.submit<String> { process.errorStream.bufferedReader().readText() }
         var exitedNormally = false
@@ -126,7 +120,8 @@ class ShellClient {
             }
         }
         children.filter { it.isAlive }.forEach { it.destroy() }
-        waitBriefly(children, 200)
+        // SIGTERM first: tools such as ffmpeg need a moment to flush before SIGKILL. Failure paths only.
+        waitBriefly(children, CHILD_TERMINATE_GRACE_MILLIS)
         children.filter { it.isAlive }.forEach { it.destroyForcibly() }
         // Give the direct parent a chance to reap its children before terminating it.
         waitBriefly(handles, 200)
@@ -141,5 +136,7 @@ class ShellClient {
         const val EARLY_POLL_MILLIS = 25L
         const val LATE_POLL_MILLIS = 250L
         const val DRAIN_GRACE_SECONDS = 5L
+        const val CHILD_TERMINATE_GRACE_MILLIS = 1000L
+        val DRAIN_THREADS = ThreadFactory { runnable -> Thread(runnable, "shell-stream").apply { isDaemon = true } }
     }
 }

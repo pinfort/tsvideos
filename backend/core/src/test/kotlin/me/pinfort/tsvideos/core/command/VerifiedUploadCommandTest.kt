@@ -26,6 +26,7 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import java.util.UUID
 
@@ -118,6 +119,25 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.source.exists() shouldBe true
                 f.manifest().state shouldBe State.NEW
                 f.manifest().claimToken shouldBe null
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("failed interruption cleanup is suppressed and leaves the owned temporary for reconciliation") {
+            val f = fixture()
+            every { f.nas.transfer(any(), any(), any(), any(), any()) } answers {
+                arg<() -> Unit>(3)()
+                f.remote[secondArg()] = byteArrayOf(1)
+                throw InterruptedException()
+            }
+            every { f.nas.delete(any(), any()) } throws IOException("share unavailable")
+            try {
+                val failure = shouldThrow<InterruptedException> { f.upload() }
+                failure.suppressed.single().message shouldBe "share unavailable"
+                f.remote.size shouldBe 1
+                f.manifest().state shouldBe State.TRANSFERRING
+                f.manifest().claimToken shouldBe null
+                f.source.exists() shouldBe true
             } finally {
                 f.source.delete()
             }

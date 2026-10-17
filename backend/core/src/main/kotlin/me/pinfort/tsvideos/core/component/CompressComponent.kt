@@ -81,6 +81,7 @@ class CompressComponent(
             }
             throw failure
         } finally {
+            // Safety net for the success path; close is idempotent, so the earlier close in catch is harmless here.
             output.close()
         }
         return true
