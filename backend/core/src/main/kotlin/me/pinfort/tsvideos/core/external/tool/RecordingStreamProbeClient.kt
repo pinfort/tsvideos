@@ -21,7 +21,7 @@ class RecordingStreamProbeClient(
                 shell.executeCapturingOutput(
                     file.parentFile,
                     listOf(tools.ffprobePath, "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", file.absolutePath),
-                    60,
+                    PROBE_TIMEOUT_SECONDS,
                 )
             if (result.exitCode != 0) {
                 logger.warn("ffprobe stream inspection exited with {}; streams unavailable", result.exitCode)
@@ -58,6 +58,8 @@ class RecordingStreamProbeClient(
     }
 
     private companion object {
+        // Stream headers only, not a full read; a timeout is reported as an unavailable measurement.
+        const val PROBE_TIMEOUT_SECONDS = 60L
         val JSON: JsonMapper = JsonMapper.builder().build()
         val logger: Logger = LoggerFactory.getLogger(RecordingStreamProbeClient::class.java)
     }

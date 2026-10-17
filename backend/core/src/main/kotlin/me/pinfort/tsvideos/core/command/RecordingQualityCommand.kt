@@ -23,6 +23,10 @@ class RecordingQualityCommand(
 ) {
     private val json = JsonMapper.builder().build()
 
+    /**
+     * Must run before registration, while [job] is still CLAIMED by this invocation and unregistered. A QUARANTINE
+     * decision also moves the job to QUARANTINED and finishes [attemptId] in the same transaction.
+     */
     @Transactional
     fun record(
         job: ProcessingJob,

@@ -20,6 +20,10 @@ class RecordingQualityTest :
         expect("action severity order is pinned because aggregation keeps the highest ordinal") {
             QualityAction.entries shouldBe listOf(QualityAction.CONTINUE, QualityAction.WARN, QualityAction.QUARANTINE)
         }
+        expect("persisted reason names are pinned; values may only be added") {
+            QualityReason.entries.map { it.name } shouldBe
+                listOf("WITHIN_LIMIT", "THRESHOLD_EXCEEDED", "BELOW_MINIMUM", "REQUIRED_STREAM_MISSING", "MEASUREMENT_UNAVAILABLE")
+        }
         expect("unavailable measurements never appear as passing or zero") {
             val policy =
                 RecordingQualityPolicy(
