@@ -3,12 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ProgramsTable } from "./programs-table";
-import {
-  applyBulk,
-  previewBulk,
-  type BulkPlan,
-  type BulkOutcome,
-} from "@/lib/api/bulk";
+import { applyBulk, previewBulk, type BulkPlan, type BulkOutcome } from "@/lib/api/bulk";
 import type { Program } from "@/lib/api/types";
 
 const MAX_SELECTION = 100;
@@ -40,9 +35,7 @@ export function BulkPrograms({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [outcomes, setOutcomes] = useState<BulkOutcome[]>([]);
-  const currentSelected = selected.filter((id) =>
-    programs.some((p) => p.id === id),
-  );
+  const currentSelected = selected.filter((id) => programs.some((p) => p.id === id));
 
   async function preview() {
     setPending(true);
@@ -58,9 +51,7 @@ export function BulkPrograms({
       );
     } catch (cause) {
       console.error("Bulk preview failed", cause);
-      setError(
-        "プレビューを取得できません。入力内容と接続を確認してください。",
-      );
+      setError("プレビューを取得できません。入力内容と接続を確認してください。");
     } finally {
       setPending(false);
     }
@@ -76,10 +67,7 @@ export function BulkPrograms({
       // Keep failed targets that are still on this page selected so they can be previewed again.
       setSelected(
         result.outcomes
-          .filter(
-            (o) =>
-              o.status !== "SUCCESS" && programs.some((p) => p.id === o.id),
-          )
+          .filter((o) => o.status !== "SUCCESS" && programs.some((p) => p.id === o.id))
           .map((o) => o.id),
       );
     } catch (cause) {
@@ -112,11 +100,7 @@ export function BulkPrograms({
         {renderPrograms ? (
           renderPrograms(currentSelected, select)
         ) : (
-          <ProgramsTable
-            programs={programs}
-            selected={currentSelected}
-            onSelect={select}
-          />
+          <ProgramsTable programs={programs} selected={currentSelected} onSelect={select} />
         )}
         <p>{currentSelected.length}件選択中</p>
         {!deleteOnly && (
@@ -145,9 +129,7 @@ export function BulkPrograms({
         <button
           type="button"
           className="rounded border p-2"
-          disabled={
-            !currentSelected.length || (action === "MOVE" && !directory.trim())
-          }
+          disabled={!currentSelected.length || (action === "MOVE" && !directory.trim())}
           onClick={preview}
         >
           対象をプレビュー
@@ -156,10 +138,7 @@ export function BulkPrograms({
       {pending && <p role="status">処理中…</p>}
       {error && <p role="alert">{error}</p>}
       {plan && (
-        <section
-          aria-label="実行前の確認"
-          className="space-y-3 rounded border p-4"
-        >
+        <section aria-label="実行前の確認" className="space-y-3 rounded border p-4">
           <h2>{plan.request.action === "DELETE" ? "削除" : "移動"}の確認</h2>
           <p>
             元のローカル録画ファイルは削除しません。NASとデータベースの処理は一括で取り消せません。途中失敗時は表示されたパスを確認してください。
@@ -167,10 +146,8 @@ export function BulkPrograms({
           <p>
             {plan.request.action === "DELETE" ? "削除予定" : "移動対象"}
             の登録サイズ合計:{" "}
-            {plan.targets
-              .reduce((n, t) => n + t.estimatedMetadataBytes, 0)
-              .toLocaleString()}{" "}
-            bytes （実際の空き容量の保証ではありません）
+            {plan.targets.reduce((n, t) => n + t.estimatedMetadataBytes, 0).toLocaleString()} bytes
+            （実際の空き容量の保証ではありません）
           </p>
           {plan.targets.map((t) => (
             <div key={t.id} className="border-b py-2">
@@ -180,10 +157,7 @@ export function BulkPrograms({
               <p>{t.eligible ? "実行可能" : `実行不可: ${t.reason}`}</p>
               {t.snapshot && (
                 <>
-                  <p>
-                    保持する元録画:{" "}
-                    {t.snapshot.executed?.file ?? "メタデータなし"}
-                  </p>
+                  <p>保持する元録画: {t.snapshot.executed?.file ?? "メタデータなし"}</p>
                   <ul>
                     {t.snapshot.createdFiles.map((f) => (
                       <li key={f.id} className="break-all">
@@ -194,8 +168,7 @@ export function BulkPrograms({
                   </ul>
                   <p>
                     分割ファイル記録:{" "}
-                    {t.snapshot.splitFiles.map((f) => f.file).join(", ") ||
-                      "なし"}
+                    {t.snapshot.splitFiles.map((f) => f.file).join(", ") || "なし"}
                     （ローカルファイルは保持）
                   </p>
                 </>

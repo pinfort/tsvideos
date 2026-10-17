@@ -41,12 +41,8 @@ export default async function HomePage({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-10">
       <header>
-        <Link href="/duplicates" className="mr-4 mb-4 inline-block underline">
-          重複録画のレビュー
-        </Link>
-        <Link href="/storage" className="mb-4 inline-block underline">
-          ストレージ概要
-        </Link>
+        <Link href="/duplicates" className="mr-4 mb-4 inline-block underline">重複録画のレビュー</Link>
+        <Link href="/storage" className="mb-4 inline-block underline">ストレージ概要</Link>
         {/* Keyed on the URL params so the uncontrolled inputs reset their defaults on navigation. */}
         <SearchForm key={JSON.stringify(values)} values={values} />
       </header>
@@ -67,10 +63,7 @@ export default async function HomePage({
               {result.programs.length}件表示）
             </p>
             {result.programs.length ? (
-              <BulkPrograms
-                key={JSON.stringify(values)}
-                programs={result.programs}
-              />
+              <BulkPrograms key={JSON.stringify(values)} programs={result.programs} />
             ) : (
               <p className="rounded border border-zinc-200 p-6">
                 条件に一致する録画がありません。検索条件やページを変更してください。

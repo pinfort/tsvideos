@@ -100,6 +100,39 @@ class DuplicateReviewMapperTest : ExpectSpec() {
                 .single()
                 .recommendation.comparedWithProgramId shouldBe 2L
         }
+        expect("ranks REGISTERED above ERROR when status decides") {
+            seed()
+            sql(
+                listOf(
+                    "UPDATE executed_file SET drops=0",
+                    "UPDATE program SET status='ERROR' WHERE id=1",
+                    "UPDATE program SET status='REGISTERED' WHERE id=2",
+                ),
+            )
+            val group = command().review().groups.single()
+            group.recommendedId shouldBe 2L
+            group.recommendation.decisiveCriterion shouldBe DuplicateKeepCriterion.STATUS
+            group.recommendation.comparedWithProgramId shouldBe 1L
+        }
+        expect("a three-member group keeps detector order, explains against the runner-up and loads each member's files") {
+            seed()
+            sql(
+                listOf(
+                    "INSERT INTO executed_file VALUES (3,'c',5,100,'2026-01-01','ch','c','ch',60,'SPLITTED')",
+                    "INSERT INTO program VALUES (3,'c',3,'COMPLETED')",
+                    "INSERT INTO splitted_file VALUES (1,1,'s1',1,1,'REGISTERED'),(2,2,'s2',1,1,'REGISTERED'),(3,3,'s3',1,1,'REGISTERED')",
+                    "INSERT INTO created_file VALUES " +
+                        "(4,3,'c2',10,'video/mp4',NULL,'FILE_MOVED'),(3,3,'c1',10,'video/mp4',NULL,'FILE_MOVED')," +
+                        "(2,2,'b1',10,'video/mp4',NULL,'FILE_MOVED'),(1,1,'a1',10,'video/mp4',NULL,'ENCODE_SUCCESS')",
+                ),
+            )
+            val group = command().review().groups.single()
+            // drops: 1 → 0, 3 → 5, 2 → unknown
+            group.members.map { it.program.id } shouldBe listOf(1L, 3L, 2L)
+            group.recommendation.comparedWithProgramId shouldBe 3L
+            group.recommendation.decisiveCriterion shouldBe DuplicateKeepCriterion.DROPS
+            group.members.map { member -> member.availableFiles.map { it.id } } shouldBe listOf(emptyList(), listOf(3L, 4L), listOf(2L))
+        }
     }
 
     private fun seed() =
