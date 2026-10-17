@@ -8,6 +8,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.core.command.CleanupPlanCommand
+import me.pinfort.tsvideos.core.domain.BulkInterruptedException
 import me.pinfort.tsvideos.core.domain.BulkOutcome
 import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
 import me.pinfort.tsvideos.core.domain.BulkResult
@@ -68,6 +69,11 @@ class CleanupTest :
                 partial.stdout.contains("STALE") shouldBe true
                 every { core.apply(plan, false) } returns BulkResult(listOf(BulkOutcome(2, BulkOutcomeStatus.NOT_FOUND, "Missing")))
                 Cleanup(core).testCleanup(listOf("apply", file.toString(), "--yes")).statusCode shouldBe 3
+                every { core.apply(plan, false) } returns
+                    BulkResult(
+                        listOf(BulkOutcome(2, BulkOutcomeStatus.NOT_FOUND, "Missing"), BulkOutcome(3, BulkOutcomeStatus.SUCCESS, "Done")),
+                    )
+                Cleanup(core).testCleanup(listOf("apply", file.toString(), "--yes")).statusCode shouldBe 4
                 Files.writeString(file, "{}")
                 Cleanup(core).testCleanup(listOf("apply", file.toString(), "--dry-run")).statusCode shouldBe 2
             } finally {
@@ -94,6 +100,34 @@ class CleanupTest :
                 result shouldBe (130 to true)
             } finally {
                 executor.shutdownNow()
+            }
+        }
+        expect("interrupted apply still prints the outcomes completed before the interrupt") {
+            val file = Files.createTempFile("cleanup-plan", ".json")
+            val executor =
+                java.util.concurrent.Executors
+                    .newSingleThreadExecutor()
+            try {
+                Files.writeString(file, CleanupPlanJson.write(plan))
+                val core = mockk<CleanupPlanCommand>()
+                every { core.apply(plan, false) } throws
+                    BulkInterruptedException(listOf(BulkOutcome(2, BulkOutcomeStatus.SUCCESS, "Completed")), 3)
+                val result =
+                    executor
+                        .submit<com.github.ajalt.clikt.testing.CliktCommandTestResult> {
+                            try {
+                                Cleanup(core).testCleanup(listOf("apply", file.toString(), "--yes"))
+                            } finally {
+                                Thread.interrupted()
+                            }
+                        }.get(10, java.util.concurrent.TimeUnit.SECONDS)
+                result.statusCode shouldBe 130
+                result.stdout.contains("\"interrupted\":true") shouldBe true
+                result.stdout.contains("\"interruptedTargetId\":3") shouldBe true
+                result.stdout.contains("\"status\":\"SUCCESS\"") shouldBe true
+            } finally {
+                executor.shutdownNow()
+                Files.deleteIfExists(file)
             }
         }
         expect("missing file and operational failures have stable exit codes without secrets") {

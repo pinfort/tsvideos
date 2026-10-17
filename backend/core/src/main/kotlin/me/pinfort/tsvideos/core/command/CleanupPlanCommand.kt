@@ -113,6 +113,7 @@ class CleanupPlanCommand(
         val ids: List<Long>
         when (criteria.mode) {
             CleanupMode.DUPLICATES -> {
+                // DuplicateProgramCommand groups by channel, so every member shares the first member's channel.
                 val review =
                     duplicates.review().groups.filter {
                         criteria.channel == null ||

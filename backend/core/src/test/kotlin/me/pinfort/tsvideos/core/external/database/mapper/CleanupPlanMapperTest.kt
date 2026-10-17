@@ -21,6 +21,7 @@ import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.domain.BulkAction
 import me.pinfort.tsvideos.core.domain.BulkApplyRequest
+import me.pinfort.tsvideos.core.domain.BulkInterruptedException
 import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
 import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.domain.CleanupCriteria
@@ -334,6 +335,33 @@ class CleanupPlanMapperTest : ExpectSpec() {
                         }
                     }.get(20, TimeUnit.SECONDS) shouldBe true
                 verify(exactly = 1) { nas.deleteResource(any()) }
+            } finally {
+                executor.shutdownNow()
+            }
+        }
+        expect("interruption after a deletion reports the completed outcomes and the interrupted target") {
+            seed(3)
+            val nas = nas()
+            every { nas.deleteResource("base/a/p3/file.mp4") } throws InterruptedException("cancel")
+            val command = commands(nas).first
+            val plan = command.plan(CleanupCriteria(CleanupMode.DUPLICATES))
+            val executor = Executors.newSingleThreadExecutor()
+            try {
+                val interrupted =
+                    executor
+                        .submit<BulkInterruptedException> {
+                            try {
+                                command.apply(plan)
+                                null
+                            } catch (error: BulkInterruptedException) {
+                                error
+                            } finally {
+                                Thread.interrupted()
+                            }
+                        }.get(20, TimeUnit.SECONDS)!!
+                interrupted.completed.map { it.id to it.status } shouldBe listOf(2L to BulkOutcomeStatus.SUCCESS)
+                interrupted.interruptedId shouldBe 3L
+                programMapper.selectAllIds() shouldBe listOf(1L, 3L)
             } finally {
                 executor.shutdownNow()
             }

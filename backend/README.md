@@ -170,13 +170,23 @@ java -jar manager.jar cleanup apply cleanup.json --yes
 
 On PowerShell, save stdout with `Set-Content -Encoding utf8`; plan JSON and CLI stdout use UTF-8. Review `targets`, `keptTargets`, `groups`, file paths, eligibility and estimates before applying. Duplicate mode uses the same broadcast grouping and keep recommendation as the duplicate review page. Repeated `--keep ID` options override one kept copy per group. Retention requires an explicit exclusive local recording-time cutoff; its optional channel matches exactly. Unknown recording dates are excluded. Retention is a separate explicit policy and does not preserve duplicate copies automatically.
 
-Schema version 1 includes UTC creation time, criteria, chosen keep IDs, exact file snapshots and fingerprints. A plan supports at most 100 targets and 100 groups; narrow criteria if that limit is exceeded. There is no implicit batching. Size estimates are registered metadata bytes, not verified physical space or promised reclaimable bytes. Plan generation and dry-run never scan or contact NAS and never mutate the database. A dry-run is a point-in-time validation, not a reservation.
+Schema version 1 includes UTC creation time, criteria, chosen keep IDs, exact file snapshots and fingerprints. A plan supports at most 100 targets and 100 groups; narrow criteria if that limit is exceeded. There is no implicit batching. Size estimates are registered metadata bytes, not verified physical space or promised reclaimable bytes. Plan generation and dry-run never scan or contact NAS and never mutate the database. A dry-run is a point-in-time validation, not a reservation. It checks each target against current state without simulating earlier targets' deletions, so a plan that passes dry-run can still become stale during apply.
 
 Apply requires `--yes`. Imported paths are review data only; the existing bulk deletion command resolves current metadata and performs deletion. Original recordings are preserved. Shared paths, pending files and other existing bulk eligibility protections still apply. Each target runs in its own transaction and locks registered files, then programs, executed files and split files in a fixed order before checking the complete candidate selection, kept-copy snapshots and duplicate membership again. These broad locks can delay other library operations while a target is being deleted. Opposite keep choices in concurrent cleanup plans cannot delete every copy: the later operation becomes stale. This guarantee applies at cleanup application time; a later independent explicit web deletion is not prohibited by a permanent keep policy.
 
 Changed schema/criteria/snapshots, missing kept copies or changed groups require regeneration and review. Only this invocation's confirmed successful deletions are removed from the expected group membership when checking later targets. Partial NAS failures may leave physical files partly removed even if database changes roll back. Inspect the outcome and paths, regenerate and review before retrying. There is no automatic deletion or background schedule.
 
-Output is JSON (the optional `--json` flag is accepted). Exit codes: `0` all targets succeeded/validated (including an empty plan), `1` operational failure, `2` invalid input or missing confirmation, `3` missing explicit resource, `4` unresolved/partial target outcomes including stale plans. `130` indicates interruption: the interrupt flag is restored and no later target is started. Inspect current state before retrying because completed targets and partial NAS effects can remain. Diagnostics go to stderr; per-target results remain in stdout JSON.
+Output is JSON (the optional `--json` flag is accepted). Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | All targets succeeded or validated (including an empty plan) |
+| `1` | Operational failure |
+| `2` | Invalid input or missing confirmation |
+| `3` | Missing plan file or explicit keep ID, or every target `NOT_FOUND` |
+| `4` | Any other mix with a non-`SUCCESS` outcome, including partial success with some `NOT_FOUND`, `STALE` or `FAILED` targets |
+| `130` | Interrupted: no later target is started, and stdout still lists the outcomes completed so far with `interrupted: true` and `interruptedTargetId` (whose NAS files may be partly removed). The interrupt flag is restored. Inspect current state before retrying |
+ Diagnostics go to stderr; per-target results remain in stdout JSON.
 
 ### Library statistics
 

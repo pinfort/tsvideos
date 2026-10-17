@@ -4,6 +4,7 @@ import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.domain.BulkAction
 import me.pinfort.tsvideos.core.domain.BulkApplyRequest
+import me.pinfort.tsvideos.core.domain.BulkInterruptedException
 import me.pinfort.tsvideos.core.domain.BulkOutcome
 import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
 import me.pinfort.tsvideos.core.domain.BulkPlan
@@ -73,8 +74,8 @@ class BulkLibraryCommand(
     /**
      * [guard] runs inside each target's transaction after every program/executed/split row is locked, and may
      * veto the target (it receives the IDs this call has already deleted successfully). Guarded callers are
-     * operator CLIs: an interrupt aborts the whole call with [InterruptedException] instead of reporting the
-     * remaining targets as FAILED.
+     * operator CLIs: an interrupt aborts the whole call with [BulkInterruptedException], carrying the outcomes
+     * finished so far, instead of reporting the remaining targets as FAILED.
      */
     internal fun applyGuarded(
         input: BulkApplyRequest,
@@ -87,20 +88,24 @@ class BulkLibraryCommand(
         // re-checked per target against the locked alias scan, and any change to a target's own files is STALE.
         val proposed = read.execute { proposed(request) }!!
         val successful = mutableSetOf<Long>()
-        return BulkResult(
-            request.ids.map { id ->
-                // After an interrupt (e.g. shutdown) stop starting new targets rather than mutating more files.
-                val outcome =
-                    if (Thread.currentThread().isInterrupted) {
-                        if (guard != null) throw InterruptedException("Bulk operation interrupted")
-                        BulkOutcome(id, BulkOutcomeStatus.FAILED, "Interrupted before this target; nothing was changed.")
-                    } else {
+        val outcomes = mutableListOf<BulkOutcome>()
+        for (id in request.ids) {
+            // After an interrupt (e.g. shutdown) stop starting new targets rather than mutating more files.
+            val outcome =
+                if (Thread.currentThread().isInterrupted) {
+                    if (guard != null) throw BulkInterruptedException(outcomes.toList(), null)
+                    BulkOutcome(id, BulkOutcomeStatus.FAILED, "Interrupted before this target; nothing was changed.")
+                } else {
+                    try {
                         applyOne(id, request, proposed, input.fingerprints.getValue(id), guard, successful.toSet())
+                    } catch (error: InterruptedException) {
+                        throw BulkInterruptedException(outcomes.toList(), id).apply { initCause(error) }
                     }
-                if (outcome.status == BulkOutcomeStatus.SUCCESS) successful.add(id)
-                outcome
-            },
-        )
+                }
+            if (outcome.status == BulkOutcomeStatus.SUCCESS) successful.add(id)
+            outcomes.add(outcome)
+        }
+        return BulkResult(outcomes)
     }
 
     private fun applyOne(
@@ -166,13 +171,19 @@ class BulkLibraryCommand(
         }
     }
 
-    /** Guarded callers stop on interrupt; the original failure stays attached as the cause. */
+    /**
+     * Guarded callers stop on interrupt; the original failure stays attached as the cause. TransactionTemplate
+     * wraps a checked InterruptedException, so the cause chain is checked as well as the thread flag.
+     */
     private fun rethrowIfInterrupted(
         id: Long,
         request: BulkRequest,
         error: Exception,
         mutating: Boolean,
     ) {
+        if (generateSequence<Throwable>(error) { it.cause }.any { it is InterruptedException }) {
+            Thread.currentThread().interrupt()
+        }
         if (Thread.currentThread().isInterrupted) {
             logger.error("Bulk ${request.action} interrupted, programId=$id, afterMutationStarted=$mutating", error)
             throw InterruptedException("Bulk operation interrupted").apply { initCause(error) }

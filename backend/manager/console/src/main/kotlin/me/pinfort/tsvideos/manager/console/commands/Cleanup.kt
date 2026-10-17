@@ -12,6 +12,8 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.long
 import me.pinfort.tsvideos.core.command.CleanupPlanCommand
 import me.pinfort.tsvideos.core.command.CleanupResourceMissing
+import me.pinfort.tsvideos.core.domain.BulkInterruptedException
+import me.pinfort.tsvideos.core.domain.BulkOutcome
 import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
 import me.pinfort.tsvideos.core.domain.CleanupCriteria
 import me.pinfort.tsvideos.core.domain.CleanupMode
@@ -68,30 +70,36 @@ class CleanupApplyCli(
             val plan =
                 try {
                     CleanupPlanJson.read(Files.readString(path))
-                } catch (
-                    _: Exception,
-                ) {
+                } catch (_: Exception) {
                     throw UsageError("Invalid cleanup plan JSON")
                 }
-            val result = command.apply(plan, dryRun)
-            echo(CleanupPlanJson.write(mapOf("schemaVersion" to 1, "cleanup" to mapOf("dryRun" to dryRun, "outcomes" to result.outcomes))))
-            if (result.outcomes.any { it.status != BulkOutcomeStatus.SUCCESS }) {
-                throw CliktError(
-                    "Cleanup has unresolved targets",
-                    statusCode =
-                        if (result.outcomes.all {
-                                it.status ==
-                                    BulkOutcomeStatus.NOT_FOUND
-                            }
-                        ) {
-                            3
-                        } else {
-                            4
-                        },
-                )
-            }
+            val result =
+                try {
+                    command.apply(plan, dryRun)
+                } catch (error: BulkInterruptedException) {
+                    // Deletions are irreversible: report what already happened before exiting 130.
+                    echo(outcomesJson(dryRun, error.completed, mapOf("interrupted" to true, "interruptedTargetId" to error.interruptedId)))
+                    throw error
+                }
+            echo(outcomesJson(dryRun, result.outcomes))
+            unresolvedExitCode(result.outcomes)?.let { throw CliktError("Cleanup has unresolved targets", statusCode = it) }
         }
 }
+
+private fun outcomesJson(
+    dryRun: Boolean,
+    outcomes: List<BulkOutcome>,
+    extra: Map<String, Any?> = emptyMap(),
+): String =
+    CleanupPlanJson.write(mapOf("schemaVersion" to 1, "cleanup" to mapOf("dryRun" to dryRun) + extra + mapOf("outcomes" to outcomes)))
+
+/** 3 only when every target is gone; any other mix with a non-SUCCESS outcome (including partial success) is 4. */
+private fun unresolvedExitCode(outcomes: List<BulkOutcome>): Int? =
+    when {
+        outcomes.all { it.status == BulkOutcomeStatus.SUCCESS } -> null
+        outcomes.all { it.status == BulkOutcomeStatus.NOT_FOUND } -> 3
+        else -> 4
+    }
 
 private fun cleanupErrors(block: () -> Unit) {
     try {
@@ -106,8 +114,9 @@ private fun cleanupErrors(block: () -> Unit) {
         throw CliktError("Selected recording not found", statusCode = 3)
     } catch (_: DateTimeException) {
         throw UsageError("Invalid cleanup date")
-    } catch (_: IllegalArgumentException) {
-        throw UsageError("Invalid cleanup criteria or plan")
+    } catch (error: IllegalArgumentException) {
+        // Validation messages describe the rejected input only, so they are safe to show.
+        throw UsageError("Invalid cleanup criteria or plan" + (error.message?.let { ": $it" } ?: ""))
     } catch (error: Exception) {
         if (Thread.currentThread().isInterrupted || generateSequence<Throwable>(error) { it.cause }.any { it is InterruptedException }) {
             Thread.currentThread().interrupt()
