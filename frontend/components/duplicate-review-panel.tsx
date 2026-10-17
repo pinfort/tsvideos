@@ -11,6 +11,11 @@ const criteria: Record<KeepCriterion, string> = {
   SIZE: "録画元のサイズが大きい",
   ID: "ID が小さい",
 };
+function formatDuration(seconds: number) {
+  // A failed duration probe is stored as 0, so non-positive means unknown.
+  return seconds <= 0 ? "不明" : `${seconds} 秒`;
+}
+
 export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[] }) {
   const programs = groups.flatMap((group) => group.members.map((member) => member.program));
   return (
@@ -41,10 +46,8 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
               <p className="mt-2 text-sm">
                 推薦値：ドロップ {group.recommendation.drops ?? "不明"} /{" "}
                 {programStatusToJapanese(group.recommendation.status)} /{" "}
-                {group.recommendation.durationSeconds <= 0
-                  ? "不明"
-                  : `${group.recommendation.durationSeconds} 秒`}{" "}
-                / {group.recommendation.recordedBytes.toLocaleString("ja-JP")} bytes / ID{" "}
+                {formatDuration(group.recommendation.durationSeconds)} /{" "}
+                {group.recommendation.recordedBytes.toLocaleString("ja-JP")} bytes / ID{" "}
                 {group.recommendation.id}
               </p>
               {group.members.every(({ program }) => selected.includes(program.id)) && (
@@ -60,9 +63,11 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                   </caption>
                   <thead>
                     <tr>
-                      <th className="p-2">比較項目</th>
+                      <th scope="col" className="p-2">
+                        比較項目
+                      </th>
                       {group.members.map(({ program }) => (
-                        <th key={program.id} className="min-w-60 p-2">
+                        <th key={program.id} scope="col" className="min-w-60 p-2">
                           <label className="flex gap-2">
                             <input
                               type="checkbox"
@@ -89,7 +94,9 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                   </thead>
                   <tbody>
                     <tr className="border-t">
-                      <th className="p-2">チャンネル</th>
+                      <th scope="row" className="p-2">
+                        チャンネル
+                      </th>
                       {group.members.map(({ program }) => (
                         <td key={program.id} className="p-2">
                           {program.channelName}（{program.channel}）
@@ -97,7 +104,9 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                       ))}
                     </tr>
                     <tr className="border-t">
-                      <th className="p-2">録画日時（録画環境のローカル時刻）</th>
+                      <th scope="row" className="p-2">
+                        録画日時（録画環境のローカル時刻）
+                      </th>
                       {group.members.map(({ program }) => (
                         <td key={program.id} className="p-2">
                           {program.recordedAt}
@@ -105,15 +114,19 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                       ))}
                     </tr>
                     <tr className="border-t">
-                      <th className="p-2">録画時間</th>
+                      <th scope="row" className="p-2">
+                        録画時間
+                      </th>
                       {group.members.map(({ program }) => (
                         <td key={program.id} className="p-2">
-                          {program.duration <= 0 ? "不明" : `${program.duration} 秒`}
+                          {formatDuration(program.duration)}
                         </td>
                       ))}
                     </tr>
                     <tr className="border-t">
-                      <th className="p-2">ドロップ数</th>
+                      <th scope="row" className="p-2">
+                        ドロップ数
+                      </th>
                       {group.members.map(({ program }) => (
                         <td key={program.id} className="p-2">
                           {program.drops < 0 ? "不明" : program.drops}
@@ -121,7 +134,9 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                       ))}
                     </tr>
                     <tr className="border-t">
-                      <th className="p-2">処理状態</th>
+                      <th scope="row" className="p-2">
+                        処理状態
+                      </th>
                       {group.members.map(({ program }) => (
                         <td key={program.id} className="p-2">
                           {programStatusToJapanese(program.status)}
@@ -129,7 +144,9 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                       ))}
                     </tr>
                     <tr className="border-t">
-                      <th className="p-2">利用可能として登録されたファイル</th>
+                      <th scope="row" className="p-2">
+                        利用可能として登録されたファイル
+                      </th>
                       {group.members.map(({ program, availableFiles }) => (
                         <td key={program.id} className="p-2">
                           {availableFiles.length ? (

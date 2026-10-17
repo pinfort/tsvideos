@@ -36,7 +36,8 @@ export function BulkPrograms({
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<number[]>([]);
-  const [action, setAction] = useState<"DELETE" | "MOVE">("DELETE");
+  const [selectedAction, setAction] = useState<"DELETE" | "MOVE">("DELETE");
+  const action = deleteOnly ? "DELETE" : selectedAction;
   const [directory, setDirectory] = useState("");
   const [plan, setPlan] = useState<BulkPlan | null>(null);
   const [pending, setPending] = useState(false);
