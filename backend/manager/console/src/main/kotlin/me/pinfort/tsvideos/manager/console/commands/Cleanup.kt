@@ -57,7 +57,10 @@ class CleanupApplyCli(
     private val command: CleanupPlanCommand,
 ) : CliktCommand(name = "apply") {
     private val file by argument("plan-file")
-    private val dryRun by option("--dry-run").flag()
+    private val dryRun by option(
+        "--dry-run",
+        help = "validate each target against current state; earlier deletions are not simulated, so apply can still be STALE",
+    ).flag()
     private val yes by option("--yes", help = "confirm application of the reviewed plan").flag()
     private val json by option("--json", help = "JSON is always emitted").flag()
 

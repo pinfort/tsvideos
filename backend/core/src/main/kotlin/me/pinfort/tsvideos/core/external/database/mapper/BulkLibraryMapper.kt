@@ -9,6 +9,7 @@ import org.apache.ibatis.annotations.Select
 interface BulkLibraryMapper {
     // Guarded (cleanup) apply only, after lockFiles: created_file -> program -> executed_file -> splitted_file is the
     // same table order as the per-target locks below, and nothing else in the app takes row locks on these tables.
+    // These lock whole tables: operator CLI only, never from a web request path.
     @Select("SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT id FROM program ORDER BY id FOR UPDATE")
     fun lockAllPrograms(): List<Long>
 
