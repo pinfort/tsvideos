@@ -29,7 +29,9 @@ class ProgramCommand(
     private val logger: Logger,
     private val splittedFileCommand: SplittedFileCommand,
     private val directoryNameComponent: DirectoryNameComponent,
+    private val executedFileTagCommand: ExecutedFileTagCommand,
 ) {
+    // One REPEATABLE_READ snapshot keeps total consistent with the page under concurrent writes.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun search(query: ProgramSearchQuery): ProgramSearchPage =
         ProgramSearchPage(programMapper.search(query).map { it.toDomain() }, programMapper.countSearch(query), query.limit, query.offset)
@@ -119,7 +121,11 @@ class ProgramCommand(
     fun findDetail(id: Long): ProgramDetail? {
         val program: ProgramDto = programMapper.find(id) ?: return null
         val createdFiles: List<CreatedFileDto> = createdFileMapper.selectByExecutedFileId(program.executedFileId)
-        return program.toProgramDetail(createdFiles)
+        return program.toProgramDetail(
+            createdFiles,
+            executedFileTagCommand.selectTags(program.executedFileId),
+            executedFileTagCommand.selectChecks(program.executedFileId),
+        )
     }
 
     @Transactional
@@ -155,10 +161,18 @@ class ProgramCommand(
     ) {
         val createdFiles: List<CreatedFileDto> = createdFileMapper.selectByExecutedFileId(program.executedFileId)
 
-        createdFiles.forEach {
-            val oldPath = Path.of(it.file.replace('\\', '/'))
-            val newPath = directoryNameComponent.replaceWithGivenDirectoryName(oldPath, newDirectory)
-            createdFileCommand.move(it.toDomain(), newPath.toString().replace('/', '\\'), dryRun)
+        // NAS moves cannot roll back with the transaction, so earlier files are moved back if a later one fails.
+        val moved = mutableListOf<Pair<String, String>>()
+        try {
+            createdFiles.forEach {
+                val oldPath = Path.of(it.file.replace('\\', '/'))
+                val newFile = directoryNameComponent.replaceWithGivenDirectoryName(oldPath, newDirectory).toString().replace('/', '\\')
+                createdFileCommand.move(it.toDomain(), newFile, dryRun)
+                if (!dryRun) moved += it.file to newFile
+            }
+        } catch (e: Exception) {
+            createdFileCommand.restoreMoved(moved)
+            throw e
         }
 
         logger.info("Move created files, id=${program.id}, newDirectory=$newDirectory, program=$program")

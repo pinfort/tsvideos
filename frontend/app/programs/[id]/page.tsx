@@ -35,7 +35,11 @@ export default async function ProgramDetailPage({
       <main className="flex flex-col gap-6">
         <ProgramDetailTable program={detail.program} />
         <hr className="border-zinc-200 dark:border-zinc-800" />
-        <VideoFilesTable files={detail.videoFiles} />
+        <VideoFilesTable
+          files={detail.videoFiles}
+          programId={programId}
+          title={detail.program.name}
+        />
         {organization ? (
           <ProgramOrganizationEditor programId={programId} {...organization} />
         ) : (

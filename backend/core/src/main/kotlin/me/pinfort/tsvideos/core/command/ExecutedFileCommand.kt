@@ -10,6 +10,7 @@ import java.time.LocalDateTime
 @Component
 class ExecutedFileCommand(
     private val executedFileMapper: ExecutedFileMapper,
+    private val executedFileTagCommand: ExecutedFileTagCommand,
     private val logger: Logger,
 ) {
     fun find(id: Long): ExecutedFile? = executedFileMapper.find(id)?.toDomain()
@@ -70,6 +71,7 @@ class ExecutedFileCommand(
         executedFile: ExecutedFile,
         dryRun: Boolean = false,
     ) {
+        executedFileTagCommand.deleteByExecutedFileId(executedFile.id, dryRun)
         if (!dryRun) {
             executedFileMapper.delete(executedFile.id)
         }

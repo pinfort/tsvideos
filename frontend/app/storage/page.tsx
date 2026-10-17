@@ -1,0 +1,76 @@
+import Link from "next/link";
+import { DuplicateCandidatesList } from "@/components/duplicate-candidates-list";
+import { LargestRecordingsTable } from "@/components/largest-recordings-table";
+import { StorageTotals } from "@/components/storage-totals";
+import { getStorageOverview, type StorageOverview } from "@/lib/api/storage";
+import { formatBytes } from "@/lib/format-bytes";
+
+// fetchJson uses `cache: "no-store"`, so this page is rendered per request with live numbers.
+export default async function StoragePage() {
+  let overview: StorageOverview;
+  try {
+    overview = await getStorageOverview();
+  } catch {
+    return (
+      <main className="mx-auto w-full max-w-4xl px-6 py-10">
+        <h1 className="text-2xl font-bold">ストレージ概要</h1>
+        <p role="alert" className="my-6">
+          ストレージ情報を取得できませんでした。時間をおいて再読み込みしてください。
+        </p>
+        <Link href="/">録画一覧へ戻る</Link>
+      </main>
+    );
+  }
+
+  return (
+    <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-10">
+      <header>
+        <Link href="/" className="underline">
+          録画一覧へ戻る
+        </Link>
+        <h1 className="mt-4 text-3xl font-bold">ストレージ概要</h1>
+        <p className="mt-2">登録されたファイル情報から使用量と整理候補を確認できます。ファイルは削除されません。</p>
+      </header>
+
+      <section aria-labelledby="totals-heading">
+        <h2 id="totals-heading" className="text-xl font-semibold">
+          登録メタデータの容量
+        </h2>
+        <StorageTotals totals={overview.totals} />
+      </section>
+
+      <section aria-labelledby="largest-heading">
+        <h2 id="largest-heading" className="text-xl font-semibold">
+          容量の大きい録画（上位20件）
+        </h2>
+        <p className="mt-2 text-sm">
+          番組ごとの作成ファイル容量順です。ファイルを共有する番組もあるため、この一覧の合計は総容量と一致しない場合があります。
+        </p>
+        <LargestRecordingsTable recordings={overview.largestRecordings} />
+      </section>
+
+      <section aria-labelledby="duplicates-heading">
+        <h2 id="duplicates-heading" className="text-xl font-semibold">
+          重複の整理候補
+        </h2>
+        <p className="mt-3">
+          登録情報に基づく回収候補：<strong>{formatBytes(overview.estimatedReclaimableBytes)}</strong>
+        </p>
+        <p>検証済みの回収可能容量：{formatBytes(overview.verifiedReclaimableBytes)}</p>
+        <p className="mt-2 text-sm">
+          すべての整理候補を除去すると仮定した推計です。保持する番組と共有する {overview.excludedSharedPathCount}{" "}
+          パスは除外しています。転送完了前の登録も含み、実際に空く容量は未検証です。
+        </p>
+        <details className="mt-3 text-sm">
+          <summary className="cursor-pointer underline">候補と推計のルール</summary>
+          <p className="mt-2">
+            同一チャンネルで長い方の録画時間の80%以上が重なるものを既存ルールで判定します。長さ不明の場合は同じ開始時刻を使います。ドロップ数、完了状態、長さ、サイズ、ID
+            の順で保持候補を推薦します。パスの区切り・大文字小文字・相対要素を正規化し、全参照番組が整理候補の場合だけ一度集計します。NAS
+            の違いが不明な同一パスは共有とみなし、サイズが矛盾する場合は最小値を使用する保守的な推計です。
+          </p>
+        </details>
+        <DuplicateCandidatesList candidates={overview.duplicateCandidates} />
+      </section>
+    </main>
+  );
+}

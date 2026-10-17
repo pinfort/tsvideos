@@ -2,7 +2,10 @@ package me.pinfort.tsvideos.core.domain
 
 import java.time.LocalDateTime
 
-/** Shared CLI/API search semantics; recording timestamps use the recording environment's local time. */
+/**
+ * Shared CLI/API search semantics; recording timestamps use the recording environment's local time.
+ * The web UI mirrors these bounds in frontend/lib/program-query.ts; keep the two in sync.
+ */
 data class ProgramSearchQuery(
     val name: String? = null,
     val channel: String? = null,

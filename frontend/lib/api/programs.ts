@@ -15,9 +15,7 @@ export async function getPrograms(
   );
 }
 
-export async function getProgramDetail(
-  id: number,
-): Promise<ProgramDetailResponse | null> {
+export async function getProgramDetail(id: number): Promise<ProgramDetailResponse | null> {
   try {
     return await fetchJson<ProgramDetailResponse>(`/api/v1/programs/${id}`);
   } catch (err) {

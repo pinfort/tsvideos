@@ -302,6 +302,24 @@ class CreatedFileCommandTest :
             }
         }
 
+        context("restoreMoved") {
+            expect("moves files back newest first and keeps going after a failure") {
+                every { nasComponent.moveResource("new2", "old2") } throws IllegalStateException("busy")
+                every { nasComponent.moveResource("new1", "old1") } returns SambaClient.NasType.VIDEO_STORE_NAS
+                every { logger.info(any()) } just Runs
+                every { logger.error(any(), any<Exception>()) } just Runs
+
+                createdFileCommand.restoreMoved(listOf("old1" to "new1", "old2" to "new2"))
+
+                verifySequence {
+                    nasComponent.moveResource("new2", "old2")
+                    logger.error(any(), any<IllegalStateException>())
+                    nasComponent.moveResource("new1", "old1")
+                    logger.info(any())
+                }
+            }
+        }
+
         context("move") {
             expect("success") {
                 every { createdFileMapper.updateFile(any(), any()) } returns 1

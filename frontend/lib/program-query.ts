@@ -1,5 +1,8 @@
 import type { ProgramSearchQuery } from "./api/types";
 
+/** Largest value the backend accepts for int-typed params (Java Integer.MAX_VALUE). */
+export const MAX_INT = 2_147_483_647;
+
 export type ProgramQueryParams = Record<string, string | string[] | undefined>;
 export type ParsedProgramQuery = ProgramSearchQuery & {
   limit: number;
@@ -14,6 +17,19 @@ export function programQueryParams(query: ProgramSearchQuery): URLSearchParams {
   return params;
 }
 
+const fieldLabels: Record<string, string> = {
+  status: "状態",
+  fileType: "ファイル形式",
+  sort: "並び順",
+  direction: "並び方向",
+  minDrops: "ドロップ数（下限）",
+  maxDrops: "ドロップ数（上限）",
+  limit: "1ページの件数",
+  offset: "開始位置",
+};
+
+// Mirrors core's ProgramSearchQuery validation (backend/core/.../domain/ProgramSearchQuery.kt) so invalid
+// input stays editable without a round trip; keep the bounds in sync when the backend rules change.
 export function parseProgramQuery(
   params: ProgramQueryParams,
 ): ParsedProgramQuery {
@@ -31,7 +47,9 @@ export function parseProgramQuery(
     const v = value(key);
     if (v === undefined) return fallback;
     if (!/^\d+$/.test(v) || Number(v) < min || Number(v) > max)
-      throw new Error(`${key} は ${min}〜${max} の整数で指定してください。`);
+      throw new Error(
+        `${fieldLabels[key] ?? key} は ${min}〜${max} の整数で指定してください。`,
+      );
     return Number(v);
   };
   const option = <T extends string>(
@@ -42,7 +60,7 @@ export function parseProgramQuery(
     const v = value(key);
     if (v === undefined) return fallback;
     if (!values.includes(v as T))
-      throw new Error("状態・ファイル形式・並び順の指定が不正です。");
+      throw new Error(`${fieldLabels[key] ?? key} の指定が不正です。`);
     return v as T;
   };
   const date = (key: string) => {
@@ -82,8 +100,8 @@ export function parseProgramQuery(
     recordedFrom: date("recordedFrom"),
     recordedTo: date("recordedTo"),
     status: option("status", ["REGISTERED", "COMPLETED", "ERROR"] as const),
-    minDrops: integer("minDrops", 0, 2_147_483_647),
-    maxDrops: integer("maxDrops", 0, 2_147_483_647),
+    minDrops: integer("minDrops", 0, MAX_INT),
+    maxDrops: integer("maxDrops", 0, MAX_INT),
     fileType: option("fileType", ["TS", "ENCODED"] as const),
     sort: option(
       "sort",
@@ -92,7 +110,7 @@ export function parseProgramQuery(
     ),
     direction: option("direction", ["ASC", "DESC"] as const, "DESC"),
     limit: integer("limit", 1, 500, 10)!,
-    offset: integer("offset", 0, 2_147_483_647, 0)!,
+    offset: integer("offset", 0, MAX_INT, 0)!,
   };
   // Compare local time at nanosecond precision without server/browser timezone conversion.
   const canonical = (v: string) =>
