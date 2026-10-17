@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/** One CLI invocation, one owner. This is not a worker scheduler. */
+/** One CLI invocation, one owner. This is not a worker scheduler: an instance admits one [runOwned] and is then spent. */
 @Component
 class ProcessingCancellation {
     @Volatile private var stopping = false

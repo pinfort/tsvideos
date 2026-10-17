@@ -28,6 +28,7 @@ class ProcessorShutdown(
         closer.start()
         val remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
         if (remaining > 0) closer.join(remaining)
+        if (closer.isAlive) logger.warn("Context close did not finish within the ${graceSeconds}s grace; the JVM exits mid-close")
     }
 
     private companion object {
