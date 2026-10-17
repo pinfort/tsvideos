@@ -31,10 +31,14 @@ interface LibraryOrganizationMapper {
     ): Long?
 
     @Select("SELECT id FROM program WHERE id=#{id} FOR UPDATE")
-    fun lockProgram(id: Long): Long?
+    fun lockProgram(
+        @Param("id") id: Long,
+    ): Long?
 
     @Select("SELECT id FROM program WHERE id=#{id}")
-    fun findProgram(id: Long): Long?
+    fun findProgram(
+        @Param("id") id: Long,
+    ): Long?
 
     @InsertProvider(type = LibraryOrganizationSql::class, method = "insert")
     @Options(useGeneratedKeys = true, keyProperty = "keyHolder.id")

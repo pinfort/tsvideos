@@ -1,4 +1,4 @@
--- Apply to the existing application database before deploying issue 53.
+-- Manual collections/tags; see backend/docs/library-organization.md. Apply before deploying the feature.
 -- program.id must remain signed BIGINT, and program must use InnoDB.
 CREATE TABLE IF NOT EXISTS library_collection (
  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
