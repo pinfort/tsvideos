@@ -1,10 +1,12 @@
 package me.pinfort.tsvideos.core.domain
 
+/** Declared in increasing severity: the evaluator keeps the highest ordinal, so never reorder these. */
 enum class QualityAction { CONTINUE, WARN, QUARANTINE }
 
 enum class RecordingStream { AUDIO, VIDEO, SUBTITLE }
 
-enum class QualityReason { WITHIN_LIMIT, THRESHOLD_EXCEEDED, REQUIRED_STREAM_MISSING, MEASUREMENT_UNAVAILABLE }
+/** Persisted in retained report JSON: add values, never rename them. */
+enum class QualityReason { WITHIN_LIMIT, THRESHOLD_EXCEEDED, BELOW_MINIMUM, REQUIRED_STREAM_MISSING, MEASUREMENT_UNAVAILABLE }
 
 data class QualityRule<T>(
     val threshold: T,
@@ -100,7 +102,7 @@ object RecordingQualityEvaluator {
                 rule.threshold.toString(),
                 actual?.toString(),
                 actual?.let { it >= rule.threshold },
-                QualityReason.THRESHOLD_EXCEEDED,
+                QualityReason.BELOW_MINIMUM,
                 rule.action,
             )
         }

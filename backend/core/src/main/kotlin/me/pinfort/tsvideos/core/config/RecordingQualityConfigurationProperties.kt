@@ -16,16 +16,14 @@ data class RecordingQualityConfigurationProperties(
     val streamsAction: QualityAction = QualityAction.WARN,
     val unavailableAction: QualityAction = QualityAction.WARN,
 ) {
-    // Built once only to validate: a misconfigured policy fails application startup instead of the first recording.
-    init {
-        policy()
-    }
-
-    fun policy() =
+    // Built at construction, so a misconfigured policy fails application startup instead of the first recording.
+    private val policy =
         RecordingQualityPolicy(
             maxDroppedFrames?.let { QualityRule(it, dropsAction) },
             minDurationSeconds?.let { QualityRule(it, durationAction) },
             requiredStreams.takeIf { it.isNotEmpty() }?.let { QualityRule(it, streamsAction) },
             unavailableAction,
         )
+
+    fun policy() = policy
 }

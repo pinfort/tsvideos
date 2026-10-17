@@ -15,7 +15,10 @@ class RecordingQualityTest :
             RecordingQualityEvaluator.evaluate(policy, RecordingQualityMeasurements(2, 60.0, null)).action shouldBe QualityAction.CONTINUE
             val decision = RecordingQualityEvaluator.evaluate(policy, RecordingQualityMeasurements(3, 59.0, null))
             decision.action shouldBe QualityAction.QUARANTINE
-            decision.findings.map { it.reason } shouldBe listOf(QualityReason.THRESHOLD_EXCEEDED, QualityReason.THRESHOLD_EXCEEDED)
+            decision.findings.map { it.reason } shouldBe listOf(QualityReason.THRESHOLD_EXCEEDED, QualityReason.BELOW_MINIMUM)
+        }
+        expect("action severity order is pinned because aggregation keeps the highest ordinal") {
+            QualityAction.entries shouldBe listOf(QualityAction.CONTINUE, QualityAction.WARN, QualityAction.QUARANTINE)
         }
         expect("unavailable measurements never appear as passing or zero") {
             val policy =
