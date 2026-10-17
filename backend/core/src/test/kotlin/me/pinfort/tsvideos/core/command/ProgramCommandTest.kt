@@ -13,8 +13,12 @@ import io.mockk.verifySequence
 import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFile
+import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
+import me.pinfort.tsvideos.core.domain.ExecutedFileTag
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
+import me.pinfort.tsvideos.core.domain.ProgramSearchPage
+import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
 import me.pinfort.tsvideos.core.external.database.dto.ProgramDto
@@ -39,6 +43,7 @@ class ProgramCommandTest :
         lateinit var logger: Logger
         lateinit var splittedFileCommand: SplittedFileCommand
         lateinit var directoryNameComponent: DirectoryNameComponent
+        lateinit var executedFileTagCommand: ExecutedFileTagCommand
         lateinit var programCommand: ProgramCommand
 
         beforeTest {
@@ -52,6 +57,7 @@ class ProgramCommandTest :
             logger = mockk<Logger>()
             splittedFileCommand = mockk<SplittedFileCommand>()
             directoryNameComponent = mockk<DirectoryNameComponent>()
+            executedFileTagCommand = mockk<ExecutedFileTagCommand>()
             programCommand =
                 ProgramCommand(
                     programMapper,
@@ -62,6 +68,7 @@ class ProgramCommandTest :
                     logger,
                     splittedFileCommand,
                     directoryNameComponent,
+                    executedFileTagCommand,
                 )
         }
 
@@ -307,6 +314,23 @@ class ProgramCommandTest :
             }
         }
 
+        context("search") {
+            expect("combines the page and the total of the same query") {
+                val query = ProgramSearchQuery(name = "test", limit = 10, offset = 20)
+                every { programMapper.search(query) } returns listOf(programDto)
+                every { programMapper.countSearch(query) } returns 42
+
+                val actual = programCommand.search(query)
+
+                actual shouldBe ProgramSearchPage(listOf(program), 42, 10, 20)
+
+                verifySequence {
+                    programMapper.search(query)
+                    programMapper.countSearch(query)
+                }
+            }
+        }
+
         context("find") {
             expect("success") {
                 every { programMapper.find(any()) } returns programDto
@@ -393,14 +417,22 @@ class ProgramCommandTest :
             expect("success") {
                 every { programMapper.find(any()) } returns programDto
                 every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto)
+                every { executedFileTagCommand.selectTags(any()) } returns listOf(ExecutedFileTag.EWS)
+                every { executedFileTagCommand.selectChecks(any()) } returns listOf(ExecutedFileCheck.EMERGENCY_BROADCAST)
 
                 val actual = programCommand.findDetail(1)
 
-                actual shouldBe programDetail
+                actual shouldBe
+                    programDetail.copy(
+                        tags = listOf(ExecutedFileTag.EWS),
+                        checks = listOf(ExecutedFileCheck.EMERGENCY_BROADCAST),
+                    )
 
                 verifySequence {
                     programMapper.find(1)
                     createdFileMapper.selectByExecutedFileId(programDto.executedFileId)
+                    executedFileTagCommand.selectTags(programDto.executedFileId)
+                    executedFileTagCommand.selectChecks(programDto.executedFileId)
                 }
             }
 
@@ -525,6 +557,20 @@ class ProgramCommandTest :
                     createdFileCommand.move(createdFile, "newPath")
                     logger.info(any())
                 }
+            }
+
+            expect("a later failure moves earlier files back and rethrows") {
+                val second = createdFileDto.copy(id = 2, file = "file\\file2")
+                every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto, second)
+                every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file1"), any()) } returns Path.of("new/file1")
+                every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file2"), any()) } returns Path.of("new/file2")
+                every { createdFileCommand.move(createdFile, "new\\file1") } returns SambaClient.NasType.VIDEO_STORE_NAS
+                every { createdFileCommand.move(second.toDomain(), "new\\file2") } throws RuntimeException("nas")
+                every { createdFileCommand.restoreMoved(any()) } just Runs
+
+                shouldThrow<RuntimeException> { programCommand.moveCreatedFiles(program, "newDirectory") }
+
+                verify(exactly = 1) { createdFileCommand.restoreMoved(listOf("file\\file1" to "new\\file1")) }
             }
 
             expect("dryRun") {

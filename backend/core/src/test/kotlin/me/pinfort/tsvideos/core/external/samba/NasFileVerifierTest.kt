@@ -67,11 +67,45 @@ class NasFileVerifierTest :
             every { originalFile.length() } throws IOException("disconnected")
             verifier.verify("base/path/file.mp4", 12).status shouldBe VerificationStatus.INACCESSIBLE
         }
+        expect("a session opens each store once across files and closes it at the end") {
+            every { video.resolve("base/other.mp4") } returns videoFile
+            every { videoFile.exists() } returns true
+            every { videoFile.length() } returns 12
+            verifier.session { session ->
+                session.verify("base/path/file.mp4", 12).status shouldBe VerificationStatus.VERIFIED
+                session.verify("base/other.mp4", 12).status shouldBe VerificationStatus.VERIFIED
+                verify(exactly = 0) { video.close() }
+            }
+            verify(exactly = 1) {
+                client.videoStoreNas()
+                video.close()
+            }
+            verify(exactly = 0) { client.originalStoreNas() }
+        }
+        expect("a store that fails to open is not retried within a session") {
+            every { client.videoStoreNas() } throws IOException("smb://secret:password@host")
+            verifier.session { session ->
+                repeat(3) { session.verify("base/path/file.mp4", 12).status shouldBe VerificationStatus.INACCESSIBLE }
+            }
+            verify(exactly = 1) { client.videoStoreNas() }
+            verify(exactly = 0) { client.originalStoreNas() }
+        }
+        expect("names with URL-special characters reach resolve unchanged, as upload stores them") {
+            // VerifiedUploadNas and NasComponent pass the stored path to resolve as-is, so verify must too.
+            val name = "base/アニメ：第2話 #01 100% 本当?.mp4" // full-width colon is a normal title character, not ':'
+            val file = mockk<SmbResource>(relaxed = true)
+            every { video.resolve(name) } returns file
+            every { file.exists() } returns true
+            every { file.isFile } returns true
+            every { file.length() } returns 12
+            verifier.verify(name, 12).status shouldBe VerificationStatus.VERIFIED
+            verify(exactly = 1) { video.resolve(name) }
+        }
         expect("directories and invalid metadata remain unchecked") {
             every { videoFile.exists() } returns true
             every { videoFile.isFile } returns false
             verifier.verify("base/path/file.mp4", 12).status shouldBe VerificationStatus.UNCHECKED
-            listOf("", "../escape", "/absolute", "C:\\local", "smb://host/file").forEach {
+            listOf("", "../escape", "/absolute", "C:\\local", "smb://host/file", "base/./file.mp4", "base//file.mp4", "base/dir/").forEach {
                 verifier.verify(it, 12).status shouldBe VerificationStatus.UNCHECKED
             }
             verifier.verify("base/path/file.mp4", -1).status shouldBe VerificationStatus.UNCHECKED

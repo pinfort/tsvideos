@@ -1,6 +1,5 @@
 package me.pinfort.tsvideos.manager.console.commands
 
-import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.parameters.options.check
 import com.github.ajalt.clikt.parameters.options.default
@@ -10,6 +9,7 @@ import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
 import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.domain.Program
+import me.pinfort.tsvideos.manager.console.component.ReadJson
 import org.springframework.stereotype.Component
 import java.time.format.DateTimeFormatter
 import kotlin.time.Duration.Companion.seconds
@@ -20,7 +20,7 @@ class Duplicates(
     private val duplicateProgramCommand: DuplicateProgramCommand,
     private val programCommand: ProgramCommand,
     private val terminalTextColorComponent: TerminalTextColorComponent,
-) : CliktCommand() {
+) : ReadCommand() {
     override fun help(context: Context): String = "detect programs recorded from the same broadcast"
 
     private val datetimeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
@@ -32,8 +32,31 @@ class Duplicates(
         .default(DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO)
         .check("must be greater than 0 and at most 1") { it > 0.0 && it <= 1.0 }
 
-    override fun run() {
+    override fun read() {
         val groups = duplicateProgramCommand.detect(minOverlapRatio)
+        if (json) {
+            outputJson(
+                "groups",
+                groups.map { group ->
+                    linkedMapOf(
+                        "reason" to group.reason.name,
+                        "recommendedId" to group.recommended.id,
+                        "candidateIds" to group.others.map { it.id },
+                        "programs" to group.programs.map { ReadJson.program(it) + ("tsExists" to programCommand.hasTsFile(it)) },
+                    )
+                },
+            )
+            return
+        }
+        if (idsOnly) {
+            groups
+                .flatMap { it.programs }
+                .map { it.id }
+                .distinct()
+                .sorted()
+                .forEach { echo(it) }
+            return
+        }
 
         groups.forEach { group ->
             println("[${group.reason}] ${group.recommended.channelName}")

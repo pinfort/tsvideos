@@ -13,10 +13,13 @@ class TsVideosManager(
     private val delete: Delete,
     private val modify: Modify,
     private val duplicates: Duplicates,
+    private val doctor: Doctor,
+    private val stats: Stats,
     private val verify: Verify,
+    private val cleanup: Cleanup,
 ) : CliktCommand(name = "tvmcli") {
     init {
-        subcommands(search, get, delete, modify, duplicates, verify)
+        subcommands(search, get, delete, modify, duplicates, doctor, stats, verify, cleanup)
         versionOption(ApplicationVersion.value)
     }
 

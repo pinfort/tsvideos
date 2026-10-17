@@ -7,6 +7,7 @@ import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
+import me.pinfort.tsvideos.core.external.database.dto.ExecutedCreatedFileDto
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -195,6 +196,37 @@ class CreatedFileMapperTest : ExpectSpec() {
                 connection.close()
 
                 actual shouldHaveSize 0
+            }
+        }
+
+        context("selectAllWithExecutedFileId") {
+            expect("joins the executed file ID, orders by ID and skips files without a split") {
+                val connection = dataSource.connection
+                connection.prepareStatement("DELETE FROM created_file").execute()
+                connection.prepareStatement("DELETE FROM splitted_file").execute()
+                connection
+                    .prepareStatement(
+                        "INSERT INTO splitted_file(id,executed_file_id,file,size,duration,status) " +
+                            "VALUES(1,5,'s1',6,7.0,'COMPRESS_SAVED'),(2,6,'s2',6,7.0,'COMPRESS_SAVED')",
+                    ).execute()
+                connection
+                    .prepareStatement(
+                        "INSERT INTO created_file(id,splitted_file_id,file,size,mime,encoding,status) " +
+                            "VALUES(9,2,'b',4,NULL,NULL,'FILE_MOVED'),(8,1,'a',3,'video/mp4',NULL,'REGISTERED')," +
+                            "(10,99,'orphan',1,NULL,NULL,'FILE_MOVED')",
+                    ).execute()
+                connection.commit()
+
+                val actual = createdFileMapper.selectAllWithExecutedFileId()
+                connection.close()
+
+                actual shouldBe
+                    listOf(
+                        ExecutedCreatedFileDto(5, 8, 1, "a", 3, "video/mp4", null, CreatedFileDto.Status.REGISTERED),
+                        ExecutedCreatedFileDto(6, 9, 2, "b", 4, null, null, CreatedFileDto.Status.FILE_MOVED),
+                    )
+                actual[0].toCreatedFileDto() shouldBe
+                    CreatedFileDto(8, 1, "a", 3, "video/mp4", null, CreatedFileDto.Status.REGISTERED)
             }
         }
 

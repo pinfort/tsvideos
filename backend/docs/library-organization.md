@@ -1,0 +1,13 @@
+# 手動コレクションとタグ
+
+このブランチをデプロイする前に、既存のアプリケーションデータベースへ `core/src/main/resources/db/migrations/053_library_organization.sql` を適用する (例: `mariadb <database> < 053_library_organization.sql`)。事前にデータベースのバックアップを取ること。既存の `program` テーブルは InnoDB で、符号付き BIGINT の `id` を持つ必要がある (提供しているアプリケーションスキーマは該当する)。このマイグレーションが追加するのは `library_collection`、`library_collection_program`、`library_tag`、`library_tag_program` のみ。Testcontainers のスキーマと `docker-compose.test.yml` は、同じマイグレーションファイルから生成される/をマウントする。
+
+**手動タグは検出タグではない。** `library_tag` はオペレーターが管理する名前を保持する。既存の `executed_file_tag` テーブル (`ExecutedFileTag`、例: `ews`、`superimpose`) は、検出器が録画に自動で付与するタグを `executed_file_id` をキーに保持し、`GET /api/v1/programs/{id}` の `tags` として公開される。この 2 つは行・ID・名前を共有しない。手動タグに `ews` という名前を付けても検出には影響せず、手動タグやその関連を削除しても `executed_file_tag`/`executed_file_check` には触れない。API 上で区別するため、手動タグは `libraryTagId` (検索) と `/library-tags` (名前によるタグ付け) を使い、UI では「手動タグ」と呼ぶ。
+
+名前は前後の空白を除去して Unicode NFC に正規化され、制御文字を含まない 1〜100 の UTF-16 コードユニットでなければならず、表示上の大文字小文字は保持される。一意性の判定には、NFC テキストを `Locale.ROOT` で小文字化したものを使う (完全な Unicode のケースフォールディングではないため、`ß` と `SS` は区別される)。これはバイナリ照合順序で `name_key` (VARCHAR(200)。小文字化で名前が長くなることがあるため) に保存される。したがって `Café`、分解形の `Café`、`CAFÉ` は同じ名前を表す。互換正規化 (NFKC) は適用されないため、`ＡＢＣ` と `ABC` のような全角/半角の違いは別の名前になる。コレクション名とタグ名は別々の名前空間を持つ。明示的な重複作成/リネームは 409 を返し、名前によるタグ付けは既存の正規化済みの名前を再利用する。存在しないオブジェクトや program の ID は 404 を返す。割り当て/解除は冪等で、行ロックとペアの一意キーで保護される。割り当てと名前によるタグ付けは、録画削除 (program、続いてカスケードされる関連) と同じ順序で、program、次にラベルの順にロックするため、それとデッドロックしない。それでも残るロック待ちタイムアウトやデッドロックは 409 として返され、クライアントは再試行できる。未知の `{kind}` の値は 404 を返す。
+
+コレクションとタグの削除は、メタデータと関連のみを削除する。program、元の録画、NAS の成果物を削除することはない。既存の録画削除が program を削除する際は、現在の 2 つのマッパーの削除経路のどちらでも、外部キーによって関連がカスケード削除される。読み取りクエリは既存の program と結合するため、整合しない過去の関連行が壊れた録画エントリを作ることはない。組織化の変更はすべてデータベースのみで行われ、NAS へのアクセスや、シリーズへの所属の推論はない。
+
+Web の管理ページは `/collections` で、録画の詳細ページではコレクションとタグの割り当て/解除と、名前によるタグ作成ができる。削除には、録画は残る旨を示した確認が必要。閲覧リンクは共通の検索を使い、録画日時の昇順、同点は ID の昇順とする。ライブラリ検索は `collectionId` と `libraryTagId` を URL に保持し、他のフィルタと組み合わせ、総件数とページ内の項目に同じ条件を使う。すでに削除された ID の保存済みフィルタは、結果が 0 件になる。
+
+API: `GET/POST /api/v1/library/{collections|tags}`、`GET/PUT/DELETE /api/v1/library/{kind}/{id}`、`PUT/DELETE /api/v1/library/{kind}/{id}/programs/{programId}`、`GET /api/v1/programs/{programId}/organization`、`POST /api/v1/programs/{programId}/library-tags`。`GET /api/v1/programs` は `collectionId` と `libraryTagId` を受け付ける。作成、リネーム、名前によるタグ付けは `{ "name": "..." }` を受け付ける。Web からの変更は同一オリジンの Next Server Actions を使う。既存のデプロイ環境のアクセス制御が引き続き適用される。

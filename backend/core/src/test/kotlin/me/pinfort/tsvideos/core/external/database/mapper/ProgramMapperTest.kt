@@ -30,18 +30,27 @@ class ProgramMapperTest : ExpectSpec() {
     private lateinit var programMapper: ProgramMapper
 
     init {
-        context("selectAllIds") {
+        context("selectAllOrderById") {
             expect("includes orphan programs and returns stable ID order") {
+                // Dedicated IDs, cleaned up afterwards, so rows owned by other expectations are left alone.
                 dataSource.connection.use { connection ->
-                    connection.prepareStatement("DELETE FROM program").execute()
-                    connection
-                        .prepareStatement(
-                            "INSERT INTO program(id,name,executed_file_id,status) VALUES(20,'b',99999,'ERROR'),(10,'a',99998,'ERROR')",
-                        ).execute()
-                    connection.commit()
-                    programMapper.selectAllIds() shouldBe listOf(10L, 20L)
-                    programMapper.find(10)?.executedFileId shouldBe 99998L
-                    programMapper.find(10)?.size shouldBe null
+                    try {
+                        connection
+                            .prepareStatement(
+                                "INSERT INTO program(id,name,executed_file_id,status) " +
+                                    "VALUES(900020,'b',99999,'ERROR'),(900010,'a',99998,'ERROR')",
+                            ).execute()
+                        connection.commit()
+                        val all = programMapper.selectAllOrderById()
+                        all.map { it.id } shouldBe all.map { it.id }.sorted()
+                        val orphans = all.filter { it.id >= 900000 }
+                        orphans.map { it.id } shouldBe listOf(900010L, 900020L)
+                        orphans.first().executedFileId shouldBe 99998L
+                        orphans.first().size shouldBe null
+                    } finally {
+                        connection.prepareStatement("DELETE FROM program WHERE id IN (900010, 900020)").execute()
+                        connection.commit()
+                    }
                 }
             }
         }
