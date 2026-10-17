@@ -15,6 +15,13 @@ const outcomeLabels = {
   NOT_FOUND: "対象なし",
 };
 
+/**
+ * Shared preview → confirm → apply flow for bulk actions.
+ *
+ * `renderPrograms` replaces the default table with a caller-owned selection UI; it receives the
+ * current in-page selection and must call `onSelect` to change it. `deleteOnly` hides the action
+ * picker so only DELETE can be previewed.
+ */
 export function BulkPrograms({
   programs,
   renderPrograms,
@@ -93,8 +100,7 @@ export function BulkPrograms({
   return (
     <section aria-label="録画の一括操作" className="space-y-4">
       <p>
-        選択はこのページ内のみ（最大{MAX_SELECTION}
-        件）。検索条件・ページを変更すると解除されます。完了済みの録画のみ操作できます。
+        選択はこのページ内のみ（最大{MAX_SELECTION}件）。検索条件・ページを変更すると解除されます。完了済みの録画のみ操作できます。
       </p>
       <fieldset disabled={pending || plan !== null} className="space-y-3">
         {renderPrograms ? (
@@ -144,8 +150,7 @@ export function BulkPrograms({
             元のローカル録画ファイルは削除しません。NASとデータベースの処理は一括で取り消せません。途中失敗時は表示されたパスを確認してください。
           </p>
           <p>
-            {plan.request.action === "DELETE" ? "削除予定" : "移動対象"}
-            の登録サイズ合計:{" "}
+            {plan.request.action === "DELETE" ? "削除予定" : "移動対象"}の登録サイズ合計:{" "}
             {plan.targets.reduce((n, t) => n + t.estimatedMetadataBytes, 0).toLocaleString()} bytes
             （実際の空き容量の保証ではありません）
           </p>
@@ -167,8 +172,7 @@ export function BulkPrograms({
                     ))}
                   </ul>
                   <p>
-                    分割ファイル記録:{" "}
-                    {t.snapshot.splitFiles.map((f) => f.file).join(", ") || "なし"}
+                    分割ファイル記録: {t.snapshot.splitFiles.map((f) => f.file).join(", ") || "なし"}
                     （ローカルファイルは保持）
                   </p>
                 </>

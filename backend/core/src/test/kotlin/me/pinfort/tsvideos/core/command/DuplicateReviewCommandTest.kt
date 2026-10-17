@@ -1,12 +1,12 @@
-package me.pinfort.tsvideos.core.external.database.mapper
+package me.pinfort.tsvideos.core.command
 
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
-import me.pinfort.tsvideos.core.command.DuplicateReviewCommand
 import me.pinfort.tsvideos.core.domain.DuplicateKeepCriterion
+import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
+import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -24,7 +24,7 @@ import javax.sql.DataSource
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-class DuplicateReviewMapperTest : ExpectSpec() {
+class DuplicateReviewCommandTest : ExpectSpec() {
     @Autowired private lateinit var dataSource: DataSource
 
     @Autowired private lateinit var programs: ProgramMapper

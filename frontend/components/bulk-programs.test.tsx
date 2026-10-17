@@ -37,3 +37,23 @@ it("blocks repeat confirmation while pending and warns when result is unknown", 
   await user.click(await screen.findByRole("button", { name: "確認して削除を実行" })); expect(screen.getByRole("button", { name: "確認して削除を実行" })).toBeDisabled();
   reject(new Error("offline")); expect(await screen.findByRole("alert")).toHaveTextContent("一部処理済みの可能性");
 });
+it("counts an id selected twice through renderPrograms once and hides the action picker when deleteOnly", async () => {
+  const user = userEvent.setup();
+  render(
+    <BulkPrograms
+      programs={programs}
+      deleteOnly
+      renderPrograms={(selected, onSelect) => (
+        <button type="button" onClick={() => onSelect(1, true)}>
+          選択 {selected.join(",")}
+        </button>
+      )}
+    />,
+  );
+  expect(screen.queryByLabelText("操作")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: /選択/ }));
+  await user.click(screen.getByRole("button", { name: /選択/ }));
+  expect(screen.getByText("1件選択中")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
+  expect(previewBulk).toHaveBeenCalledWith({ ids: [1], action: "DELETE" });
+});

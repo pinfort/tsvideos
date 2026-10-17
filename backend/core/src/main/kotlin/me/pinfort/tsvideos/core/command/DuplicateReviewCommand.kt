@@ -17,19 +17,18 @@ class DuplicateReviewCommand(
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun review(): DuplicateReview {
         val groups = duplicates.detect()
-        // One query for every member's FILE_MOVED files instead of one per member.
+        // Batched instead of one query per member; chunked so a huge duplicate set stays within placeholder limits.
         val movedFiles =
             groups
                 .flatMap { group -> group.programs.map { it.executedFileId } }
-                .toSet()
-                .takeIf { it.isNotEmpty() }
-                ?.let { ids -> files.selectMovedByExecutedFileIds(ids) }
-                .orEmpty()
-                .groupBy({ it.executedFileId }, { it.toCreatedFileDto().toDomain() })
+                .distinct()
+                .chunked(ID_CHUNK_SIZE)
+                .flatMap { ids -> files.selectMovedByExecutedFileIds(ids) }
+                .groupBy({ it.executedFileId }, { it.toDomain() })
+                .mapValues { (_, files) -> files.sortedBy { it.id } }
         return DuplicateReview(
             groups.map { group ->
-                // detect() only returns groups of 2+ members, sorted so the recommended one comes first.
-                require(group.programs.size >= 2) { "duplicate group must have at least two programs" }
+                // DuplicateGroup guarantees 2+ members, sorted by keep order so the recommended one comes first.
                 val winner = group.recommended
                 val runnerUp = group.programs[1]
                 DuplicateReviewGroup(
@@ -51,5 +50,9 @@ class DuplicateReviewCommand(
                 )
             },
         )
+    }
+
+    companion object {
+        private const val ID_CHUNK_SIZE = 1000
     }
 }
