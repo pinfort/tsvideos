@@ -8,6 +8,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.locks.LockSupport
 
 @Component
 class ShellClient {
@@ -42,6 +43,7 @@ class ShellClient {
         val drains = Executors.newFixedThreadPool(2) { runnable -> Thread(runnable, "shell-stream").apply { isDaemon = true } }
         val stdout = if (capture) drains.submit<String> { process.inputStream.bufferedReader().readText() } else null
         val stderr = if (capture) drains.submit<String> { process.errorStream.bufferedReader().readText() } else null
+        var exitedNormally = false
         val started = System.nanoTime()
         val deadline = started + TimeUnit.SECONDS.toNanos(timeoutSec)
         try {
@@ -60,13 +62,18 @@ class ShellClient {
             val drainDeadline = minOf(deadline, System.nanoTime() + TimeUnit.SECONDS.toNanos(DRAIN_GRACE_SECONDS))
             val out = stdout?.let { drain(it, drainDeadline, command) }.orEmpty()
             val err = stderr?.let { drain(it, drainDeadline, command) }.orEmpty()
+            exitedNormally = true
             return ShellResult(process.exitValue(), out, err)
         } finally {
-            // Always reap owned descendants, including when the parent exited before its pipes closed.
+            // Reap owned descendants only when the command did not finish on its own (timeout, interruption or a
+            // pipe-holding descendant). After a normal exit a surviving child was detached on purpose (launchers,
+            // daemonizing clients) and is left alone, as before cooperative cancellation.
             val interrupted = Thread.interrupted()
             try {
-                process.descendants().use { children -> children.forEach { owned.add(it) } }
-                terminate(owned.toList().asReversed() + process.toHandle())
+                if (!exitedNormally) {
+                    process.descendants().use { children -> children.forEach { owned.add(it) } }
+                    terminate(owned.toList().asReversed() + process.toHandle())
+                }
             } finally {
                 stdout?.cancel(true)
                 stderr?.cancel(true)
@@ -102,8 +109,7 @@ class ShellClient {
         ) {
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(millis)
             while (targets.any { it.isAlive } && System.nanoTime() < deadline) {
-                java.util.concurrent.locks.LockSupport
-                    .parkNanos(TimeUnit.MILLISECONDS.toNanos(10))
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10))
             }
         }
         children.filter { it.isAlive }.forEach { it.destroy() }

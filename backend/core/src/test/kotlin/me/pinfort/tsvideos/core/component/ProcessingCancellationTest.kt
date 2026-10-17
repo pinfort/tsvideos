@@ -16,6 +16,11 @@ class ProcessingCancellationTest :
             ran shouldBe false
             cancellation.awaitStopped(1) shouldBe true
         }
+        expect("stop without an owner releases the shutdown wait at once") {
+            val cancellation = ProcessingCancellation()
+            cancellation.requestStop()
+            cancellation.awaitStopped(0) shouldBe true
+        }
         expect("one owner only and bounded wait while uncooperative work remains") {
             val cancellation = ProcessingCancellation()
             val entered = CountDownLatch(1)

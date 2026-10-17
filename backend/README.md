@@ -137,6 +137,8 @@ Processor upload ownership, verification, migration and recovery: [verified-uplo
 
 Processor status/history, migration, activity semantics and explicit retention: [processing-history.md](docs/processing-history.md).
 
+Processor interruption: on SIGINT/SIGTERM `tvpcli` stops cooperatively, records the attempt as INTERRUPTED, keeps partial evidence instead of rolling back, and exits 130 (a native signal shutdown may report 143). `PROCESSOR_SHUTDOWN_GRACE_SECONDS` (default 30, 1–300) bounds the whole shutdown; see [graceful-shutdown.md](docs/graceful-shutdown.md).
+
 既存の DB には次のテーブルを一度だけ作成してください（DDL は `core/src/main/resources/db/migrations/064_processing_job.sql` と `067_processing_history.sql`、`072_upload_manifest.sql` をこの順に適用してください）。**processor を停止してから、この機能を含むビルドをデプロイする前に**作成する必要があります。
 
 ### DDL の管理

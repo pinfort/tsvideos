@@ -71,7 +71,8 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
                         cancellation.runOwned {
                             command.stage(owned.id, ProcessingStage.SPLIT) {
                                 entered.countDown()
-                                Thread.sleep(60000)
+                                // Blocks until the stop request interrupts this owner.
+                                CountDownLatch(1).await()
                             }
                         }
                     } catch (failure: InterruptedException) {

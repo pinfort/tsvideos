@@ -5,6 +5,8 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import me.pinfort.tsvideos.core.exception.ShellCommandTimeoutException
 import java.io.File
+import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicReference
 
 class ShellClientTest :
     ExpectSpec({
@@ -13,13 +15,12 @@ class ShellClientTest :
 
         expect("interruption tears down the actual owned process tree within a bound") {
             val directory =
-                java.nio.file.Files
+                Files
                     .createTempDirectory("shell-tree")
                     .toFile()
             val pidFile = File(directory, "child.pid")
             val failure =
-                java.util.concurrent.atomic
-                    .AtomicReference<Throwable>()
+                AtomicReference<Throwable>()
             val worker =
                 Thread {
                     try {
@@ -61,6 +62,17 @@ class ShellClientTest :
             // Bounded by the drain grace, not the 10s command timeout.
             (System.nanoTime() - start < 8_000_000_000L) shouldBe true
         }
+        expect("a child detached on purpose survives a successful exit") {
+            val result =
+                shellClient.executeCapturingOutput(workingDir, listOf("bash", "-c", "sleep 30 >/dev/null 2>&1 & echo $!"), 10)
+            val child = ProcessHandle.of(result.stdout.trim().toLong())
+            try {
+                result.exitCode shouldBe 0
+                child.map { it.isAlive }.orElse(false) shouldBe true
+            } finally {
+                child.ifPresent { it.destroyForcibly() }
+            }
+        }
         expect("output written by a descendant shortly after the parent exits is still captured") {
             val result =
                 shellClient.executeCapturingOutput(workingDir, listOf("bash", "-c", "(sleep 1.5; echo late) & echo early; exit 0"), 10)
@@ -71,7 +83,7 @@ class ShellClientTest :
 
         expect("immediate parent exit remains bounded even when ancestry observation races") {
             val directory =
-                java.nio.file.Files
+                Files
                     .createTempDirectory("shell-fast-exit")
                     .toFile()
             val pidFile = File(directory, "child.pid")

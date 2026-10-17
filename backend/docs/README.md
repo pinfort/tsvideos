@@ -8,6 +8,7 @@ backend の機能別の運用・設計ドキュメント。マイグレーショ
 | [processing-preflight.md](processing-preflight.md) | processor | `tvpcli preflight` による事前チェック (入力・ツール・容量・NAS) |
 | [processing-history.md](processing-history.md) | processor | `tvpcli status` / `history` と処理試行の履歴 |
 | [verified-uploads.md](verified-uploads.md) | processor | NAS への検証付きアップロード (`upload_manifest`) と所有権・復旧 |
+| [graceful-shutdown.md](graceful-shutdown.md) | processor | 停止シグナル受信時の協調的な中断、猶予時間 (`PROCESSOR_SHUTDOWN_GRACE_SECONDS`) と中断後の状態 |
 | [bulk-library.md](bulk-library.md) | manager | 一括削除・移動 (プレビュー → 適用) の仕様 |
 
 リポジトリ全体に関わる文書は [../../docs/](../../docs/README.md) に置く。

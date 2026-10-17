@@ -14,7 +14,9 @@ class ProcessingCancellation {
     @Synchronized
     fun requestStop() {
         stopping = true
-        owner?.interrupt()
+        // With no owner there is nothing to wait for: a later runOwned refuses to start, and a shutdown hook that
+        // fires before (or without) runOwned must not sit out the whole grace period.
+        owner?.interrupt() ?: stopped.countDown()
     }
 
     fun check() {
@@ -23,6 +25,7 @@ class ProcessingCancellation {
 
     fun <T> runOwned(operation: () -> T): T {
         synchronized(this) {
+            if (stopping) throw InterruptedException("Processing interrupted")
             check(owner == null && stopped.count > 0) { "Only one invocation owner is supported" }
             owner = Thread.currentThread()
         }
@@ -39,10 +42,11 @@ class ProcessingCancellation {
 
     companion object {
         /**
-         * True when the failure stems from an interruption, or when the current thread is interrupted at all. The
-         * latter can also match an unrelated failure that coincides with a stray interrupt flag; callers only use it
-         * to choose idempotent cleanup or to rethrow, so that over-match is harmless. The cause chain is capped at
-         * 16 links to stay bounded on cyclic or pathological chains.
+         * True when the failure stems from an interruption, or when the current thread is interrupted at all. The flag
+         * check catches interruptions surfacing without an InterruptedException in the chain (NIO channels, JDBC
+         * drivers). It is not a stray signal: in this one-owner CLI only [requestStop] interrupts the owner, so a set
+         * flag means a stop was requested, and callers deliberately preserve evidence (skip rollback, rethrow without
+         * notifying) rather than clean up. The cause chain is capped at 16 links to stay bounded on cyclic chains.
          */
         fun isInterrupted(failure: Throwable): Boolean =
             Thread.currentThread().isInterrupted ||
