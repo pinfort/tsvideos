@@ -198,6 +198,31 @@ class LibraryHealthMapperTest : ExpectSpec() {
             store.failAbandoned() shouldBe 0
             store.start()
         }
+        expect("a live scan released by another instance's startup loses only its own result") {
+            val verifier = mockk<LibraryVerificationCommand>()
+            var original = 0L
+            var released = 0L
+            every { verifier.verify() } answers {
+                original =
+                    health
+                        .read()
+                        .latestRun
+                        .shouldNotBeNull()
+                        .id
+                // An overlapping instance boots mid-scan, releases this run and starts its own scan.
+                store.failAbandoned() shouldBe 1
+                released = store.start()
+                VerificationReport(listOf(FileFinding(1, 1, "a", VerificationStatus.VERIFIED, Instant.now(), 1, 1, null)))
+            }
+            LibraryHealthScanCommand(store, verifier).scan()
+            val result = health.read()
+            result.latestRun?.id shouldBe released
+            result.latestRun?.state shouldBe HealthRun.State.RUNNING
+            result.lastCompletedRun shouldBe null
+            mapper.findings(original) shouldBe emptyList()
+            store.complete(released, VerificationReport(emptyList()))
+            health.read().lastCompletedRun?.id shouldBe released
+        }
         expect("concurrent scan claims have one winner and do not automatically reclaim a running scan") {
             val pool = Executors.newFixedThreadPool(2)
             try {

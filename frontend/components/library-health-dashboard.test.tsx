@@ -100,6 +100,19 @@ describe("LibraryHealthDashboard", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("前回完了した結果");
     expect(screen.getByRole("link", { name: "番組" })).toBeInTheDocument();
   });
+  it("a scan that returns 200 with a FAILED run reports the failure", async () => {
+    const user = userEvent.setup();
+    refreshLibraryHealth.mockResolvedValue({
+      ...completed,
+      latestRun: { ...run, id: 2, state: "FAILED", failureCode: "VERIFICATION_FAILED" },
+    });
+    render(<LibraryHealthDashboard initial={completed} />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "NAS の検証を実行" }));
+    expect(refreshLibraryHealth).toHaveBeenCalledWith(true);
+    expect(await screen.findByRole("alert")).toHaveTextContent("最新の検証は失敗しました");
+    expect(screen.getByRole("link", { name: "番組" })).toBeInTheDocument();
+  });
   it("active run blocks another scan while state refresh only reads", async () => {
     const user = userEvent.setup();
     refreshLibraryHealth.mockResolvedValue(completed);
