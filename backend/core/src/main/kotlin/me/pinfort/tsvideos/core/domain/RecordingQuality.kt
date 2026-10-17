@@ -82,50 +82,40 @@ object RecordingQualityEvaluator {
                     },
                 )
         }
-        policy.maxDroppedFrames?.let {
-            val actual = measurements.drops?.takeIf { value -> value >= 0 }
+        policy.maxDroppedFrames?.let { rule ->
+            val actual = measurements.drops?.takeIf { it >= 0 }
             finding(
                 "MAX_DROPPED_FRAMES",
-                it.threshold.toString(),
+                rule.threshold.toString(),
                 actual?.toString(),
-                actual?.let { value ->
-                    value <= it.threshold
-                },
+                actual?.let { it <= rule.threshold },
                 QualityReason.THRESHOLD_EXCEEDED,
-                it.action,
+                rule.action,
             )
         }
-        policy.minDurationSeconds?.let {
-            val actual = measurements.durationSeconds?.takeIf { value -> value.isFinite() && value > 0 }
+        policy.minDurationSeconds?.let { rule ->
+            val actual = measurements.durationSeconds?.takeIf { it.isFinite() && it > 0 }
             finding(
                 "MIN_DURATION_SECONDS",
-                it.threshold.toString(),
+                rule.threshold.toString(),
                 actual?.toString(),
-                actual?.let { value ->
-                    value >= it.threshold
-                },
+                actual?.let { it >= rule.threshold },
                 QualityReason.THRESHOLD_EXCEEDED,
-                it.action,
+                rule.action,
             )
         }
-        policy.requiredStreams?.let {
+        policy.requiredStreams?.let { rule ->
             finding(
                 "REQUIRED_STREAMS",
-                it.threshold
-                    .map { value ->
-                        value.name
-                    }.sorted()
-                    .joinToString(","),
-                measurements.streams
-                    ?.map { value ->
-                        value.name
-                    }?.sorted()
-                    ?.joinToString(","),
-                measurements.streams?.containsAll(it.threshold),
+                rule.threshold.names(),
+                measurements.streams?.names(),
+                measurements.streams?.containsAll(rule.threshold),
                 QualityReason.REQUIRED_STREAM_MISSING,
-                it.action,
+                rule.action,
             )
         }
         return RecordingQualityDecision(findings.maxByOrNull { it.action.ordinal }?.action ?: QualityAction.CONTINUE, findings)
     }
 }
+
+private fun Set<RecordingStream>.names() = map { it.name }.sorted().joinToString(",")
