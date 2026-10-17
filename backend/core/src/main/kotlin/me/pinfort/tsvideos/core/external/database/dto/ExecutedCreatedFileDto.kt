@@ -1,5 +1,7 @@
 package me.pinfort.tsvideos.core.external.database.dto
 
+import me.pinfort.tsvideos.core.domain.CreatedFile
+
 /** A created_file row together with the executed_file it was split from, for library-wide reads. */
 data class ExecutedCreatedFileDto(
     val executedFileId: Long,
@@ -12,4 +14,6 @@ data class ExecutedCreatedFileDto(
     val status: CreatedFileDto.Status,
 ) {
     fun toCreatedFileDto(): CreatedFileDto = CreatedFileDto(id, splittedFileId, file, size, mime, encoding, status)
+
+    fun toDomain(): CreatedFile = toCreatedFileDto().toDomain()
 }

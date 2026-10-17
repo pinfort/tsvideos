@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ProgramsTable } from "./programs-table";
 import { applyBulk, previewBulk, type BulkPlan, type BulkOutcome } from "@/lib/api/bulk";
@@ -15,10 +15,30 @@ const outcomeLabels = {
   NOT_FOUND: "対象なし",
 };
 
-export function BulkPrograms({ programs }: { programs: Program[] }) {
+/**
+ * Shared preview → confirm → apply flow for bulk actions.
+ *
+ * `renderPrograms` replaces the default table with a caller-owned selection UI; it receives the
+ * current in-page selection and must call `onSelect` to change it. `deleteOnly` hides the action
+ * picker so only DELETE can be previewed.
+ */
+export function BulkPrograms({
+  programs,
+  renderPrograms,
+  deleteOnly = false,
+}: {
+  programs: Program[];
+  renderPrograms?: (
+    selected: number[],
+    onSelect: (id: number, checked: boolean) => void,
+  ) => ReactNode;
+  deleteOnly?: boolean;
+}) {
   const router = useRouter();
   const [selected, setSelected] = useState<number[]>([]);
-  const [action, setAction] = useState<"DELETE" | "MOVE">("DELETE");
+  const [selectedAction, setAction] = useState<"DELETE" | "MOVE">("DELETE");
+  // deleteOnly callers hide the picker; derive the action so MOVE can never be sent from them.
+  const action = deleteOnly ? "DELETE" : selectedAction;
   const [directory, setDirectory] = useState("");
   const [plan, setPlan] = useState<BulkPlan | null>(null);
   const [pending, setPending] = useState(false);
@@ -73,7 +93,9 @@ export function BulkPrograms({ programs }: { programs: Program[] }) {
 
   function select(id: number, checked: boolean) {
     setSelected((values) =>
-      checked ? [...values, id].slice(0, MAX_SELECTION) : values.filter((v) => v !== id),
+      checked
+        ? [...new Set([...values, id])].slice(0, MAX_SELECTION)
+        : values.filter((v) => v !== id),
     );
   }
 
@@ -83,19 +105,25 @@ export function BulkPrograms({ programs }: { programs: Program[] }) {
         選択はこのページ内のみ（最大{MAX_SELECTION}件）。検索条件・ページを変更すると解除されます。完了済みの録画のみ操作できます。
       </p>
       <fieldset disabled={pending || plan !== null} className="space-y-3">
-        <ProgramsTable programs={programs} selected={currentSelected} onSelect={select} />
+        {renderPrograms ? (
+          renderPrograms(currentSelected, select)
+        ) : (
+          <ProgramsTable programs={programs} selected={currentSelected} onSelect={select} />
+        )}
         <p>{currentSelected.length}件選択中</p>
-        <label>
-          操作{" "}
-          <select
-            value={action}
-            onChange={(e) => setAction(e.target.value as "DELETE" | "MOVE")}
-            className="border p-2"
-          >
-            <option value="DELETE">削除</option>
-            <option value="MOVE">移動</option>
-          </select>
-        </label>
+        {!deleteOnly && (
+          <label>
+            操作{" "}
+            <select
+              value={action}
+              onChange={(e) => setAction(e.target.value as "DELETE" | "MOVE")}
+              className="border p-2"
+            >
+              <option value="DELETE">削除</option>
+              <option value="MOVE">移動</option>
+            </select>
+          </label>
+        )}
         {action === "MOVE" && (
           <label className="block">
             移動先の番組フォルダー名{" "}
