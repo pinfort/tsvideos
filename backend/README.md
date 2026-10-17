@@ -131,6 +131,10 @@ DB 上のパスは SMB 共有からの相対パスであるため、`..`・`.`�
 ./gradlew processor:console:bootRun --args="--version"
 ```
 
+### Library health dashboard
+
+The web `/health` page shows failed recordings, dropped frames, and the last saved NAS verification results. See [library-health.md](docs/library-health.md) for the required migration, UTC timestamps, explicit scan behavior, and interrupted-run recovery. GET never triggers a NAS scan.
+
 Processor deployment and recovery: [processing identity and reconciliation](docs/processing-idempotency.md). Apply migration 064 before upgrading.
 
 Processor upload ownership, verification, migration and recovery: [verified-uploads.md](docs/verified-uploads.md). By default the NAS copy is checked by size only before local files (including the only copy of the raw recording) are deleted; set `PROCESSOR_UPLOAD_VERIFY_SHA256=true` to read every upload back and compare SHA-256, at the cost of an extra full read over SMB.
