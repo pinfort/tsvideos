@@ -95,7 +95,7 @@ class LibraryOrganizationController(
         when (value) {
             "collections" -> LibraryKind.COLLECTION
             "tags" -> LibraryKind.TAG
-            else -> throw IllegalArgumentException("Unknown library kind")
+            else -> throw ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown library kind")
         }
 
     private fun <T> respond(action: () -> T): T =
@@ -108,8 +108,8 @@ class LibraryOrganizationController(
         } catch (error: IllegalArgumentException) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, error.message)
         } catch (_: PessimisticLockingFailureException) {
-            // Assignment locks label then program; recording deletion locks program then cascades into the
-            // association, so the two can deadlock. InnoDB rolls one side back; the client may simply retry.
+            // Lock waits/deadlocks with concurrent label or recording changes; InnoDB rolls one side back and
+            // the client may simply retry.
             throw ResponseStatusException(HttpStatus.CONFLICT, "Concurrent change, retry the request")
         }
 }

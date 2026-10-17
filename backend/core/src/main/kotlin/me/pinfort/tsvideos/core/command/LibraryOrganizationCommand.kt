@@ -94,7 +94,9 @@ class LibraryOrganizationCommand(
     ) {
         positive(id)
         positive(programId)
-        if (mapper.lock(kind, id) == null || mapper.lockProgram(programId) == null) throw LibraryItemNotFoundException()
+        // Program before label: recording deletion locks the program and then cascades into the associations,
+        // so taking the program first keeps the two from deadlocking.
+        if (mapper.lockProgram(programId) == null || mapper.lock(kind, id) == null) throw LibraryItemNotFoundException()
         if (assigned) mapper.assign(kind, id, programId) else mapper.unassign(kind, id, programId)
     }
 
@@ -106,9 +108,9 @@ class LibraryOrganizationCommand(
         positive(programId)
         val name = name(input)
         val key = GeneratedKeyHolder()
-        // The upsert locks the label first, matching assignment's lock order.
-        mapper.reuse(LibraryKind.TAG, name, key(name), key)
+        // Same program-then-label order as assign; a missing program also never burns an AUTO_INCREMENT value.
         if (mapper.lockProgram(programId) == null) throw LibraryItemNotFoundException()
+        mapper.reuse(LibraryKind.TAG, name, key(name), key)
         mapper.assign(LibraryKind.TAG, key.id, programId)
         return mapper.find(LibraryKind.TAG, key.id) ?: error("Assigned tag ${key.id} is not visible")
     }

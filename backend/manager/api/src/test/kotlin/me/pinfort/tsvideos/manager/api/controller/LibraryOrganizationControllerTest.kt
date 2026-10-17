@@ -63,7 +63,7 @@ class LibraryOrganizationControllerTest : DescribeSpec() {
                 command.assign(LibraryKind.TAG, 3, 7, false)
             }
         }
-        it("maps duplicate invalid and missing targets to 409 400 and 404") {
+        it("maps duplicate invalid and missing targets or kinds to 409 400 and 404") {
             every { command.create(LibraryKind.TAG, "duplicate") } throws DuplicateLibraryNameException()
             every { command.create(LibraryKind.TAG, "") } throws IllegalArgumentException("Invalid name")
             every { command.find(LibraryKind.TAG, 99) } throws LibraryItemNotFoundException()
@@ -74,7 +74,7 @@ class LibraryOrganizationControllerTest : DescribeSpec() {
                 .perform(post("/api/v1/library/tags").contentType(MediaType.APPLICATION_JSON).content("""{"name":""}"""))
                 .andExpect(status().isBadRequest)
             mvc.perform(get("/api/v1/library/tags/99")).andExpect(status().isNotFound)
-            mvc.perform(get("/api/v1/library/broadcast-tags")).andExpect(status().isBadRequest)
+            mvc.perform(get("/api/v1/library/broadcast-tags")).andExpect(status().isNotFound)
         }
         it("maps a lock conflict with a concurrent recording deletion to a retryable 409") {
             every { command.assign(LibraryKind.COLLECTION, 3, 7, true) } throws
