@@ -7,13 +7,15 @@ import org.apache.ibatis.annotations.Select
 
 @Mapper
 interface BulkLibraryMapper {
-    @Select("SELECT id FROM program ORDER BY id FOR UPDATE")
+    // Guarded (cleanup) apply only, after lockFiles: created_file -> program -> executed_file -> splitted_file is the
+    // same table order as the per-target locks below, and nothing else in the app takes row locks on these tables.
+    @Select("SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT id FROM program ORDER BY id FOR UPDATE")
     fun lockAllPrograms(): List<Long>
 
-    @Select("SELECT id FROM executed_file ORDER BY id FOR UPDATE")
+    @Select("SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT id FROM executed_file ORDER BY id FOR UPDATE")
     fun lockAllExecuted(): List<Long>
 
-    @Select("SELECT id FROM splitted_file ORDER BY id FOR UPDATE")
+    @Select("SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT id FROM splitted_file ORDER BY id FOR UPDATE")
     fun lockAllSplits(): List<Long>
 
     @Select("SELECT * FROM created_file ORDER BY id")

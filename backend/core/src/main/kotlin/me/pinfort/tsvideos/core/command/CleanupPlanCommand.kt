@@ -91,15 +91,18 @@ class CleanupPlanCommand(
         val fresh =
             try {
                 generate(currentCriteria, plan.createdAt, allIds)
-            } catch (_: IllegalArgumentException) {
-                return BulkOutcome(id, BulkOutcomeStatus.STALE, "Cleanup criteria or group changed; generate a new plan")
+            } catch (error: IllegalArgumentException) {
+                // Validation messages describe the rejected selection only, so they are safe to surface.
+                return BulkOutcome(id, BulkOutcomeStatus.STALE, "Cleanup criteria or group changed (${error.message}); generate a new plan")
             }
 
         val expectedKeeps = plan.keptTargets.filter { keep -> expectedGroups.any { it.keepId == keep.id } }
         if (fresh.targets != remainingTargets || fresh.groups != expectedGroups || fresh.keptTargets != expectedKeeps) {
             return BulkOutcome(id, BulkOutcomeStatus.STALE, "Cleanup candidates, kept copy or file snapshots changed; generate a new plan")
         }
-        val target = fresh.targets.single { it.id == id }
+        val target =
+            fresh.targets.firstOrNull { it.id == id }
+                ?: return BulkOutcome(id, BulkOutcomeStatus.STALE, "Recording is no longer a cleanup candidate; generate a new plan")
         return if (!target.eligible) BulkOutcome(id, BulkOutcomeStatus.FAILED, "Recording is not eligible for cleanup") else null
     }
 
@@ -154,8 +157,11 @@ class CleanupPlanCommand(
             }
         }
         require(
-            ids.size <= 100 && groups.size <= 100,
-        ) { "A cleanup plan supports at most 100 targets/groups; narrow the explicit criteria" }
+            ids.size <= MAX_PLAN_SIZE && groups.size <= MAX_PLAN_SIZE,
+        ) {
+            "A cleanup plan supports at most $MAX_PLAN_SIZE targets/groups (found ${ids.size} targets, ${groups.size} groups); " +
+                "narrow the explicit criteria"
+        }
         val targets =
             snapshot(ids, "${criteria.mode.name} candidate").map { target ->
                 val reason =
@@ -200,7 +206,7 @@ class CleanupPlanCommand(
     private fun validateCriteria(criteria: CleanupCriteria) {
         require(criteria.channel == null || criteria.channel.isNotBlank()) { "Channel must be nonblank" }
         require(
-            criteria.keepIds.size <= 100 &&
+            criteria.keepIds.size <= MAX_PLAN_SIZE &&
                 criteria.keepIds.all {
                     it > 0
                 } &&
@@ -224,8 +230,8 @@ class CleanupPlanCommand(
         val ids = plan.targets.map { it.id }
         val keeps = plan.keptTargets.map { it.id }
         require(
-            ids.size <= 100 &&
-                keeps.size <= 100 &&
+            ids.size <= MAX_PLAN_SIZE &&
+                keeps.size <= MAX_PLAN_SIZE &&
                 (ids + keeps).all { it > 0 } &&
                 ids.distinct().size == ids.size &&
                 keeps.distinct().size == keeps.size &&
@@ -236,7 +242,7 @@ class CleanupPlanCommand(
                 it.fingerprint.matches(fingerprintPattern) && it.estimatedMetadataBytes >= 0
             },
         ) { "Invalid snapshots" }
-        require(plan.groups.size <= 100) { "Invalid groups" }
+        require(plan.groups.size <= MAX_PLAN_SIZE) { "Invalid groups" }
         when (plan.criteria.mode) {
             CleanupMode.RETENTION -> require(plan.groups.isEmpty() && keeps.isEmpty()) { "Invalid retention keeps" }
             CleanupMode.DUPLICATES -> {
@@ -253,5 +259,10 @@ class CleanupPlanCommand(
                     it.memberIds.all { member -> member in ids || member in keeps }
             },
         ) { "Invalid groups" }
+    }
+
+    companion object {
+        /** Matches BulkLibraryCommand's per-request limit; there is no implicit batching. */
+        const val MAX_PLAN_SIZE = 100
     }
 }
