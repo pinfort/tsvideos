@@ -62,8 +62,17 @@ class CompressComponent(
                 }
             }
         } catch (failure: Exception) {
-            // Never remove a preexisting force-overwritten target: ownership is not ours.
-            if (!force) {
+            // Close before deleting: if GZIPOutputStream itself failed, nothing has closed the file yet, and Windows
+            // refuses to delete an open file.
+            try {
+                output.close()
+            } catch (cleanup: Exception) {
+                failure.addSuppressed(cleanup)
+            }
+            if (force) {
+                // Never remove a preexisting force-overwritten target: ownership is not ours.
+                logger.warn("Forced compression failed; $compressedFile may be left truncated", failure)
+            } else {
                 try {
                     Files.deleteIfExists(compressedFile.toPath())
                 } catch (cleanup: Exception) {

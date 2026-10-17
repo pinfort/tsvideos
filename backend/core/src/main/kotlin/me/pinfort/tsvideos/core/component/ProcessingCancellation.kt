@@ -38,6 +38,12 @@ class ProcessingCancellation {
     fun awaitStopped(milliseconds: Long): Boolean = stopped.await(milliseconds, TimeUnit.MILLISECONDS)
 
     companion object {
+        /**
+         * True when the failure stems from an interruption, or when the current thread is interrupted at all. The
+         * latter can also match an unrelated failure that coincides with a stray interrupt flag; callers only use it
+         * to choose idempotent cleanup or to rethrow, so that over-match is harmless. The cause chain is capped at
+         * 16 links to stay bounded on cyclic or pathological chains.
+         */
         fun isInterrupted(failure: Throwable): Boolean =
             Thread.currentThread().isInterrupted ||
                 generateSequence(failure) { it.cause }.take(16).any { it is InterruptedException }

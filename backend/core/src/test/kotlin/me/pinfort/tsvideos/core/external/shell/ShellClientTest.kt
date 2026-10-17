@@ -58,7 +58,15 @@ class ShellClientTest :
             shouldThrow<ShellCommandTimeoutException> {
                 shellClient.executeCapturingOutput(workingDir, listOf("bash", "-c", "sleep 60 & sleep 0.2; exit 0"), 10)
             }
-            (System.nanoTime() - start < 4_000_000_000L) shouldBe true
+            // Bounded by the drain grace, not the 10s command timeout.
+            (System.nanoTime() - start < 8_000_000_000L) shouldBe true
+        }
+        expect("output written by a descendant shortly after the parent exits is still captured") {
+            val result =
+                shellClient.executeCapturingOutput(workingDir, listOf("bash", "-c", "(sleep 1.5; echo late) & echo early; exit 0"), 10)
+
+            result.exitCode shouldBe 0
+            result.stdout shouldBe "early\nlate\n"
         }
 
         expect("immediate parent exit remains bounded even when ancestry observation races") {
@@ -73,7 +81,7 @@ class ShellClientTest :
                     shellClient.executeCapturingOutput(directory, listOf("bash", "-c", "sleep 60 & echo $! > child.pid; exit 0"), 10)
                 } catch (_: ShellCommandTimeoutException) {
                 }
-                (System.nanoTime() - start < 4_000_000_000L) shouldBe true
+                (System.nanoTime() - start < 8_000_000_000L) shouldBe true
             } finally {
                 // Sampling cannot guarantee observation before reparenting; this test owns the recorded PID.
                 if (pidFile.exists()) ProcessHandle.of(pidFile.readText().trim().toLong()).ifPresent { it.destroyForcibly() }
