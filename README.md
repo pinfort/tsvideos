@@ -5,6 +5,11 @@ TS抜きした録画データを処理、管理するためのアプリケーシ
 - backend: 録画データの処理・管理を行う Kotlin/Spring Boot バックエンド（core/manager/processor の各モジュールで構成） ([backend/README.md](backend/README.md))
 - frontend: manager 向けの Web フロントエンド ([frontend/README.md](frontend/README.md))
 
+## ドキュメント
+
+- [docs/](docs/README.md): 横断的なドキュメント (用語集など) と、ドキュメントの置き場所の方針
+- [backend/docs/](backend/docs/README.md): backend の機能別の運用・設計ドキュメント
+
 ## ローカルでのバックエンド動作確認
 
 `docker-compose.test.yml` で MariaDB と Samba (NAS) を起動すると、環境変数なしで `manager:api` をローカル起動できます。詳細は [backend/README.md](backend/README.md) を参照してください。

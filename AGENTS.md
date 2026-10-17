@@ -7,7 +7,7 @@ TS抜き録画データを処理・管理するためのアプリケーション
 - `backend/` — Kotlin/Spring Boot, Gradle multi-module ([backend/README.md](backend/README.md))
 - `frontend/` — Next.js/TypeScript, talks to `manager:api` over HTTP ([frontend/README.md](frontend/README.md))
 
-Domain terms (録画, 番組, 分割ファイル, 作成ファイル, タグ etc.) are defined in [docs/ubiquitous-language.md](docs/ubiquitous-language.md); keep it in sync when adding or renaming domain concepts.
+Domain terms (録画, 番組, 分割ファイル, 作成ファイル, タグ etc.) are defined in [docs/ubiquitous-language.md](docs/ubiquitous-language.md); keep it in sync when adding or renaming domain concepts. Where each kind of doc lives (`docs/` cross-cutting, `backend/docs/` per-feature ops/design, module READMEs) is described in [docs/README.md](docs/README.md); add new docs to the matching index.
 
 ## Commands
 
