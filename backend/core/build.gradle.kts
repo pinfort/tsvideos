@@ -75,6 +75,7 @@ sourceSets.test {
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+    implementation("tools.jackson.core:jackson-databind")
     implementation(libs.samba)
     implementation(libs.mybatis.spring.boot)
 

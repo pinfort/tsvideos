@@ -16,14 +16,17 @@ import io.mockk.verifyOrder
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
+import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
+import me.pinfort.tsvideos.core.command.RecordingQualityCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.NormalizeComponent
+import me.pinfort.tsvideos.core.component.RecordingQualityInspector
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFile
@@ -33,6 +36,8 @@ import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.Program
+import me.pinfort.tsvideos.core.domain.QualityAction
+import me.pinfort.tsvideos.core.domain.RecordingQualityDecision
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import me.pinfort.tsvideos.core.external.samba.NasComponent
@@ -63,7 +68,9 @@ class FileProcessingPipelineTest :
         lateinit var sambaClient: SambaClient
         lateinit var jobs: ProcessingJobCommand
         lateinit var uploads: VerifiedUploadCommand
-        lateinit var history: me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
+        lateinit var history: ProcessingHistoryCommand
+        lateinit var quality: RecordingQualityInspector
+        lateinit var qualityReports: RecordingQualityCommand
         lateinit var logger: Logger
         lateinit var fileProcessingPipeline: FileProcessingPipeline
 
@@ -101,6 +108,8 @@ class FileProcessingPipelineTest :
             jobs = mockk(relaxed = true)
             uploads = mockk(relaxed = true)
             history = historyFixture()
+            quality = mockk { every { enabled() } returns false }
+            qualityReports = mockk(relaxed = true)
             every { jobs.find(any()) } returns null
             every { jobs.findByPath(any()) } returns null
             every { jobs.claim(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "CLAIMED", null, null)
@@ -129,6 +138,8 @@ class FileProcessingPipelineTest :
                     processingJobCommand = jobs,
                     verifiedUploadCommand = uploads,
                     history = history,
+                    quality = quality,
+                    qualityReports = qualityReports,
                 )
         }
 
@@ -137,6 +148,103 @@ class FileProcessingPipelineTest :
             val original = File(recordingDir, "[210708-0030][BSBS13_1][channel]title.m2ts")
             original.writeBytes("original ts content".toByteArray())
             return original
+        }
+
+        expect("quality quarantine preserves original and never registers splits uploads or submits") {
+            val original = newOriginalFile()
+            every { programCommand.findByName(any()) } returns null
+            every { tsSelectClient.check(any(), any()) } returns 4
+            every { durationProbeClient.probe(any()) } returns 100.0
+            every { quality.enabled() } returns true
+            val decision =
+                RecordingQualityDecision(
+                    QualityAction.QUARANTINE,
+                    emptyList(),
+                )
+            every { quality.inspect(any(), any(), any()) } returns decision
+            fileProcessingPipeline.processFile(original) shouldBe FileProcessingPipeline.Result.QUARANTINED
+            verify { qualityReports.record(any(), 44, decision) }
+            // RecordingQualityCommand.record finishes the attempt in the quarantine transaction.
+            verify(exactly = 0) { history.finish(any(), any(), any()) }
+            verify(exactly = 0) { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+            verify {
+                tsSplitterClient wasNot Called
+                uploads wasNot Called
+                amatsukazeAddTaskClient wasNot Called
+            }
+            original.readText() shouldBe "original ts content"
+            original.parentFile.listFiles()!!.size shouldBe 1
+        }
+
+        expect("dry run quarantine makes no DB mutation and does not claim that registration would follow") {
+            val original = newOriginalFile()
+            every { programCommand.findByName(any()) } returns null
+            every { tsSelectClient.check(any(), any()) } returns 4
+            every { durationProbeClient.probe(any()) } returns 100.0
+            every { quality.enabled() } returns true
+            every { quality.inspect(any(), any(), any()) } returns
+                RecordingQualityDecision(
+                    QualityAction.QUARANTINE,
+                    emptyList(),
+                )
+            fileProcessingPipeline.processFile(original, true) shouldBe FileProcessingPipeline.Result.QUARANTINED
+            verify {
+                jobs wasNot Called
+                history wasNot Called
+                qualityReports wasNot Called
+                executedFileCommand wasNot Called
+                tsSplitterClient wasNot Called
+                uploads wasNot Called
+                amatsukazeAddTaskClient wasNot Called
+            }
+            verify(exactly = 0) { logger.info(match { it.contains("would register") }) }
+            original.readText() shouldBe "original ts content"
+            original.parentFile.listFiles()!!.size shouldBe 1
+        }
+
+        expect("existing quarantine remains held without inspection even when policy is disabled") {
+            val original = newOriginalFile()
+            every { jobs.find(any()) } returns
+                ProcessingJob(1, "key", original.canonicalPath, original.length(), original.lastModified(), "QUARANTINED", null, null)
+            fileProcessingPipeline.processFile(original) shouldBe FileProcessingPipeline.Result.QUARANTINED
+            verify {
+                quality wasNot Called
+                tsSelectClient wasNot Called
+                qualityReports wasNot Called
+            }
+            verify(exactly = 0) { jobs.claim(any()) }
+        }
+
+        expect("a failed quarantine write fails the still-active attempt and releases the claim for retry") {
+            val original = newOriginalFile()
+            every { programCommand.findByName(any()) } returns null
+            every { tsSelectClient.check(any(), any()) } returns 4
+            every { durationProbeClient.probe(any()) } returns 100.0
+            every { quality.enabled() } returns true
+            every { quality.inspect(any(), any(), any()) } returns RecordingQualityDecision(QualityAction.QUARANTINE, emptyList())
+            val failure = IllegalStateException("quarantine persistence failed")
+            every { qualityReports.record(any(), 44, any()) } throws failure
+            shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) } shouldBe failure
+            verify { history.failed(44, failure) }
+            verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            verify(exactly = 0) { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+            original.exists() shouldBe true
+        }
+
+        expect("a failed WARN report write also stops before registration and releases the claim for retry") {
+            val original = newOriginalFile()
+            every { programCommand.findByName(any()) } returns null
+            every { tsSelectClient.check(any(), any()) } returns 4
+            every { durationProbeClient.probe(any()) } returns 100.0
+            every { quality.enabled() } returns true
+            every { quality.inspect(any(), any(), any()) } returns RecordingQualityDecision(QualityAction.WARN, emptyList())
+            val failure = IllegalStateException("report persistence failed")
+            every { qualityReports.record(any(), 44, any()) } throws failure
+            shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) } shouldBe failure
+            verify { history.failed(44, failure) }
+            verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            verify(exactly = 0) { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+            verify { tsSplitterClient wasNot Called }
         }
 
         fun executedFileFixture(
@@ -223,7 +331,13 @@ class FileProcessingPipelineTest :
         }
 
         context("processFile - happy path") {
-            expect("processes all four stages and returns PROCESSED") {
+            expect("warning quality persists findings and still processes all four stages") {
+                every { quality.enabled() } returns true
+                every { quality.inspect(any(), any(), any()) } returns
+                    RecordingQualityDecision(
+                        QualityAction.WARN,
+                        emptyList(),
+                    )
                 val original = newOriginalFile()
                 val outDir = File(original.parentFile, "tssplitter")
                 val executedFile = executedFileFixture(original)

@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.shouldBe
 import io.mockk.Runs
 import io.mockk.clearAllMocks
 import io.mockk.every
@@ -26,6 +27,26 @@ class PathProcessingRunnerTest :
             slackClient = mockk()
             logger = mockk(relaxed = true)
             pathProcessingRunner = PathProcessingRunner(fileProcessingPipeline, slackClient, logger)
+        }
+
+        expect("batch continues through quarantine and failure and returns exact counts") {
+            val dir = Files.createTempDirectory("quality-batch").toFile()
+            try {
+                (1..4).forEach { File(dir, "$it.m2ts").writeText("recording") }
+                every { slackClient.notify(any()) } just Runs
+                every { fileProcessingPipeline.processFile(any(), any(), any(), any(), any(), any()) } answers {
+                    when (firstArg<File>().name) {
+                        "1.m2ts" -> FileProcessingPipeline.Result.QUARANTINED
+                        "2.m2ts" -> throw IllegalStateException("failure")
+                        "3.m2ts" -> FileProcessingPipeline.Result.PROCESSED
+                        else -> FileProcessingPipeline.Result.SKIPPED_ALREADY_REGISTERED
+                    }
+                }
+                pathProcessingRunner.processPath(dir.toPath()) shouldBe PathProcessingRunner.Summary(1, 1, 1, 1)
+                verify(exactly = 1) { slackClient.notify(any()) }
+            } finally {
+                dir.deleteRecursively()
+            }
         }
 
         expect("interruption propagates and prevents admission of subsequent recordings") {

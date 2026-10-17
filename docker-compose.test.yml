@@ -35,6 +35,7 @@ services:
       - ./backend/core/src/main/resources/db/migrations/053_library_organization.sql:/docker-entrypoint-initdb.d/053_library_organization.sql:ro
       - ./backend/core/src/main/resources/db/migrations/064_processing_job.sql:/docker-entrypoint-initdb.d/064_processing_job.sql:ro
       - ./backend/core/src/main/resources/db/migrations/067_processing_history.sql:/docker-entrypoint-initdb.d/067_processing_history.sql:ro
+      - ./backend/core/src/main/resources/db/migrations/071_recording_quality.sql:/docker-entrypoint-initdb.d/071_recording_quality.sql:ro
       - ./backend/core/src/main/resources/db/migrations/072_upload_manifest.sql:/docker-entrypoint-initdb.d/072_upload_manifest.sql:ro
       - ./backend/core/src/test/resources/ddl/02_insert_data.sql:/docker-entrypoint-initdb.d/999_insert_data.sql:ro
     healthcheck:

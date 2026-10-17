@@ -45,12 +45,14 @@ class TsVideosProcessorTest :
                     ReleaseClaimCommand(mockk(), mockk(), userQuestionComponent),
                     StatusCommand(mockk(relaxed = true)),
                     HistoryCommand(mockk(relaxed = true)),
+                    QualityCommand(QualityReportCommand(mockk(), mockk()), QualityReleaseCommand(mockk(), mockk(), mockk())),
                 )
         }
 
         context("subcommands") {
             expect("routes process to the path processing runner") {
-                every { pathProcessingRunner.processPath(any(), any(), any(), any(), any(), any()) } just Runs
+                every { pathProcessingRunner.processPath(any(), any(), any(), any(), any(), any()) } returns
+                    PathProcessingRunner.Summary(processed = 1)
 
                 tsVideosProcessor.main(arrayOf("process", "/path/one"))
 

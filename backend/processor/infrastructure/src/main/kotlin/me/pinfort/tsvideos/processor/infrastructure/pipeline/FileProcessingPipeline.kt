@@ -5,12 +5,14 @@ import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
 import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
+import me.pinfort.tsvideos.core.command.RecordingQualityCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
+import me.pinfort.tsvideos.core.component.RecordingQualityInspector
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
@@ -23,6 +25,7 @@ import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.ProcessingStage
+import me.pinfort.tsvideos.core.domain.QualityAction
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import me.pinfort.tsvideos.core.external.samba.SambaClient
@@ -59,10 +62,13 @@ class FileProcessingPipeline(
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
     private val history: ProcessingHistoryCommand,
+    private val quality: RecordingQualityInspector,
+    private val qualityReports: RecordingQualityCommand,
     private val cancellation: ProcessingCancellation = ProcessingCancellation(),
 ) {
     enum class Result {
         PROCESSED,
+        QUARANTINED,
         DRY_RUN,
         SKIPPED_ALREADY_REGISTERED,
     }
@@ -88,6 +94,14 @@ class FileProcessingPipeline(
         val identity = ProcessingIdentity.from(file)
         if (dryRun) {
             val inspection = inspect(file, onDropCheckProgress, onEmergencyCheckProgress) ?: return Result.SKIPPED_ALREADY_REGISTERED
+            if (quality.enabled()) {
+                val decision = quality.inspect(file, inspection.drops, inspection.duration)
+                logger.info("Dry run quality: $decision")
+                if (decision.action == QualityAction.QUARANTINE) {
+                    logger.info("Dry run: would quarantine in place at ${identity.path}; no registration or processing")
+                    return Result.QUARANTINED
+                }
+            }
             logger.info(
                 "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}, " +
                     "tags=${inspection.emergencyTags}; " +
@@ -96,6 +110,10 @@ class FileProcessingPipeline(
             return Result.DRY_RUN
         }
         val existing = processingJobCommand.find(identity)
+        if (existing?.state == "QUARANTINED") {
+            logger.warn("Job ${existing.id} remains quarantined in place at ${identity.path}; explicit quality release required")
+            return Result.QUARANTINED
+        }
         if (existing != null && existing.state != "RETRYABLE") {
             check(existing.state in setOf("SUBMITTED", "COMPLETED")) { blockedJobMessage(existing) }
             return Result.SKIPPED_ALREADY_REGISTERED
@@ -136,6 +154,21 @@ class FileProcessingPipeline(
                     check(ProcessingIdentity.from(file) == identity) { "Recording changed during inspection; retry when stable" }
                     inspected
                 }
+            if (quality.enabled()) {
+                val decision =
+                    history.stage(attempt.id, ProcessingStage.QUALITY_CHECK) {
+                        quality.inspect(file, inspection.drops, inspection.duration).also {
+                            check(ProcessingIdentity.from(file) == identity) { "Recording changed during quality inspection" }
+                        }
+                    }
+                // Outside the stage: a quarantine finishes the attempt in the same transaction as the report and the
+                // QUARANTINED transition, so a failure here leaves the attempt ACTIVE for the catch below to fail.
+                // Deliberately fatal for WARN/CONTINUE too: record() also re-verifies ownership, and nothing has reached
+                // the NAS yet, so a failed write only costs a RETRYABLE rerun rather than processing without evidence.
+                qualityReports.record(job, attempt.id, decision)
+                logger.info("Quality decision job=${job.id}: $decision")
+                if (decision.action == QualityAction.QUARANTINE) return Result.QUARANTINED
+            }
             var registered: ExecutedFile? = null
             val executedFile =
                 runner.stage({ registered?.let { rollbackRegistration(it) } }) {
