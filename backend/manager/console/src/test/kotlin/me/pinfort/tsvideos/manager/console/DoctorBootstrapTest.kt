@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.manager.console
 
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import java.nio.file.Files
@@ -10,8 +11,8 @@ class DoctorBootstrapTest :
         expect("loads the actual application core profile defaults without any application context") {
             val environment = DoctorBootstrap.loadEnvironment(emptyArray())
             environment.activeProfiles.toList().contains("core") shouldBe true
-            environment.getProperty("spring.datasource.url")!! shouldContain "jdbc:"
-            environment.getProperty("samba.video-store-nas.url")!! shouldContain "smb:"
+            environment.getProperty("spring.datasource.url").shouldNotBeNull() shouldContain "jdbc:"
+            environment.getProperty("samba.video-store-nas.url").shouldNotBeNull() shouldContain "smb:"
         }
         expect("external profile configuration overrides normal core defaults") {
             val directory = Files.createTempDirectory("doctor-config-")

@@ -4,6 +4,7 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldStartWith
 import io.mockk.every
@@ -83,7 +84,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             }
             every { nas.finalize(any(), any(), any()) } answers {
                 check(!remote.containsKey(thirdArg()))
-                remote[thirdArg()] = remote.remove(secondArg())!!
+                remote[thirdArg()] = remote.remove(secondArg()).shouldNotBeNull()
             }
             every { nas.delete(any(), any()) } answers {
                 remote.remove(secondArg())
@@ -145,7 +146,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
         expect("interruption after rename preserves ambiguous remote ownership") {
             val f = fixture()
             every { f.nas.finalize(any(), any(), any()) } answers {
-                f.remote[f.target] = f.remote.remove(secondArg())!!
+                f.remote[f.target] = f.remote.remove(secondArg()).shouldNotBeNull()
                 throw InterruptedException()
             }
             try {
@@ -336,7 +337,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
         expect("rename with ambiguous acknowledgement never auto accepts final destination") {
             val f = fixture()
             every { f.nas.finalize(any(), any(), any()) } answers {
-                f.remote[thirdArg()] = f.remote.remove(secondArg())!!
+                f.remote[thirdArg()] = f.remote.remove(secondArg()).shouldNotBeNull()
                 error("connection lost")
             }
             try {

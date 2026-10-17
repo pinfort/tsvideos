@@ -66,7 +66,7 @@ class BulkLibraryCommand(
         return read.execute {
             val context = Context(bulk.allFiles(), proposed(request))
             BulkPlan(request, request.ids.map { target(it, request, context) })
-        }!!
+        }
     }
 
     fun apply(input: BulkApplyRequest): BulkResult = applyGuarded(input, null)
@@ -86,7 +86,7 @@ class BulkLibraryCommand(
         ensure(input.fingerprints.values.all { it.matches(fingerprintPattern) }) { "Invalid fingerprint" }
         // Selection-wide destination counts are computed once: other programs' existing paths are still
         // re-checked per target against the locked alias scan, and any change to a target's own files is STALE.
-        val proposed = read.execute { proposed(request) }!!
+        val proposed = read.execute { proposed(request) }
         val successful = mutableSetOf<Long>()
         val outcomes = mutableListOf<BulkOutcome>()
         for (id in request.ids) {
@@ -140,7 +140,12 @@ class BulkLibraryCommand(
                 when {
                     current.fingerprint != fingerprint ->
                         BulkOutcome(id, BulkOutcomeStatus.STALE, "Recording changed; preview again")
-                    !current.eligible -> BulkOutcome(id, BulkOutcomeStatus.FAILED, current.reason!!)
+                    !current.eligible ->
+                        BulkOutcome(
+                            id,
+                            BulkOutcomeStatus.FAILED,
+                            current.reason ?: "Recording is not eligible for this operation",
+                        )
                     else -> {
                         if (guard != null && Thread.currentThread().isInterrupted) {
                             throw InterruptedException("Bulk operation interrupted")
@@ -148,12 +153,16 @@ class BulkLibraryCommand(
                         mutating = true
                         when (request.action) {
                             BulkAction.DELETE -> programs.delete(program)
-                            BulkAction.MOVE -> programs.moveCreatedFiles(program, request.directory!!)
+                            BulkAction.MOVE ->
+                                programs.moveCreatedFiles(
+                                    program,
+                                    requireNotNull(request.directory) { "MOVE requires a directory" },
+                                )
                         }
                         BulkOutcome(id, BulkOutcomeStatus.SUCCESS, "Completed; original recording preserved")
                     }
                 }
-            }!!
+            }
         } catch (error: PessimisticLockingFailureException) {
             if (guard != null) rethrowIfInterrupted(id, request, error, mutating)
             if (mutating) return failedAfterMutation(id, request, error)
@@ -249,7 +258,7 @@ class BulkLibraryCommand(
             bulk
                 .createdFilesOfPrograms(request.ids)
                 .filter { safePath(it.file) }
-                .map { key(destination(it, request.directory!!)) }
+                .map { key(destination(it, requireNotNull(request.directory) { "MOVE requires a directory" })) }
                 .groupingBy { it }
                 .eachCount()
         } else {
@@ -283,7 +292,7 @@ class BulkLibraryCommand(
         val files = snapshot?.createdFiles.orEmpty()
         val destinations =
             if (request.action == BulkAction.MOVE && files.all { safePath(it.file) }) {
-                files.associate { it.id to destination(it, request.directory!!) }
+                files.associate { it.id to destination(it, requireNotNull(request.directory) { "MOVE requires a directory" }) }
             } else {
                 emptyMap()
             }

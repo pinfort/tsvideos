@@ -90,7 +90,7 @@ class ProcessingPreflightCommand(
             diagnosticCancellation()
             val value = setting("processor-tool.$name")
             val configured = isPlainSetting(value)
-            val found = configured && safe { local.tool(value!!, windowsOnly) }
+            val found = configured && value != null && safe { local.tool(value, windowsOnly) }
             val executionChecked = !windowsOnly && !local.windows()
             val passReason =
                 if (executionChecked) "Tool file is readable and executable" else "Tool file is readable; execution was not checked"
@@ -138,7 +138,7 @@ class ProcessingPreflightCommand(
             if (validPort) "Port configured" else "Configure an integer TCP port from 1 through 65535",
         )
         if (validHost && validPort) {
-            val connected = safe { encoder.check(host!!, port!!) }
+            val connected = safe { encoder.check(host, port) }
             checks.add(
                 "encoder.connectivity",
                 if (connected) DiagnosticStatus.PASS else DiagnosticStatus.FAIL,
