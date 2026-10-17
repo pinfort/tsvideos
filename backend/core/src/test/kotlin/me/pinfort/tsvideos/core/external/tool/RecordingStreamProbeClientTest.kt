@@ -26,6 +26,12 @@ class RecordingStreamProbeClientTest :
             client.parse("""{"streams":[{}]}""") shouldBe null
             client.parse("""{"streams":[{"codec_type":"audio"},{"codec_type":"video"},{"codec_type":"data"}]}""") shouldBe
                 setOf(RecordingStream.AUDIO, RecordingStream.VIDEO)
+            // ARIB captions reported as data/unknown by some ffmpeg builds do not count as SUBTITLE.
+            client.parse(
+                """{"streams":[{"codec_type":"video"},{"codec_type":"unknown"},{"codec_type":"data"},{"codec_type":"subtitle"}]}""",
+            ) shouldBe setOf(RecordingStream.VIDEO, RecordingStream.SUBTITLE)
+            client.parse("""{"streams":[{"codec_type":"video"},{"codec_type":"unknown"},{"codec_type":"attachment"}]}""") shouldBe
+                setOf(RecordingStream.VIDEO)
         }
         expect("arguments preserve paths and malformed output is unavailable") {
             every { shell.executeCapturingOutput(any(), any(), any()) } returns ShellResult(0, "not json", "secret")

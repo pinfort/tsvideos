@@ -163,6 +163,8 @@ class FileProcessingPipeline(
                     }
                 // Outside the stage: a quarantine finishes the attempt in the same transaction as the report and the
                 // QUARANTINED transition, so a failure here leaves the attempt ACTIVE for the catch below to fail.
+                // Deliberately fatal for WARN/CONTINUE too: record() also re-verifies ownership, and nothing has reached
+                // the NAS yet, so a failed write only costs a RETRYABLE rerun rather than processing without evidence.
                 qualityReports.record(job, attempt.id, decision)
                 logger.info("Quality decision job=${job.id}: $decision")
                 if (decision.action == QualityAction.QUARANTINE) return Result.QUARANTINED

@@ -231,6 +231,22 @@ class FileProcessingPipelineTest :
             original.exists() shouldBe true
         }
 
+        expect("a failed WARN report write also stops before registration and releases the claim for retry") {
+            val original = newOriginalFile()
+            every { programCommand.findByName(any()) } returns null
+            every { tsSelectClient.check(any(), any()) } returns 4
+            every { durationProbeClient.probe(any()) } returns 100.0
+            every { quality.enabled() } returns true
+            every { quality.inspect(any(), any(), any()) } returns RecordingQualityDecision(QualityAction.WARN, emptyList())
+            val failure = IllegalStateException("report persistence failed")
+            every { qualityReports.record(any(), 44, any()) } throws failure
+            shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) } shouldBe failure
+            verify { history.failed(44, failure) }
+            verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            verify(exactly = 0) { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+            verify { tsSplitterClient wasNot Called }
+        }
+
         fun executedFileFixture(
             file: File,
             id: Long = 100,
