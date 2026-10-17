@@ -32,9 +32,10 @@ class CleanupPlanCommand(
     private val read =
         TransactionTemplate(transactionManager).apply {
             isReadOnly = true
-            isolationLevel =
-                TransactionDefinition.ISOLATION_REPEATABLE_READ
+            isolationLevel = TransactionDefinition.ISOLATION_REPEATABLE_READ
         }
+
+    private val fingerprintPattern = Regex("[a-f0-9]{64}")
 
     fun plan(criteria: CleanupCriteria): CleanupPlan = read.execute { generate(criteria, Instant.now().toString()) }!!
 
@@ -48,7 +49,11 @@ class CleanupPlanCommand(
                 BulkResult(
                     plan.targets.map {
                         checkCurrent(plan, it.id, emptySet())
-                            ?: BulkOutcome(it.id, BulkOutcomeStatus.SUCCESS, "Validated only; no changes")
+                            ?: BulkOutcome(
+                                it.id,
+                                BulkOutcomeStatus.SUCCESS,
+                                "Validated against current state only; no changes. Earlier targets' deletions are not simulated",
+                            )
                     },
                 )
             }!!
@@ -57,10 +62,7 @@ class CleanupPlanCommand(
         return bulk.applyGuarded(
             BulkApplyRequest(
                 BulkRequest(plan.targets.map { it.id }, BulkAction.DELETE),
-                plan.targets.associate {
-                    it.id to
-                        it.fingerprint
-                },
+                plan.targets.associate { it.id to it.fingerprint },
             ),
         ) { id, completed -> checkCurrent(plan, id, completed) }
     }
@@ -73,31 +75,22 @@ class CleanupPlanCommand(
         val remainingTargets = plan.targets.filter { it.id !in completed }
         val allIds = programs.selectAllIds().toSet()
         if (id !in allIds) return BulkOutcome(id, BulkOutcomeStatus.NOT_FOUND, "Recording no longer exists")
-        if (plan.keptTargets.any {
-                it.id !in allIds
-            }
-        ) {
+        val keptMissing = plan.keptTargets.any { it.id !in allIds }
+        if (keptMissing) {
             return BulkOutcome(id, BulkOutcomeStatus.STALE, "Selected kept recording changed; generate a new plan")
         }
         if (snapshot(plan.keptTargets.map { it.id }, "Selected duplicate copy to preserve") != plan.keptTargets) {
             return BulkOutcome(id, BulkOutcomeStatus.STALE, "Selected kept recording changed; generate a new plan")
         }
         val expectedGroups =
-            plan.groups.map { it.copy(memberIds = it.memberIds.filter { member -> member !in completed }) }.filter {
-                it.memberIds.size >
-                    1
-            }
-        val currentCriteria =
-            if (plan.criteria.mode ==
-                CleanupMode.DUPLICATES
-            ) {
-                plan.criteria.copy(keepIds = expectedGroups.map { it.keepId })
-            } else {
-                plan.criteria
-            }
+            plan.groups
+                .map { it.copy(memberIds = it.memberIds.filter { member -> member !in completed }) }
+                .filter { it.memberIds.size > 1 }
+        val duplicateMode = plan.criteria.mode == CleanupMode.DUPLICATES
+        val currentCriteria = if (duplicateMode) plan.criteria.copy(keepIds = expectedGroups.map { it.keepId }) else plan.criteria
         val fresh =
             try {
-                generate(currentCriteria, plan.createdAt)
+                generate(currentCriteria, plan.createdAt, allIds)
             } catch (_: IllegalArgumentException) {
                 return BulkOutcome(id, BulkOutcomeStatus.STALE, "Cleanup criteria or group changed; generate a new plan")
             }
@@ -113,6 +106,7 @@ class CleanupPlanCommand(
     private fun generate(
         criteria: CleanupCriteria,
         createdAt: String,
+        known: Set<Long> = programs.selectAllIds().toSet(),
     ): CleanupPlan {
         validateCriteria(criteria)
         val groups: List<CleanupGroup>
@@ -126,7 +120,6 @@ class CleanupPlanCommand(
                                 .first()
                                 .program.channel == criteria.channel
                     }
-                val known = programs.selectAllIds().toSet()
                 if (criteria.keepIds.any { it !in known }) throw CleanupResourceMissing()
                 require(
                     criteria.keepIds.all { keep ->
@@ -239,7 +232,7 @@ class CleanupPlanCommand(
         ) { "Invalid plan IDs" }
         require(
             (plan.targets + plan.keptTargets).all {
-                it.fingerprint.matches(Regex("[a-f0-9]{64}")) && it.estimatedMetadataBytes >= 0
+                it.fingerprint.matches(fingerprintPattern) && it.estimatedMetadataBytes >= 0
             },
         ) { "Invalid snapshots" }
         require(plan.groups.size <= 100) { "Invalid groups" }

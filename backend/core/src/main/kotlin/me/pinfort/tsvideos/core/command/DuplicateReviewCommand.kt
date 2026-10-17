@@ -1,12 +1,9 @@
 package me.pinfort.tsvideos.core.command
 
-import me.pinfort.tsvideos.core.domain.CreatedFile
-import me.pinfort.tsvideos.core.domain.DuplicateKeepCriterion
 import me.pinfort.tsvideos.core.domain.DuplicateRecommendation
 import me.pinfort.tsvideos.core.domain.DuplicateReview
 import me.pinfort.tsvideos.core.domain.DuplicateReviewGroup
 import me.pinfort.tsvideos.core.domain.DuplicateReviewMember
-import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation
@@ -18,49 +15,44 @@ class DuplicateReviewCommand(
     private val files: CreatedFileMapper,
 ) {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    fun review(): DuplicateReview =
-        DuplicateReview(
-            duplicates.detect().map { group ->
+    fun review(): DuplicateReview {
+        val groups = duplicates.detect()
+        // Batched instead of one query per member; chunked so a huge duplicate set stays within placeholder limits.
+        val movedFiles =
+            groups
+                .flatMap { group -> group.programs.map { it.executedFileId } }
+                .distinct()
+                .chunked(ID_CHUNK_SIZE)
+                .flatMap { ids -> files.selectMovedByExecutedFileIds(ids) }
+                .groupBy({ it.executedFileId }, { it.toDomain() })
+                .mapValues { (_, files) -> files.sortedBy { it.id } }
+        return DuplicateReview(
+            groups.map { group ->
+                // DuplicateGroup guarantees 2+ members, sorted by keep order so the recommended one comes first.
                 val winner = group.recommended
                 val runnerUp = group.programs[1]
-                val decisive =
-                    when {
-                        dropRank(winner) != dropRank(runnerUp) -> DuplicateKeepCriterion.DROPS
-                        winner.status != runnerUp.status -> DuplicateKeepCriterion.STATUS
-                        winner.duration != runnerUp.duration -> DuplicateKeepCriterion.DURATION
-                        winner.size != runnerUp.size -> DuplicateKeepCriterion.SIZE
-                        else -> DuplicateKeepCriterion.ID
-                    }
                 DuplicateReviewGroup(
                     group.reason,
                     winner.id,
                     DuplicateRecommendation(
-                        DuplicateKeepCriterion.entries,
-                        decisive,
+                        DuplicateProgramCommand.keepCriteria.map { it.first },
+                        DuplicateProgramCommand.decisiveCriterion(winner, runnerUp),
                         runnerUp.id,
-                        winner.drops.takeIf {
-                            it >= 0
-                        },
+                        winner.drops.takeIf { it >= 0 },
                         winner.status,
                         winner.duration,
                         winner.size,
                         winner.id,
                     ),
                     group.programs.map { program ->
-                        DuplicateReviewMember(
-                            program,
-                            files
-                                .selectByExecutedFileId(program.executedFileId)
-                                .map { it.toDomain() }
-                                .filter {
-                                    it.status ==
-                                        CreatedFile.Status.FILE_MOVED
-                                }.sortedBy { it.id },
-                        )
+                        DuplicateReviewMember(program, movedFiles[program.executedFileId].orEmpty())
                     },
                 )
             },
         )
+    }
 
-    private fun dropRank(program: Program): Int = if (program.drops < 0) Int.MAX_VALUE else program.drops
+    companion object {
+        private const val ID_CHUNK_SIZE = 1000
+    }
 }

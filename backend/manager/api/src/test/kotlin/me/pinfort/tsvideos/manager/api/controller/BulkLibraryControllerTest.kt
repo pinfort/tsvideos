@@ -1,9 +1,11 @@
 package me.pinfort.tsvideos.manager.api.controller
 
 import com.ninjasquad.springmockk.MockkBean
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.mockk.every
+import jakarta.servlet.ServletException
 import me.pinfort.tsvideos.core.command.BulkLibraryCommand
 import me.pinfort.tsvideos.core.domain.BulkAction
 import me.pinfort.tsvideos.core.domain.BulkOutcome
@@ -11,6 +13,7 @@ import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
 import me.pinfort.tsvideos.core.domain.BulkPlan
 import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.domain.BulkResult
+import me.pinfort.tsvideos.core.domain.InvalidBulkRequestException
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
 import org.springframework.http.MediaType
@@ -39,13 +42,23 @@ class BulkLibraryControllerTest : DescribeSpec() {
                 .andExpect(jsonPath("$.originalSourcePreserved").value(true))
         }
         it("maps invalid input to 400") {
-            every { command.preview(any()) } throws IllegalArgumentException("Select IDs")
+            every { command.preview(any()) } throws InvalidBulkRequestException("Select IDs")
             mvc
                 .perform(
                     post(
                         "/api/v1/programs/bulk/preview",
                     ).contentType(MediaType.APPLICATION_JSON).content("""{"ids":[],"action":"DELETE"}"""),
                 ).andExpect(status().isBadRequest)
+        }
+        it("does not report an internal IllegalArgumentException as a client error") {
+            every { command.preview(any()) } throws java.nio.file.InvalidPathException("bad", "internal detail")
+            shouldThrow<ServletException> {
+                mvc.perform(
+                    post(
+                        "/api/v1/programs/bulk/preview",
+                    ).contentType(MediaType.APPLICATION_JSON).content("""{"ids":[1],"action":"DELETE"}"""),
+                )
+            }
         }
         it("returns per-recording outcomes including partial failures") {
             every { command.apply(any()) } returns

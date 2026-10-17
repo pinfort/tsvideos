@@ -8,6 +8,7 @@ import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets
+import kotlin.system.exitProcess
 
 @MapperScan("me.pinfort.tsvideos.core.external.database.mapper")
 @SpringBootApplication(
@@ -30,6 +31,9 @@ fun main(args: Array<String>) {
     // Set this before Spring/Clikt capture the stream so redirected JSON is UTF-8.
     if (args.any { it == "--json" || it == "--ids-only" || it == "cleanup" }) {
         System.setOut(PrintStream(FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8))
+    }
+    if (DoctorBootstrap.commandArguments(args).firstOrNull() == "doctor") {
+        exitProcess(DoctorBootstrap.run(args))
     }
     runApplication<ConsoleApplication>(*args)
 }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ProgramQueryParams } from "@/lib/program-query";
+import { MAX_INT, type ProgramQueryParams } from "@/lib/program-query";
 
 export function SearchForm({ values = {} }: { values?: ProgramQueryParams }) {
   const v = (key: string, fallback = "") =>
@@ -79,7 +79,7 @@ export function SearchForm({ values = {} }: { values?: ProgramQueryParams }) {
           <input
             type="number"
             min="0"
-            max="2147483647"
+            max={MAX_INT}
             step="1"
             name="minDrops"
             defaultValue={v("minDrops")}
@@ -91,7 +91,7 @@ export function SearchForm({ values = {} }: { values?: ProgramQueryParams }) {
           <input
             type="number"
             min="0"
-            max="2147483647"
+            max={MAX_INT}
             step="1"
             name="maxDrops"
             defaultValue={v("maxDrops")}
@@ -142,11 +142,11 @@ export function SearchForm({ values = {} }: { values?: ProgramQueryParams }) {
       <div className="flex items-center gap-4">
         <button
           type="submit"
-          className="rounded bg-zinc-900 px-6 py-2 text-sm text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900"
+          className="rounded bg-zinc-900 px-6 py-2 text-sm text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
         >
           検索
         </button>
-        <Link href="/" className="text-sm text-blue-600 underline">
+        <Link href="/" className="text-sm text-blue-600 underline dark:text-blue-400">
           条件をクリア
         </Link>
       </div>

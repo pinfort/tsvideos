@@ -14,6 +14,7 @@ import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
 import me.pinfort.tsvideos.core.command.DuplicateReviewCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.component.DirectoryNameComponent
@@ -91,16 +92,18 @@ class CleanupPlanMapperTest : ExpectSpec() {
     private fun commands(nas: NasComponent): Pair<CleanupPlanCommand, BulkLibraryCommand> {
         val logger = mockk<org.slf4j.Logger>(relaxed = true)
         val directories = DirectoryNameComponent(NormalizeComponent())
+        val tags = mockk<ExecutedFileTagCommand>(relaxed = true)
         val programs =
             ProgramCommand(
                 programMapper,
                 createdMapper,
-                ExecutedFileCommand(executedMapper, logger),
+                ExecutedFileCommand(executedMapper, tags, logger),
                 CreatedFileCommand(createdMapper, mockk(), nas, logger),
                 splitMapper,
                 logger,
                 SplittedFileCommand(splitMapper, logger),
                 directories,
+                tags,
             )
         val bulk =
             BulkLibraryCommand(
@@ -112,6 +115,7 @@ class CleanupPlanMapperTest : ExpectSpec() {
                 directories,
                 NormalizeComponent(),
                 transactionManager,
+                logger,
             )
         return CleanupPlanCommand(
             DuplicateReviewCommand(DuplicateProgramCommand(programMapper), createdMapper),
@@ -147,6 +151,9 @@ class CleanupPlanMapperTest : ExpectSpec() {
             io.kotest.assertions.throwables.shouldThrow<IllegalArgumentException> {
                 command.plan(CleanupCriteria(CleanupMode.DUPLICATES, keepIds = listOf(1, 2)))
             }
+            // One duplicate group: N members yield N - 1 targets, so 101 members is exactly the 100-target limit.
+            seed(101, false)
+            command.plan(CleanupCriteria(CleanupMode.DUPLICATES)).targets.size shouldBe 100
             seed(102, false)
             io.kotest.assertions.throwables
                 .shouldThrow<IllegalArgumentException> { command.plan(CleanupCriteria(CleanupMode.DUPLICATES)) }

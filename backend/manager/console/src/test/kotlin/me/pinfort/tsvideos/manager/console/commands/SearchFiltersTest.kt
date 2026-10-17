@@ -81,6 +81,22 @@ class SearchFiltersTest :
             result.stderr shouldBe ""
         }
 
+        expect("plain dates mean midnight of that day") {
+            val programs = mockk<ProgramCommand>()
+            val query =
+                ProgramSearchQuery(
+                    recordedFrom = LocalDateTime.parse("2026-10-01T00:00:00"),
+                    recordedTo = LocalDateTime.parse("2026-10-02T00:00:00"),
+                )
+            every { programs.search(query) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
+            val command = Search(programs, mockk())
+            val result =
+                command.test(listOf("--recorded-from", "2026-10-01", "--recorded-to", "2026-10-02", "--ids-only")) {
+                    command.parseManager(it)
+                }
+            result.statusCode shouldBe 0
+        }
+
         expect("invalid filters fail before DB calls with exit two and no stdout") {
             listOf(
                 "--limit 0",

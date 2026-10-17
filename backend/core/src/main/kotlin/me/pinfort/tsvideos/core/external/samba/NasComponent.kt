@@ -1,10 +1,15 @@
 package me.pinfort.tsvideos.core.external.samba
 
+import jcifs.SmbConstants
 import jcifs.SmbResource
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 import java.io.File
+import java.io.OutputStream
 import java.nio.file.Path
+import java.security.DigestInputStream
+import java.security.MessageDigest
+import java.util.Locale
 
 @Component
 class NasComponent(
@@ -17,6 +22,19 @@ class NasComponent(
     companion object {
         private const val UPLOAD_BUFFER_SIZE = 8 * 1024
         private val NO_OP_PROGRESS_LISTENER: (Long, Long) -> Unit = { _, _ -> }
+    }
+
+    fun matchesSize(
+        file: String,
+        expectedBytes: Long,
+        nasType: SambaClient.NasType,
+    ): Boolean {
+        val nas =
+            when (nasType) {
+                SambaClient.NasType.VIDEO_STORE_NAS -> videoStoreNas
+                SambaClient.NasType.ORIGINAL_STORE_NAS -> originalStoreNas
+            }
+        return nas.resolve(file.replace('\\', '/')).use { it.exists() && it.length() == expectedBytes }
     }
 
     fun getResource(file: String): SmbResource {
@@ -61,7 +79,9 @@ class NasComponent(
     ): SambaClient.NasType {
         validateFilePath(oldFile)
         validateFilePath(newFile)
-        require(oldFile.replace('\\', '/').lowercase() != newFile.replace('\\', '/').lowercase())
+        require(oldFile.replace('\\', '/').lowercase(Locale.ROOT) != newFile.replace('\\', '/').lowercase(Locale.ROOT)) {
+            "Source and destination are the same path"
+        }
         val candidates =
             listOf(
                 videoStoreNas to SambaClient.NasType.VIDEO_STORE_NAS,
@@ -76,49 +96,88 @@ class NasComponent(
                 createDirectories(newFile, type)
                 nas.resolve(newFile.replace('\\', '/')).use { target ->
                     // Exclusive creation closes the existence-check race; copyTo may overwrite.
-                    // On copy/readback failure retain source and partial destination for inspection.
-                    val digest = java.security.MessageDigest.getInstance("SHA-256")
-                    target
-                        .openOutputStream(
-                            true,
-                            jcifs.SmbConstants.O_WRONLY or jcifs.SmbConstants.O_CREAT or jcifs.SmbConstants.O_EXCL,
-                            jcifs.SmbConstants.FILE_WRITE_DATA,
-                            jcifs.SmbConstants.FILE_NO_SHARE,
-                        ).use { output ->
-                            source.openInputStream().use { input ->
-                                java.security.DigestInputStream(input, digest).copyTo(output)
+                    var created = false
+                    try {
+                        val digest = MessageDigest.getInstance("SHA-256")
+                        target
+                            .openOutputStream(
+                                true,
+                                SmbConstants.O_WRONLY or SmbConstants.O_CREAT or SmbConstants.O_EXCL,
+                                SmbConstants.FILE_WRITE_DATA,
+                                SmbConstants.FILE_NO_SHARE,
+                            ).use { output ->
+                                created = true
+                                source.openInputStream().use { input ->
+                                    DigestInputStream(input, digest).copyTo(output)
+                                }
                             }
+                        check(target.length() == size) { "Copied size mismatch" }
+                        val expected = digest.digest()
+                        val actual = MessageDigest.getInstance("SHA-256")
+                        target.openInputStream().use { input ->
+                            DigestInputStream(input, actual).transferTo(OutputStream.nullOutputStream())
                         }
-                    check(target.length() == size) { "Copied size mismatch" }
-                    val expected = digest.digest()
-                    val actual = java.security.MessageDigest.getInstance("SHA-256")
-                    target.openInputStream().use { input ->
-                        java.security.DigestInputStream(input, actual).transferTo(java.io.OutputStream.nullOutputStream())
+                        check(expected.contentEquals(actual.digest())) { "Copied checksum mismatch" }
+                        check(sourceUnchanged(nas, oldFile, size, modified)) { "Source changed during copy" }
+                        source.delete()
+                    } catch (e: Exception) {
+                        if (created) discardCopy(nas, oldFile, newFile, size, modified, target)
+                        throw e
                     }
-                    check(expected.contentEquals(actual.digest())) { "Copied checksum mismatch" }
-                    // Resolve a fresh handle: jcifs caches attributes on an existing resource.
-                    nas.resolve(oldFile.replace('\\', '/')).use { fresh ->
-                        check(fresh.length() == size && fresh.lastModified() == modified) { "Source changed during copy" }
-                    }
-                    source.delete()
                 }
                 logger.info("Move file, oldFile=$oldFile, newFile=$newFile")
                 return type
             }
         }
-        throw IllegalStateException("Source file not found")
+        logger.warn("Move source not found, oldFile=$oldFile")
+        throw IllegalStateException("Source file not found, path=$oldFile")
     }
 
+    // Resolve a fresh handle: jcifs caches attributes on an existing resource.
+    private fun sourceUnchanged(
+        nas: SmbResource,
+        oldFile: String,
+        size: Long,
+        modified: Long,
+    ): Boolean =
+        nas.resolve(oldFile.replace('\\', '/')).use { fresh ->
+            fresh.exists() && fresh.length() == size && fresh.lastModified() == modified
+        }
+
+    /**
+     * Removes the destination this move created exclusively, but only while the source is confirmed intact,
+     * so a retry is not blocked by a leftover copy. If the source cannot be confirmed (it changed, vanished
+     * after a partial delete, or the NAS is unreachable) the destination may be the only copy and is kept.
+     */
+    private fun discardCopy(
+        nas: SmbResource,
+        oldFile: String,
+        newFile: String,
+        size: Long,
+        modified: Long,
+        target: SmbResource,
+    ) {
+        val intact = runCatching { sourceUnchanged(nas, oldFile, size, modified) }.getOrDefault(false)
+        if (!intact) {
+            logger.error("Move failed and the source could not be confirmed intact; kept destination, oldFile=$oldFile, newFile=$newFile")
+            return
+        }
+        runCatching { target.delete() }
+            .onSuccess { logger.info("Move failed; removed its partial destination, oldFile=$oldFile, newFile=$newFile") }
+            .onFailure { logger.error("Move failed and its partial destination could not be removed, newFile=$newFile", it) }
+    }
+
+    // Structural checks only. jcifs resolves '#', '%' (including "%2e%2e%2f") and '?' verbatim,
+    // and registered recordings use such names, so refusing them here would block deleting them.
+    // ':' is refused because SMB treats it as an alternate data stream separator.
+    // BulkLibraryCommand.safePath is deliberately stricter for bulk actions; keep the two in sync knowingly.
     private fun validateFilePath(file: String) {
+        val path = file.replace('\\', '/')
         require(
-            file.replace('\\', '/').split('/').all {
-                it.isNotBlank() &&
-                    it != "." &&
-                    it != ".." &&
-                    !it.endsWith('.') &&
-                    !it.endsWith(' ') &&
-                    it.none { c -> c in ":?#%" || c.isISOControl() }
-            },
+            !path.startsWith('/') &&
+                path.split('/').all {
+                    it.isNotBlank() && it != "." && it != ".." && it.none { c -> c == ':' || c.isISOControl() }
+                },
         ) { "Unsafe NAS path" }
     }
 

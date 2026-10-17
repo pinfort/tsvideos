@@ -6,6 +6,11 @@ import me.pinfort.tsvideos.core.external.database.dto.SplittedFileDto
 
 enum class BulkAction { DELETE, MOVE }
 
+/** A rejected bulk request (client error). Other exceptions, even IllegalArgumentException, are internal failures. */
+class InvalidBulkRequestException(
+    message: String,
+) : IllegalArgumentException(message)
+
 enum class BulkOutcomeStatus { SUCCESS, FAILED, STALE, NOT_FOUND }
 
 data class BulkRequest(
