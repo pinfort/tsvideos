@@ -13,8 +13,24 @@ import java.time.LocalDateTime
 
 @Mapper
 interface LibraryHealthMapper {
-    @Select("SELECT p.id, p.name, p.status, e.drops FROM program p LEFT JOIN executed_file e ON e.id=p.executed_file_id ORDER BY p.id")
-    fun programs(): List<HealthProgram>
+    @Select(
+        "SELECT p.id, p.name, p.status, e.drops FROM program p LEFT JOIN executed_file e ON e.id=p.executed_file_id WHERE p.status='ERROR' ORDER BY p.id",
+    )
+    fun failedPrograms(): List<HealthProgram>
+
+    @Select(
+        "SELECT p.id, p.name, p.status, e.drops FROM program p JOIN executed_file e ON e.id=p.executed_file_id WHERE e.drops>0 ORDER BY p.id",
+    )
+    fun droppedPrograms(): List<HealthProgram>
+
+    /** Programs still present among one run's findings; a finding whose program is absent refers to a deleted program. */
+    @Select(
+        """
+        SELECT p.id, p.name, p.status, e.drops FROM program p LEFT JOIN executed_file e ON e.id=p.executed_file_id
+        WHERE p.id IN (SELECT program_id FROM health_verification_finding WHERE run_id=#{runId}) ORDER BY p.id
+    """,
+    )
+    fun findingPrograms(runId: Long): List<HealthProgram>
 
     @Insert("INSERT INTO health_verification_run(state,started_at,active_marker) VALUES('RUNNING',#{startedAt},1)")
     @Options(useGeneratedKeys = true, keyProperty = "keyHolder.id")
@@ -38,13 +54,18 @@ interface LibraryHealthMapper {
 
     @Insert(
         """
+        <script>
         INSERT INTO health_verification_finding(run_id,program_id,file_id,file,status,checked_at,expected_bytes,actual_bytes,reason)
-        VALUES(#{runId},#{finding.programId},#{finding.fileId},#{finding.file},#{finding.status},#{finding.checkedAt},#{finding.expectedBytes},#{finding.actualBytes},#{finding.reason})
+        VALUES
+        <foreach item="f" collection="findings" separator=",">
+            (#{runId},#{f.programId},#{f.fileId},#{f.file},#{f.status},#{f.checkedAt},#{f.expectedBytes},#{f.actualBytes},#{f.reason})
+        </foreach>
+        </script>
     """,
     )
-    fun insertFinding(
+    fun insertFindings(
         runId: Long,
-        finding: HealthFindingDto,
+        findings: List<HealthFindingDto>,
     ): Int
 
     @Update(

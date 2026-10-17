@@ -87,6 +87,8 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | 共有パス | `excludedSharedPathCount` | 整理候補と保持する番組の両方が参照するため、回収候補から除外したパス |
 | 整合性検証 | `LibraryVerificationCommand` (`tvmcli verify`) | 登録済みの作成ファイルが NAS 上に存在し、記録サイズと一致するかを読み取り専用で確かめること。内容のデコードまでは保証しない |
 | 検証結果 | `VerificationStatus` | `VERIFIED` (存在しサイズ一致) / `MISSING` (両 NAS で確認できたうえで存在しない) / `SIZE_MISMATCH` (サイズ不一致) / `INACCESSIBLE` (接続・権限などで確認できない。欠損とはみなさない) / `UNCHECKED` (転送未完了・未登録・無効なパスなどで検査しなかった) |
+| 検証の実行 | `HealthRun` (`health_verification_run`) | `/health` から明示的に始める整合性検証 1 回。RUNNING / COMPLETED / FAILED の状態を持ち、RUNNING は同時に 1 つだけ。失敗しても前回完了した結果は残る |
+| 保存済みの検証結果 | `HealthFinding` (`health_verification_finding`) | 完了した検証の実行が記録したファイルごとの検証結果。過去の時点のもので、その後の NAS の変化は反映しない。番組が削除されても残る |
 | 整理プラン | `CleanupPlan` (`tvmcli cleanup plan` / `apply`) | 重複番組または録画日時の締め切りから削除対象と残す番組を書き出した JSON。人が確認してから `--yes` で適用する。適用時は対象ごとに現在の状態でプラン全体を再確認し、変わっていれば STALE として削除しない |
 | 一括操作 | `BulkLibraryCommand` (`/api/v1/programs/bulk/*`) | 表示中ページで選んだ完了済み番組 (最大 100 件) の作成ファイルを、まとめて削除 (`DELETE`) または別の番組フォルダーへ移動 (`MOVE`) すること。元の録画とローカルの分割ファイルは残す。プレビューしてから実行する |
 | 一括操作の指紋 | `fingerprint` | プレビュー時の番組・録画・分割ファイル・作成ファイル・移動先・共有状況から作る SHA-256。実行時に再計算して一致しなければ `STALE` とする。同時実行の検出用で、認証には使わない |

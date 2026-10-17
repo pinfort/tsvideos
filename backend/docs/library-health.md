@@ -1,23 +1,27 @@
-# Library health and saved verification
+# ライブラリの状態と保存済みの検証結果
 
-Apply `core/src/main/resources/db/migrations/051_library_health.sql` to the application database before deploying this version (new and existing installations). This repository does not automatically run schema migrations. It creates only the namespaced `health_verification_run` and `health_verification_finding` tables; it does not alter recordings.
+このバージョンをデプロイする前に (新規・既存のどちらの環境でも)、アプリケーションデータベースへ `core/src/main/resources/db/migrations/051_library_health.sql` を適用する。このリポジトリはスキーマのマイグレーションを自動では実行しない。このマイグレーションが作るのは名前空間付きの `health_verification_run` と `health_verification_finding` だけで、録画には手を加えない。
 
-`GET /api/v1/health/library` reads failed (`ERROR`) programs, known positive dropped-frame counts, and saved verification state. Orphan programs remain visible. It does not access NAS storage. `POST /api/v1/health/library/verify` explicitly invokes the same `LibraryVerificationCommand` as CLI verify and returns refreshed state. The web `/health` page uses a same-origin Next route for browser requests; the backend request remains in `frontend/lib/api/health`. No broad CORS permission is added.
+`GET /api/v1/health/library` は、処理失敗 (`ERROR`) の番組、既知の正のドロップ数を持つ番組、保存済みの検証状態を読む。孤立した番組 (録画が見つからない番組) も表示する。NAS にはアクセスしない。`POST /api/v1/health/library/verify` は CLI の verify と同じ `LibraryVerificationCommand` を明示的に呼び、更新後の状態を返す。web の `/health` ページはブラウザからのリクエストに同一オリジンの Next ルートを使い、バックエンドへのリクエストは `frontend/lib/api/health` に残す。広い CORS 許可は追加しない。
 
-The scan performs existence/size reads only, never file repair/removal. Its five statuses are unchanged: VERIFIED, MISSING, SIZE_MISMATCH, INACCESSIBLE and UNCHECKED. An inaccessible NAS is not proof that a file is missing. Transfer-pending records and programs without artifacts are unchecked. These individual findings are valid completed scan results; a whole-run failure means verification or persistence could not finish.
+スキャンは存在とサイズの読み取りだけを行い、ファイルの修復・削除はしない。5 つの検証結果は変わらない: VERIFIED、MISSING、SIZE_MISMATCH、INACCESSIBLE、UNCHECKED。NAS にアクセスできないことは、ファイルが欠落している証拠ではない。転送未完了のレコードや成果物のない番組は UNCHECKED になる。これら個々の結果は完了したスキャンの正当な結果であり、実行全体の失敗とは、検証または保存を最後まで行えなかったことを意味する。
 
-Run start and completion timestamps and per-finding timestamps are stored explicitly in UTC with microsecond precision. A scan first commits a RUNNING claim, performs NAS I/O outside the database transaction, and atomically commits the immutable findings and COMPLETED state. Only one active scan is permitted across processes (unique active marker). A simultaneous POST returns 409. Whole-run failure records only the safe `VERIFICATION_FAILED` code and retains the last completed snapshot. The cause is written to the manager:api log, not the database; `POST` still returns 200 with `latestRun.state` = `FAILED`. If marking the run failed itself fails (retried once), the run stays RUNNING and needs the manual recovery below; the log names the run ID. GET never synthesizes a healthy result when no completed scan exists: summary and lastCompletedRun remain null. Failed or in-progress newer runs are shown separately from the last completed result.
+実行の開始・完了時刻とファイルごとの確認時刻は、マイクロ秒精度の UTC で明示的に保存する。スキャンはまず RUNNING のクレームをコミットし、データベースのトランザクションの外で NAS I/O を行い、変更されない検証結果と COMPLETED の状態をまとめてアトミックにコミットする。実行中のスキャンはプロセスをまたいで 1 つだけ許される (一意な active marker)。同時の POST は 409 を返す。
 
-The page displays UTC completion time, elapsed age, and per-file checked time. It labels findings from deleted programs and omits their detail link, while retaining the historical findings/counts. Results are historical and do not reflect later filesystem changes. Reloading the page/process does not discard them. The action is synchronous; if a request times out or the browser disconnects, use status refresh to determine whether the server is still running instead of assuming failure.
+実行全体の失敗には安全な `VERIFICATION_FAILED` コードだけを記録し、前回完了したスナップショットを残す。原因はデータベースではなく manager:api のログに書く。`POST` はこの場合も 200 を返し、`latestRun.state` が `FAILED` になる。失敗の記録そのものが失敗した場合は 1 度だけ再試行し、それでも失敗すると実行は RUNNING のまま残るため、下記の手動復旧が必要になる。ログに実行 ID が出る。完了したスキャンがないとき、GET が健全な結果を作り出すことはない: summary と lastCompletedRun は null のまま。失敗中・実行中の新しい実行は、前回完了した結果とは別に表示する。
 
-A crashed process may leave RUNNING with its active marker. It is deliberately not reclaimed merely because it is old. First stop/verify termination of the process that owns the scan, inspect the run ID, then an operator may explicitly mark that exact run failed:
+ページには UTC の完了時刻、経過時間、ファイルごとの確認時刻を表示する。削除済みの番組の結果はそうとわかるラベルを付けて詳細へのリンクを省き、過去の結果と件数は残す。結果は過去のものであり、その後のファイルシステムの変化は反映しない。ページやプロセスを再読み込みしても結果は消えない。
+
+検証は同期的に実行される。Next ルートはバックエンドの応答を待つが、Node の fetch (undici) は既定で応答ヘッダーを 300 秒までしか待たない。大きなライブラリでこれを超えたりブラウザが切断したりすると、画面には「検証が継続している可能性があります」と表示されるが、サーバー側のスキャンは続いている。失敗とみなさず、「状態を再読み込み」で実行中かどうかを確かめること。
+
+プロセスがクラッシュすると、実行が active marker 付きの RUNNING のまま残ることがある。古いというだけでは意図的に回収しない。まずスキャンを持つプロセスを停止し終了を確認してから、実行 ID を確認し、オペレーターがその実行だけを明示的に失敗にしてよい:
 
 ```sql
--- Replace 123 with the inspected interrupted run ID, only after its process is stopped.
+-- 123 を確認した中断済みの実行 ID に置き換える。そのプロセスを停止してから実行すること。
 UPDATE health_verification_run
 SET state = 'FAILED', completed_at = UTC_TIMESTAMP(6),
     failure_code = 'VERIFICATION_FAILED', active_marker = NULL
 WHERE id = 123 AND state = 'RUNNING';
 ```
 
-This does not replace the last completed snapshot. Historical runs/findings are retained; there is no automatic pruning. Optional processing-stall detection is not included because this branch has no durable processor activity timestamps.
+これで前回完了したスナップショットが置き換わることはない。過去の実行と検証結果は残り、自動での削除 (pruning) はない。このブランチには処理のアクティビティ時刻を永続的に記録する仕組みがないため、処理の停滞検出は含まない。

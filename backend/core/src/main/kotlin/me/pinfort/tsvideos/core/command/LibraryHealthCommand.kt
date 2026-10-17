@@ -2,7 +2,6 @@ package me.pinfort.tsvideos.core.command
 
 import me.pinfort.tsvideos.core.domain.HealthFinding
 import me.pinfort.tsvideos.core.domain.LibraryHealth
-import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.VerificationStatus
 import me.pinfort.tsvideos.core.external.database.mapper.LibraryHealthMapper
 import org.slf4j.LoggerFactory
@@ -19,16 +18,16 @@ class LibraryHealthCommand(
 ) {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun read(): LibraryHealth {
-        val programs = mapper.programs()
-        val names = programs.associate { it.id to it.name }
         val completed = mapper.completed()?.toDomain()
         val findings =
-            completed?.let { mapper.findings(it.id) }.orEmpty().map {
-                HealthFinding(it.toDomain(), names[it.programId], it.programId !in names)
-            }
+            completed
+                ?.let { run ->
+                    val names = mapper.findingPrograms(run.id).associate { it.id to it.name }
+                    mapper.findings(run.id).map { HealthFinding(it.toDomain(), names[it.programId], it.programId !in names) }
+                }.orEmpty()
         return LibraryHealth(
-            programs.filter { it.status == Program.Status.ERROR },
-            programs.filter { (it.drops ?: -1) > 0 },
+            mapper.failedPrograms(),
+            mapper.droppedPrograms(),
             mapper.latest()?.toDomain(),
             completed,
             findings,

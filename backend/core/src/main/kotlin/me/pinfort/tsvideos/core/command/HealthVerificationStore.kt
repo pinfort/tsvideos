@@ -29,20 +29,22 @@ class HealthVerificationStore(
         runId: Long,
         report: VerificationReport,
     ) {
-        report.findings.forEach {
-            mapper.insertFinding(
-                runId,
-                HealthFindingDto(
-                    it.programId,
-                    it.fileId,
-                    it.file,
-                    it.status,
-                    LocalDateTime.ofInstant(it.checkedAt, ZoneOffset.UTC),
-                    it.expectedBytes,
-                    it.actualBytes,
-                    it.reason,
-                ),
-            )
+        // Multi-row inserts, chunked so a large library stays within statement/packet limits.
+        report.findings.chunked(INSERT_CHUNK).forEach { chunk ->
+            val rows =
+                chunk.map {
+                    HealthFindingDto(
+                        it.programId,
+                        it.fileId,
+                        it.file,
+                        it.status,
+                        LocalDateTime.ofInstant(it.checkedAt, ZoneOffset.UTC),
+                        it.expectedBytes,
+                        it.actualBytes,
+                        it.reason,
+                    )
+                }
+            check(mapper.insertFindings(runId, rows) == rows.size)
         }
         check(mapper.finish(runId, HealthRun.State.COMPLETED, LocalDateTime.now(ZoneOffset.UTC), null) == 1)
     }
@@ -55,6 +57,7 @@ class HealthVerificationStore(
     }
 
     private companion object {
+        const val INSERT_CHUNK = 500
         val logger = LoggerFactory.getLogger(HealthVerificationStore::class.java)
     }
 }

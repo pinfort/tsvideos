@@ -138,6 +138,19 @@ class LibraryHealthMapperTest : ExpectSpec() {
             mapper.findings(result.latestRun.shouldNotBeNull().id) shouldBe emptyList()
             result.lastCompletedRun?.id shouldBe old
         }
+        expect("findings spanning several insert chunks are all saved in order") {
+            sql(listOf("INSERT INTO program VALUES(1,'a',999,'COMPLETED')"))
+            val id = store.start()
+            val checkedAt = Instant.parse("2026-01-01T00:00:00Z")
+            store.complete(
+                id,
+                VerificationReport(List(1201) { FileFinding(1, it.toLong(), "f$it", VerificationStatus.VERIFIED, checkedAt, 1, 1, null) }),
+            )
+            val result = health.read()
+            result.findings.map { it.finding.fileId } shouldBe List(1201) { it.toLong() }
+            result.findings.all { it.programName == "a" && !it.programRemoved } shouldBe true
+            result.summary?.get(VerificationStatus.VERIFIED) shouldBe 1201
+        }
         expect("concurrent scan claims have one winner and do not automatically reclaim a running scan") {
             val pool = Executors.newFixedThreadPool(2)
             try {
