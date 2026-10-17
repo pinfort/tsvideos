@@ -47,6 +47,12 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                 / {group.recommendation.recordedBytes.toLocaleString("ja-JP")} bytes / ID{" "}
                 {group.recommendation.id}
               </p>
+              {group.members.every(({ program }) => selected.includes(program.id)) && (
+                <p role="alert" className="mt-2 font-bold text-red-700 dark:text-red-300">
+                  このグループの録画をすべて選択しています。実行すると、この放送の録画は 1
+                  件も残りません。
+                </p>
+              )}
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <caption className="text-left">

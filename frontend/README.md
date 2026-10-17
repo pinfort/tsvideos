@@ -63,7 +63,7 @@ To learn more about Next.js, take a look at the following resources:
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-The `/duplicates` page compares the existing CLI duplicate groups and recommendation order. Selection starts empty; cleanup uses the same server actions and preview/confirmation UI as bulk library management. Saved failure results remain visible even when refreshing removes the last duplicate group. FILE_MOVED file listings are metadata, not a new NAS verification.
+The `/duplicates` page compares the existing CLI duplicate groups and recommendation order. Selection starts empty, and a warning appears while every member of a group is selected (nothing of that broadcast would be kept); cleanup uses the same server actions and preview/confirmation UI as bulk library management. Saved failure results remain visible even when refreshing removes the last duplicate group. FILE_MOVED file listings are metadata, not a new NAS verification.
 
 The `/storage` page shows registered original TS/encoded/other storage, the largest recordings and duplicate cleanup candidates. It uses the read-only `/api/v1/storage` endpoint and links to recording details; no deletion action is offered. Physical usage and actual reclaimable capacity remain unknown until verified. Pending metadata and excluded shared paths are labeled explicitly.
 

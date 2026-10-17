@@ -149,6 +149,16 @@ describe("DuplicateReviewPanel", () => {
     expect(screen.getByText("重複録画の候補はありません。")).toBeInTheDocument();
     expect(screen.getByText(/#2: 変更あり・再確認が必要/)).toBeInTheDocument();
   });
+  it("warns while every member of a group is selected, since nothing would be kept", async () => {
+    const user = userEvent.setup();
+    render(<DuplicateReviewPanel groups={[group]} />);
+    await user.click(screen.getByLabelText("削除対象に選択 #2"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText("削除対象に選択 #1"));
+    expect(screen.getByRole("alert")).toHaveTextContent("すべて選択しています");
+    await user.click(screen.getByLabelText("削除対象に選択 #1"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
   it("shows preview failure without triggering deletion", async () => {
     const user = userEvent.setup();
     previewBulk.mockRejectedValue(new Error("secret"));
