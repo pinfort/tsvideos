@@ -24,7 +24,7 @@ class RecordingStreamProbeClient(
                     60,
                 )
             if (result.exitCode != 0) {
-                logger.debug("ffprobe stream inspection exited with {}; streams unavailable", result.exitCode)
+                logger.warn("ffprobe stream inspection exited with {}; streams unavailable", result.exitCode)
                 null
             } else {
                 parse(result.stdout)
@@ -32,8 +32,10 @@ class RecordingStreamProbeClient(
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             throw interrupted
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
             if (Thread.currentThread().isInterrupted) throw InterruptedException("Stream inspection interrupted")
+            // Visible at WARN: a missing or misconfigured ffprobe must not pass silently as an "unavailable" measurement.
+            logger.warn("ffprobe stream inspection failed (check FFPROBE_PATH); streams unavailable", failure)
             null
         }
 

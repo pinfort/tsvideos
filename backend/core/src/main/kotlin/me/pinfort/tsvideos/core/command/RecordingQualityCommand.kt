@@ -61,6 +61,8 @@ class RecordingQualityCommand(
         val job = checkNotNull(mapper.lockJob(jobId)) { "Processing job not found" }
         refuseUnless(job.state == "QUARANTINED" && job.executedFileId == null && job.callbackClaim == null, Reason.NOT_QUARANTINED)
         refuseUnless(mapper.activeAttempts(jobId) == 0, Reason.ACTIVE_ATTEMPT)
+        // Checked under the job row lock on purpose, so no process run can claim the job between this check and the
+        // transition. It is a single metadata read of the original, not a content read.
         val source = File(job.inputPath)
         refuseUnless(source.isFile && ProcessingIdentity.from(source).key == job.identityKey, Reason.SOURCE_CHANGED)
         if (dryRun) return
