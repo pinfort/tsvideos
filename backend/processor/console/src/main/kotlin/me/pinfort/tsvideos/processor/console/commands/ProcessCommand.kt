@@ -17,7 +17,9 @@ import java.nio.file.Path
 class ProcessCommand(
     private val pathProcessingRunner: PathProcessingRunner,
 ) : CliktCommand(name = "process") {
-    override fun help(context: Context): String = "process ts recording files (drop check -> split -> compress -> encode queue)"
+    override fun help(context: Context): String =
+        "process ts recording files (drop check -> quality check -> split -> compress -> encode queue). " +
+            "Exit 4 if any recording is quarantined, or would be in --dry-run; 1 if any failed; 0 otherwise"
 
     private val paths by argument("paths", help = "file or directory containing .m2ts files").multiple(required = true)
     private val dryRun by option("-d", "--dry-run").flag(default = false)
