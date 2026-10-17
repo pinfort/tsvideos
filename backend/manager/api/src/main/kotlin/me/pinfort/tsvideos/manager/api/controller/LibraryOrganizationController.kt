@@ -4,6 +4,7 @@ import me.pinfort.tsvideos.core.command.LibraryOrganizationCommand
 import me.pinfort.tsvideos.core.domain.DuplicateLibraryNameException
 import me.pinfort.tsvideos.core.domain.LibraryItemNotFoundException
 import me.pinfort.tsvideos.core.domain.LibraryKind
+import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -84,7 +85,7 @@ class LibraryOrganizationController(
         )
     }
 
-    @PostMapping("/api/v1/programs/{programId}/tags")
+    @PostMapping("/api/v1/programs/{programId}/library-tags")
     fun assignTag(
         @PathVariable programId: Long,
         @RequestBody body: LibraryNameRequest,
@@ -106,5 +107,9 @@ class LibraryOrganizationController(
             throw ResponseStatusException(HttpStatus.CONFLICT, "Name already exists")
         } catch (error: IllegalArgumentException) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, error.message)
+        } catch (_: PessimisticLockingFailureException) {
+            // Assignment locks label then program; recording deletion locks program then cascades into the
+            // association, so the two can deadlock. InnoDB rolls one side back; the client may simply retry.
+            throw ResponseStatusException(HttpStatus.CONFLICT, "Concurrent change, retry the request")
         }
 }

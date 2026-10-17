@@ -58,7 +58,7 @@ export interface ProgramSearchQuery {
   limit?: number;
   offset?: number;
   collectionId?: number;
-  tagId?: number;
+  libraryTagId?: number;
 }
 
 export interface ProgramDetailResponse {

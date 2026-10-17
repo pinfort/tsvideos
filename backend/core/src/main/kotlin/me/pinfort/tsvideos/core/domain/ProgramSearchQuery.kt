@@ -20,7 +20,8 @@ data class ProgramSearchQuery(
     val limit: Int = 100,
     val offset: Int = 0,
     val collectionId: Long? = null,
-    val tagId: Long? = null,
+    /** A manual library_tag ID, not a detector tag from executed_file_tag. */
+    val libraryTagId: Long? = null,
 ) {
     enum class FileType { TS, ENCODED }
 
@@ -30,7 +31,7 @@ data class ProgramSearchQuery(
 
     init {
         require(collectionId == null || collectionId > 0) { "collectionId must be positive" }
-        require(tagId == null || tagId > 0) { "tagId must be positive" }
+        require(libraryTagId == null || libraryTagId > 0) { "libraryTagId must be positive" }
         require(
             recordedFrom == null || recordedTo == null || recordedFrom < recordedTo,
         ) { "recorded-from must be earlier than recorded-to" }

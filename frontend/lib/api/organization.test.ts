@@ -39,7 +39,7 @@ it("uses distinct operations for metadata and membership removal", async () => {
   );
   await mutateOrganization({ operation: "tag", programId: 7, name: "日本語" });
   expect(fetchJson).toHaveBeenLastCalledWith(
-    "/api/v1/programs/7/tags",
+    "/api/v1/programs/7/library-tags",
     expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ name: "日本語" }),

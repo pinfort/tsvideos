@@ -14,6 +14,11 @@ import org.springframework.transaction.annotation.Transactional
 import java.text.Normalizer
 import java.util.Locale
 
+/**
+ * Manual collections and tags (library_collection / library_tag) that operators attach to programs.
+ * Unrelated to the detector tags in executed_file_tag (ExecutedFileTagCommand), which are attached to
+ * recordings automatically and are never created, renamed or assigned here.
+ */
 @Component
 class LibraryOrganizationCommand(
     private val mapper: LibraryOrganizationMapper,
@@ -43,13 +48,13 @@ class LibraryOrganizationCommand(
         val name = name(input)
         val key = GeneratedKeyHolder()
         try {
-            mapper.insert(kind, name, name.lowercase(Locale.ROOT), key)
+            mapper.insert(kind, name, key(name), key)
         } catch (
             _: DuplicateKeyException,
         ) {
             throw DuplicateLibraryNameException()
         }
-        return mapper.find(kind, key.id)!!
+        return mapper.find(kind, key.id) ?: error("Created $kind ${key.id} is not visible")
     }
 
     @Transactional
@@ -62,13 +67,13 @@ class LibraryOrganizationCommand(
         val name = name(input)
         if (mapper.lock(kind, id) == null) throw LibraryItemNotFoundException()
         try {
-            mapper.rename(kind, id, name, name.lowercase(Locale.ROOT))
+            mapper.rename(kind, id, name, key(name))
         } catch (
             _: DuplicateKeyException,
         ) {
             throw DuplicateLibraryNameException()
         }
-        return mapper.find(kind, id)!!
+        return mapper.find(kind, id) ?: error("Renamed $kind $id is not visible")
     }
 
     @Transactional
@@ -102,15 +107,21 @@ class LibraryOrganizationCommand(
         val name = name(input)
         val key = GeneratedKeyHolder()
         // The upsert locks the label first, matching assignment's lock order.
-        mapper.reuse(LibraryKind.TAG, name, name.lowercase(Locale.ROOT), key)
+        mapper.reuse(LibraryKind.TAG, name, key(name), key)
         if (mapper.lockProgram(programId) == null) throw LibraryItemNotFoundException()
         mapper.assign(LibraryKind.TAG, key.id, programId)
-        return mapper.find(LibraryKind.TAG, key.id)!!
+        return mapper.find(LibraryKind.TAG, key.id) ?: error("Assigned tag ${key.id} is not visible")
     }
 
     private fun positive(id: Long) {
         require(id > 0) { "IDs must be positive" }
     }
+
+    /**
+     * Uniqueness key: Locale.ROOT lowercasing, deliberately not full Unicode case folding (`ß` and `SS` stay distinct).
+     * Lowercasing can lengthen a name (`İ` becomes two chars), hence name_key is VARCHAR(200) for 100-char names.
+     */
+    private fun key(name: String) = name.lowercase(Locale.ROOT)
 
     private fun name(input: String): String {
         val name = Normalizer.normalize(input.trim(), Normalizer.Form.NFC)

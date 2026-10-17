@@ -36,7 +36,7 @@ class ProgramController(
         @RequestParam(name = "limit", defaultValue = "100") limit: Int,
         @RequestParam(name = "offset", defaultValue = "0") offset: Int,
         @RequestParam(name = "collectionId", required = false) collectionId: Long?,
-        @RequestParam(name = "tagId", required = false) tagId: Long?,
+        @RequestParam(name = "libraryTagId", required = false) libraryTagId: Long?,
     ): SearchResponse {
         val query =
             try {
@@ -54,7 +54,7 @@ class ProgramController(
                     limit,
                     offset,
                     collectionId,
-                    tagId,
+                    libraryTagId,
                 )
             } catch (_: DateTimeParseException) {
                 throw ResponseStatusException(HttpStatus.BAD_REQUEST, "recording timestamps must be ISO local date-times")

@@ -15,6 +15,7 @@ import me.pinfort.tsvideos.core.domain.LibraryLabel
 import me.pinfort.tsvideos.core.domain.ProgramOrganization
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
+import org.springframework.dao.CannotAcquireLockException
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete
@@ -75,10 +76,15 @@ class LibraryOrganizationControllerTest : DescribeSpec() {
             mvc.perform(get("/api/v1/library/tags/99")).andExpect(status().isNotFound)
             mvc.perform(get("/api/v1/library/broadcast-tags")).andExpect(status().isBadRequest)
         }
+        it("maps a lock conflict with a concurrent recording deletion to a retryable 409") {
+            every { command.assign(LibraryKind.COLLECTION, 3, 7, true) } throws
+                CannotAcquireLockException("deadlock")
+            mvc.perform(put("/api/v1/library/collections/3/programs/7")).andExpect(status().isConflict)
+        }
         it("creates or reuses a tag while assigning") {
             every { command.assignTag(7, "Favorite") } returns LibraryLabel(9, "Favorite", 1)
             mvc
-                .perform(post("/api/v1/programs/7/tags").contentType(MediaType.APPLICATION_JSON).content("""{"name":"Favorite"}"""))
+                .perform(post("/api/v1/programs/7/library-tags").contentType(MediaType.APPLICATION_JSON).content("""{"name":"Favorite"}"""))
                 .andExpect(status().isOk)
                 .andExpect(jsonPath("$.id").value(9))
         }

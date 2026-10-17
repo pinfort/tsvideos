@@ -81,11 +81,11 @@ describe("parseProgramQuery", () => {
 });
 
 it("validates and preserves collection/tag filters", () => {
-  const parsed = parseProgramQuery({ collectionId: "3", tagId: "9" });
+  const parsed = parseProgramQuery({ collectionId: "3", libraryTagId: "9" });
   expect(parsed).toEqual(
-    expect.objectContaining({ collectionId: 3, tagId: 9 }),
+    expect.objectContaining({ collectionId: 3, libraryTagId: 9 }),
   );
   expect(programQueryParams(parsed).get("collectionId")).toBe("3");
-  expect(() => parseProgramQuery({ tagId: "0" })).toThrow();
+  expect(() => parseProgramQuery({ libraryTagId: "0" })).toThrow();
   expect(() => parseProgramQuery({ collectionId: "-1" })).toThrow();
 });

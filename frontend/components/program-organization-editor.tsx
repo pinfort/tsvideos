@@ -38,7 +38,7 @@ export function ProgramOrganizationEditor({
     <section aria-label="コレクションと手動タグ" className="space-y-4">
       <h2 className="text-xl">コレクションと手動タグ</h2>
       <Link href="/collections" className="text-blue-600 underline">
-        コレクション・タグを管理
+        コレクション・手動タグを管理
       </Link>
       {error && <p role="alert">{error}</p>}
       {pending && <p role="status">更新中…</p>}
@@ -50,7 +50,7 @@ export function ProgramOrganizationEditor({
             {membership[kind].map((label) => (
               <li key={label.id} className="my-2">
                 <Link
-                  href={`/?${kind === "collections" ? "collectionId" : "tagId"}=${label.id}&sort=RECORDED_AT&direction=ASC`}
+                  href={`/?${kind === "collections" ? "collectionId" : "libraryTagId"}=${label.id}&sort=RECORDED_AT&direction=ASC`}
                   className="text-blue-600 underline"
                 >
                   {label.name}
@@ -81,7 +81,7 @@ export function ProgramOrganizationEditor({
             }}
           >
             <label>
-              追加する{kind === "collections" ? "コレクション" : "タグ"}{" "}
+              追加する{kind === "collections" ? "コレクション" : "手動タグ"}{" "}
               <select
                 name="id"
                 required
@@ -115,7 +115,7 @@ export function ProgramOrganizationEditor({
         }}
       >
         <label>
-          タグ名から追加{" "}
+          手動タグ名から追加{" "}
           <input
             name="name"
             maxLength={100}
@@ -125,7 +125,7 @@ export function ProgramOrganizationEditor({
           />
         </label>
         <button disabled={pending} className="ml-2 rounded border p-2">
-          タグを作成・関連付け
+          手動タグを作成・関連付け
         </button>
         <p className="text-sm">
           同じ名前の手動タグがある場合は再利用します。自動検出タグとは別に保存します。

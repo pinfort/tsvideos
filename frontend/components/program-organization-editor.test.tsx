@@ -31,9 +31,9 @@ it("assigns a collection and creates or reuses a tag by name", async () => {
     id: 4,
     programId: 7,
   });
-  await user.type(screen.getByLabelText("タグ名から追加"), "新タグ");
+  await user.type(screen.getByLabelText("手動タグ名から追加"), "新タグ");
   await user.click(
-    screen.getByRole("button", { name: "タグを作成・関連付け" }),
+    screen.getByRole("button", { name: "手動タグを作成・関連付け" }),
   );
   expect(mutateOrganization).toHaveBeenLastCalledWith({
     operation: "tag",

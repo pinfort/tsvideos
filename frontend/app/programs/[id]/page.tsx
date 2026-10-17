@@ -44,7 +44,7 @@ export default async function ProgramDetailPage({
           <ProgramOrganizationEditor programId={programId} {...organization} />
         ) : (
           <p role="status">
-            コレクション・タグを取得できませんでした。再読み込みしてください。
+            コレクション・手動タグを取得できませんでした。再読み込みしてください。
           </p>
         )}
       </main>

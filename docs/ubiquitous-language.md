@@ -68,6 +68,8 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | 未検査 | `detected(tag) == null` | 検出処理を実行していない状態 (導入前に登録した録画など) |
 | 緊急警報放送 | `ews` | EWS。緊急警報放送を検出したときに付くタグ |
 | 文字スーパー | `superimpose` | ARIB 字幕データの文字スーパーを検出したときに付くタグ |
+| コレクション | `LibraryKind.COLLECTION` (`library_collection`) | 運用者が手動で番組をまとめる入れ物。番組 (`program`) に関連付ける |
+| 手動タグ | `LibraryKind.TAG` (`library_tag`) | 運用者が手動で番組に付ける名前。検出処理のタグ (`executed_file_tag`) とは別物で、名前・ID を共有しない。API では `libraryTagId` / `library-tags` |
 
 ## 管理 (manager)
 

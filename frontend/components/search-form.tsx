@@ -25,7 +25,7 @@ export function SearchForm({
       </Link>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {(["collections", "tags"] as const).map((kind) => {
-          const key = kind === "collections" ? "collectionId" : "tagId";
+          const key = kind === "collections" ? "collectionId" : "libraryTagId";
           const current = v(key);
           return (
             <label key={kind} className="flex flex-col gap-1 text-sm">

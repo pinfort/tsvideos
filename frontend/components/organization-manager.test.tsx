@@ -71,7 +71,7 @@ it("shows a duplicate error and retains the editable form", async () => {
   });
   const user = userEvent.setup();
   render(<OrganizationManager options={options} />);
-  await user.type(screen.getByLabelText("新しいタグ名"), "tag");
+  await user.type(screen.getByLabelText("新しい手動タグ名"), "tag");
   await user.click(screen.getAllByRole("button", { name: "作成" })[1]);
   expect(await screen.findByRole("alert")).toHaveTextContent("同じ名前");
   expect(refresh).not.toHaveBeenCalled();

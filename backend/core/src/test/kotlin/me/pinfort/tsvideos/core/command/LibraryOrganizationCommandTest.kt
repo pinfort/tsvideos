@@ -48,8 +48,18 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
         }
     }
 
+    private fun count(sql: String): Long =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery(sql).use {
+                    it.next()
+                    it.getLong(1)
+                }
+            }
+        }
+
     private fun seed() {
-        listOf("library_collection", "library_tag", "program", "executed_file").forEach { sql("DELETE FROM $it") }
+        listOf("library_collection", "library_tag", "executed_file_tag", "program", "executed_file").forEach { sql("DELETE FROM $it") }
         for (id in 1..3) {
             sql(
                 "INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) " +
@@ -74,6 +84,21 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
             command.create(LibraryKind.TAG, "番組集").name shouldBe "番組集"
             command.create(LibraryKind.TAG, "か\u3099").name shouldBe "が"
             shouldThrow<DuplicateLibraryNameException> { command.create(LibraryKind.TAG, "が") }
+        }
+        expect("renaming a label to a case-only variant of its own name is not a conflict") {
+            seed()
+            val tag = command.create(LibraryKind.TAG, "favorite")
+            command.rename(LibraryKind.TAG, tag.id, "Favorite").name shouldBe "Favorite"
+            command.list(LibraryKind.TAG).map { it.id } shouldBe listOf(tag.id)
+        }
+        expect("manual tags are independent of detector tags in executed_file_tag") {
+            seed()
+            sql("INSERT INTO executed_file_tag(executed_file_id,tag) VALUES(1,'ews')")
+            val tag = command.assignTag(1, "ews")
+            command.forProgram(1).tags.map { it.name } shouldBe listOf("ews")
+            command.delete(LibraryKind.TAG, tag.id)
+            programs.deleteById(1)
+            count("SELECT COUNT(*) FROM executed_file_tag WHERE executed_file_id=1 AND tag='ews'") shouldBe 1
         }
         expect("blank control oversized names and unknown IDs are rejected without creating orphan tags") {
             seed()
@@ -113,10 +138,17 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
             val tag = command.assignTag(2, "pick")
             command.assign(LibraryKind.TAG, tag.id, 3, true)
             val query =
-                ProgramSearchQuery(collectionId = collection.id, tagId = tag.id, name = "episode", channel = "BS1", limit = 1, offset = 1)
+                ProgramSearchQuery(
+                    collectionId = collection.id,
+                    libraryTagId = tag.id,
+                    name = "episode",
+                    channel = "BS1",
+                    limit = 1,
+                    offset = 1,
+                )
             programs.countSearch(query) shouldBe 2
             programs.search(query).map { it.id } shouldBe listOf(2L)
-            programs.search(query.copy(tagId = null, limit = 10, offset = 0)).map { it.id } shouldBe listOf(3L, 2L, 1L)
+            programs.search(query.copy(libraryTagId = null, limit = 10, offset = 0)).map { it.id } shouldBe listOf(3L, 2L, 1L)
             programs.countSearch(query.copy(collectionId = 9999)) shouldBe 0
             command.delete(LibraryKind.COLLECTION, collection.id)
             programs.countSearch(query) shouldBe 0
@@ -156,6 +188,17 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
                 val tasks = (1..4).map { pool.submit { command.assign(LibraryKind.COLLECTION, collection.id, 1, true) } }
                 tasks.forEach { it.get(15, TimeUnit.SECONDS) }
                 command.find(LibraryKind.COLLECTION, collection.id).programCount shouldBe 1
+            } finally {
+                pool.shutdownNow()
+            }
+        }
+        expect("concurrent tag-by-name with one new name creates a single reused tag") {
+            seed()
+            val pool = Executors.newFixedThreadPool(3)
+            try {
+                val tasks = (1L..3L).map { id -> pool.submit<Long> { command.assignTag(id, if (id == 2L) "NEW" else "new").id } }
+                tasks.map { it.get(15, TimeUnit.SECONDS) }.toSet().size shouldBe 1
+                command.list(LibraryKind.TAG).single().programCount shouldBe 3
             } finally {
                 pool.shutdownNow()
             }

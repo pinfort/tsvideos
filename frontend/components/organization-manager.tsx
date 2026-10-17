@@ -57,7 +57,7 @@ export function OrganizationManager({ options }: { options: Organization }) {
             }}
           >
             <label>
-              新しい{kind === "collections" ? "コレクション" : "タグ"}名{" "}
+              新しい{kind === "collections" ? "コレクション" : "手動タグ"}名{" "}
               <input
                 name="name"
                 required
@@ -78,7 +78,7 @@ export function OrganizationManager({ options }: { options: Organization }) {
                 className="rounded border p-3"
               >
                 <Link
-                  href={`/?${kind === "collections" ? "collectionId" : "tagId"}=${label.id}&sort=RECORDED_AT&direction=ASC`}
+                  href={`/?${kind === "collections" ? "collectionId" : "libraryTagId"}=${label.id}&sort=RECORDED_AT&direction=ASC`}
                   className="text-blue-600 underline"
                 >
                   {label.name}（{label.programCount}件）を録画順に表示

@@ -33,7 +33,7 @@ class LibraryOrganizationSql {
     fun assign(parameters: Map<String, Any>) =
         """
         INSERT INTO ${kind(parameters).associationTable}(label_id,program_id) VALUES(#{id},#{programId})
-        ON DUPLICATE KEY UPDATE program_id=VALUES(program_id)
+        ON DUPLICATE KEY UPDATE program_id=program_id
         """.trimIndent()
 
     fun unassign(parameters: Map<String, Any>) =

@@ -60,7 +60,7 @@ describe("SearchForm", () => {
 it("preserves manual organization filters including a deleted ID and resets only pagination", () => {
   render(
     <SearchForm
-      values={{ collectionId: "3", tagId: "99", offset: "10" }}
+      values={{ collectionId: "3", libraryTagId: "99", offset: "10" }}
       organization={{
         collections: [{ id: 3, name: "シリーズ", programCount: 2 }],
         tags: [],
@@ -76,6 +76,6 @@ it("preserves manual organization filters including a deleted ID and resets only
     screen.getByRole("form", { name: "録画検索" }) as HTMLFormElement,
   );
   expect(data.get("collectionId")).toBe("3");
-  expect(data.get("tagId")).toBe("99");
+  expect(data.get("libraryTagId")).toBe("99");
   expect(data.get("offset")).toBe("0");
 });

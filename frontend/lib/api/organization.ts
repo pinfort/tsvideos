@@ -37,7 +37,7 @@ export async function mutateOrganization(
     let path: string;
     let method: string;
     if (input.operation === "tag") {
-      path = `/api/v1/programs/${input.programId}/tags`;
+      path = `/api/v1/programs/${input.programId}/library-tags`;
       method = "POST";
     } else {
       if (input.kind !== "collections" && input.kind !== "tags")
