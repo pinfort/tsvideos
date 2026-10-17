@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.core.domain
 
 import java.io.File
 import java.security.MessageDigest
+import java.time.LocalDateTime
 
 /** A version fingerprint, not a content hash. Preserve size/mtime when restoring a recording. */
 data class ProcessingIdentity(
@@ -40,4 +41,6 @@ data class ProcessingJob(
     val executedFileId: Long?,
     val callbackClaim: String?,
     val callbackManifest: String? = null,
+    // UTC; last change of any column, e.g. when the current callback claim was taken
+    val updatedAt: LocalDateTime? = null,
 )

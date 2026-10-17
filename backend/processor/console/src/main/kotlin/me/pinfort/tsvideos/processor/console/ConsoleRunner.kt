@@ -5,6 +5,7 @@ import com.github.ajalt.clikt.core.CliktError
 import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.core.parse
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
+import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
 import me.pinfort.tsvideos.processor.console.commands.TsVideosProcessor
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.CommandLineRunner
@@ -24,7 +25,7 @@ class ConsoleRunner(
         val hook = Thread({ shutdown.stop() }, "processor-shutdown")
         Runtime.getRuntime().addShutdownHook(hook)
         try {
-            cancellation.runOwned { processor.parseProcessor(args.toList()) }
+            cancellation.runOwned { processor.parseProcessor(DiagnosticEnvironment.commandArguments(args.toList().toTypedArray())) }
         } catch (error: InterruptedException) {
             exitProcess(130)
         } catch (error: CliktError) {

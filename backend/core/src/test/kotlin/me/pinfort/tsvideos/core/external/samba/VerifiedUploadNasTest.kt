@@ -69,10 +69,11 @@ class VerifiedUploadNasTest :
             val type = SambaClient.NasType.ORIGINAL_STORE_NAS
             try {
                 var bytes = 0L
-                nas.transfer(type, temporary, source, {}, { value, _ -> bytes = value })
+                val sent = nas.transfer(type, temporary, source, {}, { value, _ -> bytes = value })
                 bytes shouldBe source.length()
                 nas.size(type, temporary) shouldBe source.length()
                 val checksum = MessageDigest.getInstance("SHA-256").digest(source.readBytes()).joinToString("") { "%02x".format(it) }
+                sent shouldBe checksum
                 nas.sha256(type, temporary) shouldBe checksum
                 nas.finalize(type, temporary, final)
                 nas.exists(type, temporary) shouldBe false

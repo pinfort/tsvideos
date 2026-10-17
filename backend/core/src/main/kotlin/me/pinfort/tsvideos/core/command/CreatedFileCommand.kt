@@ -107,6 +107,22 @@ class CreatedFileCommand(
             throw RuntimeException(e)
         }
 
+    /**
+     * Best-effort reverse of NAS moves that completed before a later file failed, newest first.
+     * Uses the same verified move, so a failed restore keeps the moved copy rather than losing it.
+     * Only files whose forward move fully completed are listed; a move that failed cleans up after itself.
+     */
+    fun restoreMoved(moved: List<Pair<String, String>>) {
+        moved.asReversed().forEach { (oldFile, newFile) ->
+            try {
+                nasComponent.moveResource(newFile, oldFile)
+                logger.info("Restored moved file, newFile=$newFile, oldFile=$oldFile")
+            } catch (e: Exception) {
+                logger.error("Failed to restore moved file; reconcile manually, newFile=$newFile, oldFile=$oldFile", e)
+            }
+        }
+    }
+
     @Transactional
     fun move(
         createdFile: CreatedFile,

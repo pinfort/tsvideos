@@ -5,7 +5,10 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
+import io.mockk.mockk
+import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
+import me.pinfort.tsvideos.core.domain.ProcessingArtifactType
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.core.domain.ProcessingErrorCode
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
@@ -46,7 +49,7 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
 
     @Autowired private lateinit var dataSource: DataSource
 
-    private fun command() = ProcessingHistoryCommand(mapper, transactions)
+    private fun command() = ProcessingHistoryCommand(mapper, transactions, mockk(relaxed = true))
 
     private fun job() =
         UUID.randomUUID().toString().let { key ->
@@ -56,10 +59,8 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
 
     init {
         expect("owned interruption persists across command restart and leaves other attempts active") {
-            val cancellation =
-                me.pinfort.tsvideos.core.component
-                    .ProcessingCancellation()
-            val command = ProcessingHistoryCommand(mapper, transactions, cancellation)
+            val cancellation = ProcessingCancellation()
+            val command = ProcessingHistoryCommand(mapper, transactions, mockk(relaxed = true), cancellation)
             val job = job()
             val owned = command.begin(job, ProcessingAttemptKind.PROCESS)
             val other = command.begin(job, ProcessingAttemptKind.CALLBACK)
@@ -123,7 +124,9 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
             val job = job()
             val attempt = command.begin(job, ProcessingAttemptKind.PROCESS)
             val before = Instant.now().minusSeconds(5)
-            command.stage(attempt.id, ProcessingStage.UPLOAD_ORIGINAL, { ProcessingArtifact("UPLOAD_MANIFEST", it, "base/artifact.gz") }) {
+            command.stage(attempt.id, ProcessingStage.UPLOAD_ORIGINAL, {
+                ProcessingArtifact(ProcessingArtifactType.UPLOAD_MANIFEST, it, "base/artifact.gz")
+            }) {
                 TransactionSynchronizationManager.isActualTransactionActive() shouldBe false
                 123L
             } shouldBe 123L
@@ -172,6 +175,28 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
                 .single()
                 .outcome shouldBe ProcessingOutcome.INTERRUPTED
         }
+        expect("a failure on an interrupted thread is still closed and the interrupt is restored") {
+            val command = command()
+            val job = job()
+            val attempt = command.begin(job, ProcessingAttemptKind.PROCESS)
+            try {
+                val failure =
+                    shouldThrow<IllegalStateException> {
+                        command.stage(attempt.id, ProcessingStage.UPLOAD_ORIGINAL) {
+                            Thread.currentThread().interrupt()
+                            error("upload aborted")
+                        }
+                    }
+                failure.suppressed.size shouldBe 0
+                command.failed(attempt.id, failure)
+                Thread.currentThread().isInterrupted shouldBe true
+            } finally {
+                Thread.interrupted()
+            }
+            val history = command.history(job.id).single()
+            history.attempt.outcome shouldBe ProcessingOutcome.INTERRUPTED
+            history.stages.single().outcome shouldBe ProcessingOutcome.INTERRUPTED
+        }
         expect("heartbeats update activity without changing recording identity or inferring owner death") {
             val command = command()
             val job = job()
@@ -182,6 +207,101 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
             (Instant.parse(current.attempt.activityAt) >= Instant.parse(attempt.activityAt)) shouldBe true
             current.attempt.outcome shouldBe ProcessingOutcome.ACTIVE
             current.attempt.endedAt shouldBe null
+        }
+        expect("progress heartbeats are throttled to one per interval") {
+            val command = command()
+            val job = job()
+            val attempt = command.begin(job, ProcessingAttemptKind.PROCESS)
+            dataSource.connection.use { connection ->
+                connection.createStatement().use {
+                    it.executeUpdate("UPDATE processing_attempt SET activity_at='2000-01-01' WHERE id=${attempt.id}")
+                }
+                connection.commit()
+            }
+            var now = 1L
+            val seen = mutableListOf<Long>()
+            val progress = command.progress(attempt.id, { value, _ -> seen += value }, { now })
+            progress(1, 10)
+            val first =
+                command
+                    .history(job.id)
+                    .single()
+                    .attempt.activityAt
+            Instant.parse(first).isAfter(Instant.parse("2001-01-01T00:00:00Z")) shouldBe true
+            dataSource.connection.use { connection ->
+                connection.createStatement().use {
+                    it.executeUpdate("UPDATE processing_attempt SET activity_at='2000-01-01' WHERE id=${attempt.id}")
+                }
+                connection.commit()
+            }
+            now += 9_000_000_000L
+            progress(2, 10)
+            command
+                .history(job.id)
+                .single()
+                .attempt.activityAt shouldBe "2000-01-01T00:00:00.000000Z"
+            now += 2_000_000_000L
+            progress(3, 10)
+            Instant
+                .parse(
+                    command
+                        .history(job.id)
+                        .single()
+                        .attempt.activityAt,
+                ).isAfter(Instant.parse("2001-01-01T00:00:00Z")) shouldBe true
+            seen shouldBe listOf(1L, 2L, 3L)
+        }
+        expect("a failed progress heartbeat does not abort the observed work") {
+            val command = command()
+            val attempt = command.begin(job(), ProcessingAttemptKind.PROCESS)
+            command.finish(attempt.id, ProcessingOutcome.INTERRUPTED, ProcessingErrorCode.INTERRUPTED)
+            val seen = mutableListOf<Long>()
+            command.progress(attempt.id, { value, _ -> seen += value })(5, 10)
+            seen shouldBe listOf(5L)
+        }
+        expect("a bookkeeping failure after successful work does not record the stage as failed") {
+            val command = command()
+            val job = job()
+            val attempt = command.begin(job, ProcessingAttemptKind.PROCESS)
+            shouldThrow<IllegalStateException> {
+                command.stage(attempt.id, ProcessingStage.SPLIT, { error("artifact mapping failed") }) { 1L }
+            }
+            command
+                .history(job.id)
+                .single()
+                .stages
+                .single()
+                .outcome shouldBe ProcessingOutcome.ACTIVE
+        }
+        expect("argument failures are classified as invalid input") {
+            val command = command()
+            val job = job()
+            val attempt = command.begin(job, ProcessingAttemptKind.PROCESS)
+            val failure =
+                shouldThrow<IllegalStateException> {
+                    command.stage(attempt.id, ProcessingStage.INSPECT) {
+                        throw IllegalStateException("wrapped", IllegalArgumentException("bad name"))
+                    }
+                }
+            command.failed(attempt.id, failure)
+            command
+                .history(job.id)
+                .single()
+                .attempt.errorCode shouldBe ProcessingErrorCode.INVALID_INPUT
+        }
+        expect("job-scoped reads return only that job and its stages") {
+            val command = command()
+            val first = job()
+            val second = job()
+            val a = command.begin(first, ProcessingAttemptKind.PROCESS)
+            command.stage(a.id, ProcessingStage.INSPECT) { Unit }
+            val b = command.begin(second, ProcessingAttemptKind.PROCESS)
+            command.stage(b.id, ProcessingStage.SPLIT) { Unit }
+            val history = command.history(second.id)
+            history.map { it.attempt.id } shouldBe listOf(b.id)
+            history.single().stages.map { it.stage } shouldBe listOf(ProcessingStage.SPLIT)
+            command.status(second.id).map { it.jobId } shouldBe listOf(second.id)
+            command.status(Long.MAX_VALUE) shouldBe emptyList()
         }
         expect("terminal attempts and duplicate stage finishes reject stale mutation") {
             val command = command()

@@ -9,6 +9,9 @@ enum class ProcessingStage { INSPECT, SPLIT, COMPRESS, UPLOAD_ORIGINAL, SUBMIT_E
 /** Only these static classifications may enter history; exception messages and stack traces are excluded. */
 enum class ProcessingErrorCode { INVALID_INPUT, IO_FAILURE, DATABASE_FAILURE, INTERRUPTED, OPERATION_FAILED, ENCODER_FAILURE }
 
+/** What a stage's artifact reference points at. */
+enum class ProcessingArtifactType { INPUT, SPLITTED_FILE, UPLOAD_MANIFEST, PROGRAM }
+
 data class ProcessingHistoryIdentity(
     val jobId: Long,
     val identityKey: String,
@@ -39,13 +42,13 @@ data class ProcessingStageEvent(
     val startedAt: String,
     val endedAt: String?,
     val errorCode: ProcessingErrorCode?,
-    val artifactType: String?,
+    val artifactType: ProcessingArtifactType?,
     val artifactId: Long?,
     val artifactPath: String?,
 )
 
 data class ProcessingArtifact(
-    val type: String,
+    val type: ProcessingArtifactType,
     val id: Long?,
     val path: String?,
 )

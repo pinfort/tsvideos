@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.Called
 import io.mockk.Runs
 import io.mockk.clearAllMocks
@@ -13,6 +14,7 @@ import io.mockk.verify
 import io.mockk.verifyOrder
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
@@ -24,6 +26,8 @@ import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ExecutedFile
+import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
+import me.pinfort.tsvideos.core.domain.ExecutedFileTag
 import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.ProcessingStage
@@ -35,6 +39,7 @@ import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient
 import me.pinfort.tsvideos.core.external.tool.TsSplitterClient
+import me.pinfort.tsvideos.processor.infrastructure.external.ts.EmergencyBroadcastDetector
 import me.pinfort.tsvideos.processor.infrastructure.external.tsselect.TsSelectClient
 import org.slf4j.Logger
 import java.io.File
@@ -44,10 +49,12 @@ import java.time.LocalDateTime
 class FileProcessingPipelineTest :
     ExpectSpec({
         lateinit var executedFileCommand: ExecutedFileCommand
+        lateinit var executedFileTagCommand: ExecutedFileTagCommand
         lateinit var splittedFileCommand: SplittedFileCommand
         lateinit var createdFileCommand: CreatedFileCommand
         lateinit var programCommand: ProgramCommand
         lateinit var tsSelectClient: TsSelectClient
+        lateinit var emergencyBroadcastDetector: EmergencyBroadcastDetector
         lateinit var tsSplitterClient: TsSplitterClient
         lateinit var amatsukazeAddTaskClient: AmatsukazeAddTaskClient
         lateinit var durationProbeClient: DurationProbeClient
@@ -76,10 +83,14 @@ class FileProcessingPipelineTest :
         beforeTest {
             clearAllMocks()
             executedFileCommand = mockk()
+            executedFileTagCommand = mockk(relaxed = true)
             splittedFileCommand = mockk()
             createdFileCommand = mockk()
             programCommand = mockk()
             tsSelectClient = mockk()
+            emergencyBroadcastDetector = mockk()
+            every { emergencyBroadcastDetector.detect(any(), any()) } returns
+                EmergencyBroadcastDetector.Result(ewsDetected = false, superimposeDetected = false)
             tsSplitterClient = mockk()
             amatsukazeAddTaskClient = mockk()
             durationProbeClient = mockk()
@@ -101,9 +112,11 @@ class FileProcessingPipelineTest :
             fileProcessingPipeline =
                 FileProcessingPipeline(
                     executedFileCommand = executedFileCommand,
+                    executedFileTagCommand = executedFileTagCommand,
                     splittedFileCommand = splittedFileCommand,
                     programCommand = programCommand,
                     tsSelectClient = tsSelectClient,
+                    emergencyBroadcastDetector = emergencyBroadcastDetector,
                     tsSplitterClient = tsSplitterClient,
                     amatsukazeAddTaskClient = amatsukazeAddTaskClient,
                     durationProbeClient = durationProbeClient,
@@ -214,6 +227,8 @@ class FileProcessingPipelineTest :
 
                 every { programCommand.findByName(original.name) } returns null
                 every { tsSelectClient.check(any(), any()) } returns 0
+                every { emergencyBroadcastDetector.detect(original, any()) } returns
+                    EmergencyBroadcastDetector.Result(ewsDetected = true, superimposeDetected = false)
                 every { durationProbeClient.probe(any(), any()) } returns 100.0
                 every {
                     executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
@@ -277,6 +292,15 @@ class FileProcessingPipelineTest :
                     history.finish(44, ProcessingOutcome.COMPLETED, null)
                 }
                 verify { amatsukazeAddTaskClient.addTask(any(), any(), "30fps_light") }
+                // the emergency broadcast detection result is recorded as tags, along with the check itself
+                verify {
+                    executedFileTagCommand.recordCheck(
+                        executedFile.id,
+                        ExecutedFileCheck.EMERGENCY_BROADCAST,
+                        setOf(ExecutedFileTag.EWS),
+                        false,
+                    )
+                }
                 verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
                 verify {
                     uploads.upload(
@@ -413,6 +437,33 @@ class FileProcessingPipelineTest :
 
                 result shouldBe FileProcessingPipeline.Result.SKIPPED_ALREADY_REGISTERED
                 verify(exactly = 0) { tsSelectClient.check(any(), any()) }
+                verify(exactly = 0) { emergencyBroadcastDetector.detect(any(), any()) }
+            }
+        }
+
+        context("processFile - blocked recordings alert instead of skipping") {
+            expect("a recording name registered under another path fails before claiming") {
+                val original = newOriginalFile()
+                every { programCommand.findByName(original.name) } returns mockk<Program>()
+
+                val e = shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldBe
+                    "Recording name ${original.name} already registered; run `tvpcli reset` on that recording before processing"
+                verify(exactly = 0) { jobs.claim(any()) }
+                verify(exactly = 0) { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+            }
+
+            expect("a CLAIMED job names its age and possible causes") {
+                val original = newOriginalFile()
+                every { jobs.find(any()) } returns
+                    ProcessingJob(1, "key", original.canonicalPath, 1, 1, "CLAIMED", 10, null, null, LocalDateTime.of(2026, 10, 1, 3, 4))
+
+                val e = shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldContain "Job 1 is CLAIMED (last updated 2026-10-01T03:04 UTC)"
+                e.message shouldContain "after its upload started"
+                verify(exactly = 0) { tsSelectClient.check(any(), any()) }
             }
         }
 
@@ -426,6 +477,69 @@ class FileProcessingPipelineTest :
 
                 verify(exactly = 0) { executedFileCommand.findByFile(missing.absolutePath) }
                 verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
+            }
+        }
+
+        context("processFile - emergency broadcast detection failure") {
+            expect("keeps processing and leaves the recording unchecked") {
+                val original = newOriginalFile()
+                val executedFile = executedFileFixture(original)
+
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { emergencyBroadcastDetector.detect(original, any()) } throws TsVideosException("not a transport stream")
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+                every {
+                    executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
+                } returns executedFile
+                every { programCommand.insert(any(), any(), any()) } returns mockk()
+                // stop at the next stage; only registration matters here
+                every { tsSplitterClient.split(any(), any(), any()) } throws TsVideosException("ts split failed")
+                every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
+                every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+                every { executedFileCommand.delete(any(), any()) } just Runs
+
+                val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldBe "ts split failed"
+                verify { programCommand.insert(original.name, executedFile.id, false) }
+                verify(exactly = 0) { executedFileTagCommand.recordCheck(any(), any(), any(), any()) }
+            }
+
+            expect("keeps the registration when saving the tags fails") {
+                val original = newOriginalFile()
+                val executedFile = executedFileFixture(original)
+
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+                every {
+                    executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
+                } returns executedFile
+                every { programCommand.insert(any(), any(), any()) } returns mockk()
+                every { executedFileTagCommand.recordCheck(any(), any(), any(), any()) } throws
+                    RuntimeException("Table 'executed_file_tag' doesn't exist")
+                // stop at the next stage; reaching it shows the registration stage did not fail
+                every { tsSplitterClient.split(any(), any(), any()) } throws TsVideosException("ts split failed")
+                every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
+                every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+                every { executedFileCommand.delete(any(), any()) } just Runs
+
+                val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldBe "ts split failed"
+                verify { executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, any(), any()) }
+                verify { tsSplitterClient.split(any(), any(), any()) }
+            }
+
+            expect("dry run does not fail") {
+                val original = newOriginalFile()
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { emergencyBroadcastDetector.detect(original, any()) } throws TsVideosException("not a transport stream")
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+
+                fileProcessingPipeline.processFile(original, dryRun = true) shouldBe FileProcessingPipeline.Result.DRY_RUN
             }
         }
 
@@ -451,6 +565,138 @@ class FileProcessingPipelineTest :
                     executedFileCommand.delete(executedFile, false)
                 }
                 verify { tsSplitterClient wasNot Called }
+            }
+        }
+
+        context("processFile - retry decision") {
+            fun stubFailingSplit(original: File): ExecutedFile {
+                val executedFile = executedFileFixture(original)
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+                every {
+                    executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
+                } returns executedFile
+                every { programCommand.insert(any(), any(), any()) } returns mockk()
+                every { tsSplitterClient.split(any(), any(), any()) } returns 1
+                every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
+                every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+                every { executedFileCommand.delete(any(), any()) } just Runs
+                return executedFile
+            }
+
+            // Stubs every stage up to the original-store upload; returns the archive path compress would create.
+            fun stubThroughUpload(original: File): File {
+                val executedFile = stubFailingSplit(original)
+                val outDir = File(original.parentFile, "tssplitter")
+                val splitFile = File(outDir, "${original.nameWithoutExtension}_1.m2ts")
+                every { tsSplitterClient.split(any(), any(), any()) } answers {
+                    outDir.mkdirs()
+                    splitFile.writeBytes("split content".toByteArray())
+                    0
+                }
+                every { splittedFileCommand.insert(any(), any(), any(), any(), any()) } returns
+                    SplittedFile(200, executedFile.id, splitFile.absolutePath, 13, 100.0, SplittedFile.Status.REGISTERED)
+                every { splittedFileCommand.delete(any(), any()) } just Runs
+                every { executedFileCommand.updateStatus(any(), any(), any()) } returns executedFile
+                every {
+                    sambaClient.resolvePathUnderBaseDir(SambaClient.NasType.ORIGINAL_STORE_NAS, any())
+                } answers { "nas-base-dir/${secondArg<String>()}" }
+                return File(outDir, "${splitFile.name}.gz")
+            }
+
+            expect("a failed job link rolls the registration back and releases the job for retry") {
+                val original = newOriginalFile()
+                val executedFile = stubFailingSplit(original)
+                every { jobs.link(any(), any()) } throws RuntimeException("db blip")
+
+                shouldThrow<RuntimeException> { fileProcessingPipeline.processFile(original) }
+
+                verify { executedFileCommand.delete(executedFile, false) }
+                verify { tsSplitterClient wasNot Called }
+                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
+            expect("a history failure after an acknowledged submission still reports the recording processed") {
+                val original = newOriginalFile()
+                stubThroughUpload(original)
+                every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
+                every { executedFileCommand.find(any()) } returns executedFileFixture(original)
+                every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } returns 0
+                every { history.finish(44, ProcessingOutcome.COMPLETED, null) } throws IllegalStateException("Attempt is not active")
+
+                fileProcessingPipeline.processFile(original) shouldBe FileProcessingPipeline.Result.PROCESSED
+
+                verify { jobs.acknowledgeSubmission(any()) }
+                verify(exactly = 0) { history.failed(any(), any()) }
+            }
+
+            expect("a failure to start history releases the claim for retry before any inspection") {
+                val original = newOriginalFile()
+                every { programCommand.findByName(original.name) } returns null
+                every { history.begin(any(), any()) } throws RuntimeException("db blip")
+
+                shouldThrow<RuntimeException> { fileProcessingPipeline.processFile(original) }
+
+                verify(exactly = 0) { tsSelectClient.check(any(), any()) }
+                verify(exactly = 0) { history.failed(any(), any()) }
+                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
+            expect("a compress failure removes the partial archive and releases the job for retry") {
+                val original = newOriginalFile()
+                val archive = stubThroughUpload(original)
+
+                shouldThrow<IllegalStateException> {
+                    fileProcessingPipeline.processFile(original, onCompressProgress = { _, _ -> error("disk full") })
+                }
+
+                archive.exists() shouldBe false
+                verify(exactly = 0) { nasComponent.uploadResource(any(), any(), any(), any()) }
+                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
+            expect("an upload failure keeps the job claimed for reconciliation") {
+                val original = newOriginalFile()
+                stubThroughUpload(original)
+                every { nasComponent.uploadResource(any(), any(), any(), any()) } throws RuntimeException("smb timeout")
+
+                shouldThrow<RuntimeException> { fileProcessingPipeline.processFile(original) }
+
+                verify(exactly = 0) { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                verify { logger.error(match<String> { it.contains("requires reconciliation") }, any<Throwable>()) }
+            }
+
+            expect("a clean rollback releases the job for retry") {
+                val original = newOriginalFile()
+                stubFailingSplit(original)
+
+                shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
+            expect("a partially failed rollback keeps the job claimed for reconciliation") {
+                val original = newOriginalFile()
+                stubFailingSplit(original)
+                every { executedFileCommand.delete(any(), any()) } throws RuntimeException("db down")
+
+                val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                e.suppressed.map { it.message } shouldBe listOf("db down")
+                verify(exactly = 0) { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            }
+
+            expect("a failure to release the job does not mask the processing failure") {
+                val original = newOriginalFile()
+                stubFailingSplit(original)
+                every { jobs.transition(any(), "CLAIMED", "RETRYABLE") } throws IllegalStateException("state changed")
+
+                val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldBe "TsSplitter failed, exitCode=1, originalFile=$original"
+                e.suppressed.map { it.message } shouldBe listOf("state changed")
+                verify { logger.error(match<String> { it.contains("requires reconciliation") }, e) }
             }
         }
 
@@ -486,7 +732,7 @@ class FileProcessingPipelineTest :
         }
 
         context("processFile - compress skipped") {
-            expect("rejects stale compressed file without encoder submission or rollback deletion") {
+            expect("rejects stale compressed file before upload and rolls back the split") {
                 val original = newOriginalFile()
                 val outDir = File(original.parentFile, "tssplitter")
                 val executedFile = executedFileFixture(original)
@@ -527,9 +773,10 @@ class FileProcessingPipelineTest :
 
                 shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
                 original.exists() shouldBe true
-                splitFile.exists() shouldBe true
-                verify(exactly = 0) { createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any()) }
-                verify(exactly = 0) { nasComponent.uploadResource(any(), any(), any(), any()) }
+                // Nothing reached the NAS: the split is rolled back, but the archive this attempt did not create is kept.
+                splitFile.exists() shouldBe false
+                File(outDir, "${splitFile.name}.gz").exists() shouldBe true
+                verify(exactly = 0) { uploads.upload(any(), any(), any(), any(), any(), any()) }
                 verify(exactly = 0) { amatsukazeAddTaskClient.addTask(any(), any(), any()) }
             }
         }

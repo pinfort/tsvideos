@@ -27,6 +27,8 @@ const detail: ProgramDetailResponse = {
     channelName: "Channel",
     duration: 0,
     createdFiles: [],
+    tags: [],
+    checks: [],
   },
   videoFiles: [],
 };

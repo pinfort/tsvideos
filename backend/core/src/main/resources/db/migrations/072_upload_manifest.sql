@@ -1,4 +1,5 @@
 -- Apply after 064_processing_job.sql, before starting processors.
+-- state and nas_type hold Kotlin enum names (UploadManifest.State, SambaClient.NasType); renaming a constant requires a data migration.
 CREATE TABLE IF NOT EXISTS upload_manifest (
  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
  job_id BIGINT NOT NULL,
