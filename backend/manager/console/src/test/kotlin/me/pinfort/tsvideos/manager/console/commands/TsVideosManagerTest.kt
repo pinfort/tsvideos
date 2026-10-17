@@ -78,6 +78,7 @@ class TsVideosManagerTest :
                     Doctor(mockk()),
                     Stats(mockk()),
                     Verify(libraryVerificationCommand),
+                    Cleanup(mockk()),
                 )
         }
 

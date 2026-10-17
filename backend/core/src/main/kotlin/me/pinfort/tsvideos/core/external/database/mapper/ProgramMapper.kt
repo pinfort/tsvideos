@@ -37,6 +37,9 @@ interface ProgramMapper {
     )
     fun selectAllOrderById(): List<ProgramDto>
 
+    @Select("SELECT id FROM program ORDER BY id")
+    fun selectAllIds(): List<Long>
+
     @SelectProvider(type = ProgramSearchSql::class, method = "search")
     fun search(query: ProgramSearchQuery): List<ProgramDto>
 

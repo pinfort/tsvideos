@@ -4,6 +4,7 @@ import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.domain.BulkAction
 import me.pinfort.tsvideos.core.domain.BulkApplyRequest
+import me.pinfort.tsvideos.core.domain.BulkInterruptedException
 import me.pinfort.tsvideos.core.domain.BulkOutcome
 import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
 import me.pinfort.tsvideos.core.domain.BulkPlan
@@ -68,23 +69,43 @@ class BulkLibraryCommand(
         }!!
     }
 
-    fun apply(input: BulkApplyRequest): BulkResult {
+    fun apply(input: BulkApplyRequest): BulkResult = applyGuarded(input, null)
+
+    /**
+     * [guard] runs inside each target's transaction after every program/executed/split row is locked, and may
+     * veto the target (it receives the IDs this call has already deleted successfully). Guarded callers are
+     * operator CLIs: an interrupt aborts the whole call with [BulkInterruptedException], carrying the outcomes
+     * finished so far, instead of reporting the remaining targets as FAILED.
+     */
+    internal fun applyGuarded(
+        input: BulkApplyRequest,
+        guard: ((Long, Set<Long>) -> BulkOutcome?)?,
+    ): BulkResult {
         val request = validate(input.request)
         ensure(input.fingerprints.keys == request.ids.toSet()) { "Every target requires its preview fingerprint" }
         ensure(input.fingerprints.values.all { it.matches(fingerprintPattern) }) { "Invalid fingerprint" }
         // Selection-wide destination counts are computed once: other programs' existing paths are still
         // re-checked per target against the locked alias scan, and any change to a target's own files is STALE.
         val proposed = read.execute { proposed(request) }!!
-        return BulkResult(
-            request.ids.map { id ->
-                // After an interrupt (e.g. shutdown) stop starting new targets rather than mutating more files.
+        val successful = mutableSetOf<Long>()
+        val outcomes = mutableListOf<BulkOutcome>()
+        for (id in request.ids) {
+            // After an interrupt (e.g. shutdown) stop starting new targets rather than mutating more files.
+            val outcome =
                 if (Thread.currentThread().isInterrupted) {
+                    if (guard != null) throw BulkInterruptedException(outcomes.toList(), null)
                     BulkOutcome(id, BulkOutcomeStatus.FAILED, "Interrupted before this target; nothing was changed.")
                 } else {
-                    applyOne(id, request, proposed, input.fingerprints.getValue(id))
+                    try {
+                        applyOne(id, request, proposed, input.fingerprints.getValue(id), guard, successful.toSet())
+                    } catch (error: InterruptedException) {
+                        throw BulkInterruptedException(outcomes.toList(), id).apply { initCause(error) }
+                    }
                 }
-            },
-        )
+            if (outcome.status == BulkOutcomeStatus.SUCCESS) successful.add(id)
+            outcomes.add(outcome)
+        }
+        return BulkResult(outcomes)
     }
 
     private fun applyOne(
@@ -92,6 +113,8 @@ class BulkLibraryCommand(
         request: BulkRequest,
         proposed: Map<String, Int>,
         fingerprint: String,
+        guard: ((Long, Set<Long>) -> BulkOutcome?)?,
+        successful: Set<Long>,
     ): BulkOutcome {
         // Set just before the first NAS/DB mutation, so a lock failure is only reported as harmless before it.
         var mutating = false
@@ -99,6 +122,12 @@ class BulkLibraryCommand(
             write.execute {
                 // Same lock order for every bulk operation. Do not hold locks across targets.
                 val all = bulk.lockFiles()
+                if (guard != null) {
+                    bulk.lockAllPrograms()
+                    bulk.lockAllExecuted()
+                    bulk.lockAllSplits()
+                    guard(id, successful)?.let { return@execute it }
+                }
                 val locked = bulk.lockProgram(id)
                 val program = locked?.let { programs.find(it) }
                 if (program == null) {
@@ -113,6 +142,9 @@ class BulkLibraryCommand(
                         BulkOutcome(id, BulkOutcomeStatus.STALE, "Recording changed; preview again")
                     !current.eligible -> BulkOutcome(id, BulkOutcomeStatus.FAILED, current.reason!!)
                     else -> {
+                        if (guard != null && Thread.currentThread().isInterrupted) {
+                            throw InterruptedException("Bulk operation interrupted")
+                        }
                         mutating = true
                         when (request.action) {
                             BulkAction.DELETE -> programs.delete(program)
@@ -123,6 +155,7 @@ class BulkLibraryCommand(
                 }
             }!!
         } catch (error: PessimisticLockingFailureException) {
+            if (guard != null) rethrowIfInterrupted(id, request, error, mutating)
             if (mutating) return failedAfterMutation(id, request, error)
             logger.warn("Bulk ${request.action} skipped, library busy, programId=$id", error)
             BulkOutcome(id, BulkOutcomeStatus.FAILED, "Library is busy (processing may be running); nothing was changed. Retry later.")
@@ -131,9 +164,29 @@ class BulkLibraryCommand(
             if (generateSequence<Throwable>(error) { it.cause }.any { it is InterruptedException }) {
                 Thread.currentThread().interrupt()
             }
+            if (guard != null) rethrowIfInterrupted(id, request, error, mutating)
             if (mutating) return failedAfterMutation(id, request, error)
             logger.error("Bulk ${request.action} failed before any change, programId=$id", error)
             BulkOutcome(id, BulkOutcomeStatus.FAILED, "Operation failed before any change; nothing was changed. Preview again and retry.")
+        }
+    }
+
+    /**
+     * Guarded callers stop on interrupt; the original failure stays attached as the cause. TransactionTemplate
+     * wraps a checked InterruptedException, so the cause chain is checked as well as the thread flag.
+     */
+    private fun rethrowIfInterrupted(
+        id: Long,
+        request: BulkRequest,
+        error: Exception,
+        mutating: Boolean,
+    ) {
+        if (generateSequence<Throwable>(error) { it.cause }.any { it is InterruptedException }) {
+            Thread.currentThread().interrupt()
+        }
+        if (Thread.currentThread().isInterrupted) {
+            logger.error("Bulk ${request.action} interrupted, programId=$id, afterMutationStarted=$mutating", error)
+            throw InterruptedException("Bulk operation interrupted").apply { initCause(error) }
         }
     }
 

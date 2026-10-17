@@ -11,6 +11,15 @@ class InvalidBulkRequestException(
     message: String,
 ) : IllegalArgumentException(message)
 
+/**
+ * A guarded bulk apply stopped on interrupt. [completed] holds the outcomes of targets finished before
+ * [interruptedId], whose own changes may be partial (NAS files can be gone even though its DB rows rolled back).
+ */
+class BulkInterruptedException(
+    val completed: List<BulkOutcome>,
+    val interruptedId: Long?,
+) : InterruptedException("Bulk operation interrupted")
+
 enum class BulkOutcomeStatus { SUCCESS, FAILED, STALE, NOT_FOUND }
 
 data class BulkRequest(
