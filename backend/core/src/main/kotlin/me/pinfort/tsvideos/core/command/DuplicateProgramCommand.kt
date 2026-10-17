@@ -36,11 +36,13 @@ class DuplicateProgramCommand(
 
         private val keepOrder: Comparator<Program> = keepCriteria.map { it.second }.reduce { a, b -> a.then(b) }
 
-        /** [winner] が [runnerUp] より先に並んだ最初の基準。id は一意なので必ずどれかで決まる */
+        /** [winner] が [runnerUp] より先に並んだ最初の基準。id は一意なので通常は ID までに必ず決まる */
         fun decisiveCriterion(
             winner: Program,
             runnerUp: Program,
-        ): DuplicateKeepCriterion = keepCriteria.first { (_, order) -> order.compare(winner, runnerUp) != 0 }.first
+        ): DuplicateKeepCriterion =
+            keepCriteria.firstOrNull { (_, order) -> order.compare(winner, runnerUp) != 0 }?.first
+                ?: DuplicateKeepCriterion.ID
     }
 
     // 全件をメモリに載せて判定する。program が数万件規模である前提
