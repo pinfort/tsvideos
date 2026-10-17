@@ -43,7 +43,7 @@ class LibraryHealthScanCommand(
 ) {
     /**
      * Runs one explicit verification. A failed scan is recorded as a FAILED run (shown to clients through
-     * `latestRun`) and logged here, so callers only see [HealthScanAlreadyRunning]; [Error]s are rethrown
+     * `latestRun`) and logged here, so callers only see [HealthScanAlreadyRunning]; an [Error] is rethrown
      * after the run is released.
      */
     fun scan() {
@@ -55,11 +55,14 @@ class LibraryHealthScanCommand(
             }
         try {
             store.complete(id, checkNotNull(verifier.verify()) { "Verification returned no report" })
-        } catch (e: Throwable) {
+        } catch (e: Exception) {
             logger.error("Library health verification run {} failed", id, e)
             releaseAsFailed(id, e)
             if (e is InterruptedException) Thread.currentThread().interrupt()
-            if (e !is Exception) throw e
+        } catch (e: Error) {
+            logger.error("Library health verification run {} failed", id, e)
+            releaseAsFailed(id, e)
+            throw e
         }
     }
 

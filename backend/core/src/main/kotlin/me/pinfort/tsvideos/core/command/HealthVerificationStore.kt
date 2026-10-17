@@ -41,7 +41,7 @@ class HealthVerificationStore(
                         LocalDateTime.ofInstant(it.checkedAt, ZoneOffset.UTC),
                         it.expectedBytes,
                         it.actualBytes,
-                        it.reason,
+                        it.reason?.let(::truncateReason),
                     )
                 }
             check(mapper.insertFindings(runId, rows) == rows.size)
@@ -56,8 +56,28 @@ class HealthVerificationStore(
         }
     }
 
-    private companion object {
-        const val INSERT_CHUNK = 500
-        val logger = LoggerFactory.getLogger(HealthVerificationStore::class.java)
+    /**
+     * Marks every RUNNING run FAILED with [INTERRUPTED]. Only safe when no other process can own a live scan, i.e.
+     * at startup of the single manager:api instance that creates runs.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun failAbandoned(): Int = mapper.failAllRunning(LocalDateTime.now(ZoneOffset.UTC), INTERRUPTED)
+
+    companion object {
+        const val INTERRUPTED = "INTERRUPTED"
+
+        /** `health_verification_finding.reason` is VARCHAR(255); a longer verifier message must not fail the run. */
+        const val REASON_MAX_CHARS = 255
+
+        private const val INSERT_CHUNK = 500
+        private val logger = LoggerFactory.getLogger(HealthVerificationStore::class.java)
+
+        /** Truncates by code point so a surrogate pair is never split. */
+        internal fun truncateReason(reason: String): String =
+            if (reason.codePointCount(0, reason.length) <= REASON_MAX_CHARS) {
+                reason
+            } else {
+                reason.substring(0, reason.offsetByCodePoints(0, REASON_MAX_CHARS - 1)) + "…"
+            }
     }
 }

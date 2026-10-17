@@ -80,4 +80,15 @@ interface LibraryHealthMapper {
         completedAt: LocalDateTime,
         failureCode: String?,
     ): Int
+
+    @Update(
+        """
+        UPDATE health_verification_run SET state='FAILED',completed_at=#{completedAt},failure_code=#{failureCode},active_marker=NULL
+        WHERE state='RUNNING'
+    """,
+    )
+    fun failAllRunning(
+        completedAt: LocalDateTime,
+        failureCode: String,
+    ): Int
 }

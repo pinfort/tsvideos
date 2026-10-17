@@ -25,6 +25,9 @@ class LibraryHealthController(
             scanner.scan()
             health.read()
         } catch (_: HealthScanAlreadyRunning) {
-            throw ResponseStatusException(HttpStatus.CONFLICT, "Verification is already running")
+            throw ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Verification is already running; if no scan is active, see backend/docs/library-health.md to recover",
+            )
         }
 }

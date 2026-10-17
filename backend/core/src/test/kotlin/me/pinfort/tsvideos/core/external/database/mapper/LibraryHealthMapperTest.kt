@@ -129,10 +129,15 @@ class LibraryHealthMapperTest : ExpectSpec() {
                 VerificationReport(
                     listOf(
                         FileFinding(1, 1, "a", VerificationStatus.VERIFIED, Instant.now(), 1, 1, null),
-                        FileFinding(1, 2, "b", VerificationStatus.UNCHECKED, Instant.now(), 1, null, "x".repeat(300)),
+                        FileFinding(1, 2, "boom", VerificationStatus.UNCHECKED, Instant.now(), 1, null, null),
                     ),
                 )
-            LibraryHealthScanCommand(store, verifier).scan()
+            sql(listOf("ALTER TABLE health_verification_finding ADD CONSTRAINT test_reject_boom CHECK (file <> 'boom')"))
+            try {
+                LibraryHealthScanCommand(store, verifier).scan()
+            } finally {
+                sql(listOf("ALTER TABLE health_verification_finding DROP CONSTRAINT test_reject_boom"))
+            }
             val result = health.read()
             result.latestRun?.state shouldBe HealthRun.State.FAILED
             mapper.findings(result.latestRun.shouldNotBeNull().id) shouldBe emptyList()
@@ -150,6 +155,48 @@ class LibraryHealthMapperTest : ExpectSpec() {
             result.findings.map { it.finding.fileId } shouldBe List(1201) { it.toLong() }
             result.findings.all { it.programName == "a" && !it.programRemoved } shouldBe true
             result.summary?.get(VerificationStatus.VERIFIED) shouldBe 1201
+        }
+        expect("an over-long reason is truncated instead of failing the run") {
+            val id = store.start()
+            val reason = "😀".repeat(300)
+            store.complete(
+                id,
+                VerificationReport(listOf(FileFinding(1, 1, "a", VerificationStatus.INACCESSIBLE, Instant.now(), 1, null, reason))),
+            )
+            health.read().latestRun?.state shouldBe HealthRun.State.COMPLETED
+            val saved =
+                mapper
+                    .findings(id)
+                    .single()
+                    .reason
+                    .shouldNotBeNull()
+            saved.codePointCount(0, saved.length) shouldBe HealthVerificationStore.REASON_MAX_CHARS
+            saved.endsWith("…") shouldBe true
+        }
+        expect("exactly one full insert chunk and one row past it are saved") {
+            listOf(500, 501).forEach { count ->
+                val id = store.start()
+                store.complete(
+                    id,
+                    VerificationReport(
+                        List(count) { FileFinding(1, it.toLong(), "f$it", VerificationStatus.VERIFIED, Instant.now(), 1, 1, null) },
+                    ),
+                )
+                mapper.findings(id).size shouldBe count
+            }
+        }
+        expect("startup reconciliation releases an abandoned RUNNING claim and keeps completed runs") {
+            val old = store.start()
+            store.complete(old, VerificationReport(emptyList()))
+            val abandoned = store.start()
+            store.failAbandoned() shouldBe 1
+            val result = health.read()
+            result.latestRun?.id shouldBe abandoned
+            result.latestRun?.state shouldBe HealthRun.State.FAILED
+            result.latestRun?.failureCode shouldBe HealthVerificationStore.INTERRUPTED
+            result.lastCompletedRun?.id shouldBe old
+            store.failAbandoned() shouldBe 0
+            store.start()
         }
         expect("concurrent scan claims have one winner and do not automatically reclaim a running scan") {
             val pool = Executors.newFixedThreadPool(2)
