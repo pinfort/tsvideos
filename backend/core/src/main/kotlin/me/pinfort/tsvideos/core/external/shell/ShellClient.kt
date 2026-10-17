@@ -132,9 +132,9 @@ class ShellClient {
         waitBriefly(children, CHILD_TERMINATE_GRACE_MILLIS)
         children.filter { it.isAlive }.forEach { it.destroyForcibly() }
         // Give the direct parent a chance to reap its children before terminating it.
-        waitBriefly(handles, 200)
+        waitBriefly(handles, PARENT_REAP_GRACE_MILLIS)
         if (parent.isAlive) parent.destroy()
-        waitBriefly(listOf(parent), 100)
+        waitBriefly(listOf(parent), PARENT_TERMINATE_GRACE_MILLIS)
         if (parent.isAlive) parent.destroyForcibly()
         return interrupted
     }
@@ -145,6 +145,8 @@ class ShellClient {
         const val LATE_POLL_MILLIS = 250L
         const val DRAIN_GRACE_SECONDS = 5L
         const val CHILD_TERMINATE_GRACE_MILLIS = 1000L
+        const val PARENT_REAP_GRACE_MILLIS = 200L
+        const val PARENT_TERMINATE_GRACE_MILLIS = 500L
         val DRAIN_THREADS = ThreadFactory { runnable -> Thread(runnable, "shell-stream").apply { isDaemon = true } }
     }
 }

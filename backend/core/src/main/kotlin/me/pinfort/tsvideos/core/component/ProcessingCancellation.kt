@@ -8,6 +8,8 @@ import java.util.concurrent.TimeUnit
 @Component
 class ProcessingCancellation {
     @Volatile private var stopping = false
+
+    // TODO(#69): parallel workers need a set of owners and a stop signal that does not rely on one thread's flag.
     private var owner: Thread? = null
     private val stopped = CountDownLatch(1)
 
