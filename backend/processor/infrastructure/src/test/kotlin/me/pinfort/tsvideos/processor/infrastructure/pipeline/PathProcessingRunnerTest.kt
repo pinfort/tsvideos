@@ -31,12 +31,12 @@ class PathProcessingRunnerTest :
             val dir = Files.createTempDirectory("interrupt-path").toFile()
             val first = File(dir, "a.m2ts").apply { writeText("a") }
             val second = File(dir, "b.m2ts").apply { writeText("b") }
-            every { fileProcessingPipeline.processFile(any(), any(), any(), any(), any()) } throws InterruptedException()
+            every { fileProcessingPipeline.processFile(any(), any(), any(), any(), any(), any()) } throws InterruptedException()
             try {
                 io.kotest.assertions.throwables
                     .shouldThrow<InterruptedException> { pathProcessingRunner.processPath(dir.toPath()) }
-                verify(exactly = 1) { fileProcessingPipeline.processFile(first, any(), any(), any(), any()) }
-                verify(exactly = 0) { fileProcessingPipeline.processFile(second, any(), any(), any(), any()) }
+                verify(exactly = 1) { fileProcessingPipeline.processFile(first, any(), any(), any(), any(), any()) }
+                verify(exactly = 0) { fileProcessingPipeline.processFile(second, any(), any(), any(), any(), any()) }
                 verify(exactly = 0) { slackClient.notify(any()) }
             } finally {
                 first.delete()
