@@ -8,7 +8,7 @@ import java.time.ZoneOffset
 
 data class HealthRunDto(
     val id: Long,
-    val state: String,
+    val state: HealthRun.State,
     val startedAt: LocalDateTime,
     val completedAt: LocalDateTime?,
     val failureCode: String?,

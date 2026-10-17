@@ -5,17 +5,23 @@ import java.time.Instant
 data class HealthProgram(
     val id: Long,
     val name: String,
-    val status: String,
+    val status: Program.Status,
     val drops: Int?,
 )
 
 data class HealthRun(
     val id: Long,
-    val state: String,
+    val state: State,
     val startedAt: Instant,
     val completedAt: Instant?,
     val failureCode: String?,
-)
+) {
+    enum class State {
+        RUNNING,
+        COMPLETED,
+        FAILED,
+    }
+}
 
 data class HealthFinding(
     val finding: FileFinding,

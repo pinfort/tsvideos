@@ -18,15 +18,13 @@ class LibraryHealthController(
     @GetMapping("/api/v1/health/library")
     fun get(): LibraryHealth = health.read()
 
+    /** A failed scan still returns 200; the body's `latestRun.state` is FAILED. */
     @PostMapping("/api/v1/health/library/verify")
-    fun verify(): LibraryHealth {
+    fun verify(): LibraryHealth =
         try {
             scanner.scan()
-        } catch (
-            _: HealthScanAlreadyRunning,
-        ) {
+            health.read()
+        } catch (_: HealthScanAlreadyRunning) {
             throw ResponseStatusException(HttpStatus.CONFLICT, "Verification is already running")
         }
-        return health.read()
-    }
 }

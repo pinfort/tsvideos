@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
 import me.pinfort.tsvideos.core.domain.HealthProgram
+import me.pinfort.tsvideos.core.domain.HealthRun
 import me.pinfort.tsvideos.core.external.database.dto.HealthFindingDto
 import me.pinfort.tsvideos.core.external.database.dto.HealthRunDto
 import org.apache.ibatis.annotations.Insert
@@ -54,7 +55,7 @@ interface LibraryHealthMapper {
     )
     fun finish(
         runId: Long,
-        state: String,
+        state: HealthRun.State,
         completedAt: LocalDateTime,
         failureCode: String?,
     ): Int

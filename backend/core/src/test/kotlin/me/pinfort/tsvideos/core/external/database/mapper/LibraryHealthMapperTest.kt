@@ -4,6 +4,7 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
@@ -14,6 +15,7 @@ import me.pinfort.tsvideos.core.command.LibraryHealthCommand
 import me.pinfort.tsvideos.core.command.LibraryHealthScanCommand
 import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
 import me.pinfort.tsvideos.core.domain.FileFinding
+import me.pinfort.tsvideos.core.domain.HealthRun
 import me.pinfort.tsvideos.core.domain.VerificationReport
 import me.pinfort.tsvideos.core.domain.VerificationStatus
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
@@ -94,13 +96,13 @@ class LibraryHealthMapperTest : ExpectSpec() {
             store.complete(old, VerificationReport(emptyList()))
             val verifier = mockk<LibraryVerificationCommand>()
             every { verifier.verify() } answers {
-                health.read().latestRun?.state shouldBe "RUNNING"
+                health.read().latestRun?.state shouldBe HealthRun.State.RUNNING
                 health.read().lastCompletedRun?.id shouldBe old
                 throw IllegalStateException("password=secret")
             }
             LibraryHealthScanCommand(store, verifier).scan()
             val result = health.read()
-            result.latestRun?.state shouldBe "FAILED"
+            result.latestRun?.state shouldBe HealthRun.State.FAILED
             result.latestRun?.failureCode shouldBe "VERIFICATION_FAILED"
             result.lastCompletedRun?.id shouldBe old
             result.summary shouldBe VerificationStatus.entries.associateWith { 0 }
@@ -115,7 +117,7 @@ class LibraryHealthMapperTest : ExpectSpec() {
                     ),
                 )
             LibraryHealthScanCommand(store, verifier).scan()
-            health.read().latestRun?.state shouldBe "COMPLETED"
+            health.read().latestRun?.state shouldBe HealthRun.State.COMPLETED
             health.read().summary?.get(VerificationStatus.MISSING) shouldBe 1
             health.read().summary?.get(VerificationStatus.INACCESSIBLE) shouldBe 1
         }
@@ -132,8 +134,8 @@ class LibraryHealthMapperTest : ExpectSpec() {
                 )
             LibraryHealthScanCommand(store, verifier).scan()
             val result = health.read()
-            result.latestRun?.state shouldBe "FAILED"
-            mapper.findings(result.latestRun!!.id) shouldBe emptyList()
+            result.latestRun?.state shouldBe HealthRun.State.FAILED
+            mapper.findings(result.latestRun.shouldNotBeNull().id) shouldBe emptyList()
             result.lastCompletedRun?.id shouldBe old
         }
         expect("concurrent scan claims have one winner and do not automatically reclaim a running scan") {
@@ -145,7 +147,7 @@ class LibraryHealthMapperTest : ExpectSpec() {
                 val verifier = mockk<LibraryVerificationCommand>()
                 shouldThrow<HealthScanAlreadyRunning> { LibraryHealthScanCommand(store, verifier).scan() }
                 verify(exactly = 0) { verifier.verify() }
-                health.read().latestRun?.state shouldBe "RUNNING"
+                health.read().latestRun?.state shouldBe HealthRun.State.RUNNING
             } finally {
                 pool.shutdownNow()
             }
