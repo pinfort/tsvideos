@@ -40,9 +40,16 @@ class ShellClient {
                 .redirectError(redirect)
                 .start()
         val owned = linkedSetOf<ProcessHandle>()
-        val drains = Executors.newFixedThreadPool(2) { runnable -> Thread(runnable, "shell-stream").apply { isDaemon = true } }
-        val stdout = if (capture) drains.submit<String> { process.inputStream.bufferedReader().readText() } else null
-        val stderr = if (capture) drains.submit<String> { process.errorStream.bufferedReader().readText() } else null
+        val drains =
+            if (capture) {
+                Executors.newFixedThreadPool(
+                    2,
+                ) { runnable -> Thread(runnable, "shell-stream").apply { isDaemon = true } }
+            } else {
+                null
+            }
+        val stdout = drains?.submit<String> { process.inputStream.bufferedReader().readText() }
+        val stderr = drains?.submit<String> { process.errorStream.bufferedReader().readText() }
         var exitedNormally = false
         val started = System.nanoTime()
         val deadline = started + TimeUnit.SECONDS.toNanos(timeoutSec)
@@ -68,16 +75,16 @@ class ShellClient {
             // Reap owned descendants only when the command did not finish on its own (timeout, interruption or a
             // pipe-holding descendant). After a normal exit a surviving child was detached on purpose (launchers,
             // daemonizing clients) and is left alone, as before cooperative cancellation.
-            val interrupted = Thread.interrupted()
+            var interrupted = Thread.interrupted()
             try {
                 if (!exitedNormally) {
                     process.descendants().use { children -> children.forEach { owned.add(it) } }
-                    terminate(owned.toList().asReversed() + process.toHandle())
+                    if (terminate(owned.toList().asReversed() + process.toHandle())) interrupted = true
                 }
             } finally {
                 stdout?.cancel(true)
                 stderr?.cancel(true)
-                drains.shutdownNow()
+                drains?.shutdownNow()
                 if (interrupted) Thread.currentThread().interrupt()
             }
         }
@@ -99,9 +106,14 @@ class ShellClient {
             throw failure.cause ?: failure
         }
 
-    private fun terminate(handles: List<ProcessHandle>) {
+    /**
+     * @return whether another interrupt (e.g. a repeated stop request) arrived meanwhile. It is absorbed so that
+     * parking keeps waiting instead of spinning, which keeps each graceful window intact, and reported for restoring.
+     */
+    private fun terminate(handles: List<ProcessHandle>): Boolean {
         val children = handles.dropLast(1)
         val parent = handles.last()
+        var interrupted = false
 
         fun waitBriefly(
             targets: List<ProcessHandle>,
@@ -109,6 +121,7 @@ class ShellClient {
         ) {
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(millis)
             while (targets.any { it.isAlive } && System.nanoTime() < deadline) {
+                if (Thread.interrupted()) interrupted = true
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10))
             }
         }
@@ -120,6 +133,7 @@ class ShellClient {
         if (parent.isAlive) parent.destroy()
         waitBriefly(listOf(parent), 100)
         if (parent.isAlive) parent.destroyForcibly()
+        return interrupted
     }
 
     private companion object {

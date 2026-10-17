@@ -18,14 +18,18 @@ class ConsoleRunner(
     private val processor: TsVideosProcessor,
     private val cancellation: ProcessingCancellation,
     private val context: ConfigurableApplicationContext,
-    @Value("\${processor.shutdown.grace-seconds:30}") private val graceSeconds: Long,
+    @Value("\${processor.shutdown.grace-seconds:30}") graceSeconds: Long,
 ) : CommandLineRunner {
+    // Built with the bean so an out-of-range grace fails context startup rather than the first run.
+    private val shutdown = ProcessorShutdown(cancellation, graceSeconds) { context.close() }
+
     override fun run(vararg args: String) {
-        val shutdown = ProcessorShutdown(cancellation, graceSeconds) { context.close() }
         val hook = Thread({ shutdown.stop() }, "processor-shutdown")
         Runtime.getRuntime().addShutdownHook(hook)
         try {
             cancellation.runOwned { processor.parseProcessor(DiagnosticEnvironment.commandArguments(args.toList().toTypedArray())) }
+            // A normal return needs no stop; main closes the context itself.
+            removeHook(hook)
         } catch (error: InterruptedException) {
             exitProcess(130)
         } catch (error: CliktError) {
@@ -34,6 +38,14 @@ class ConsoleRunner(
         } catch (error: Exception) {
             if (ProcessingCancellation.isInterrupted(error)) exitProcess(130)
             throw error
+        }
+    }
+
+    private fun removeHook(hook: Thread) {
+        try {
+            Runtime.getRuntime().removeShutdownHook(hook)
+        } catch (_: IllegalStateException) {
+            // The JVM is already shutting down; the hook is running or about to.
         }
     }
 }
