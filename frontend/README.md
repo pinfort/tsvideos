@@ -1,80 +1,83 @@
-This is the frontend for tsvideos, built with [Next.js](https://nextjs.org).
+これは tsvideos のフロントエンドで、[Next.js](https://nextjs.org) で構築されている。
 
-## Getting Started
+## はじめに
 
-Install dependencies and run the development server:
+依存関係をインストールし、開発サーバーを起動する:
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ブラウザで [http://localhost:3000](http://localhost:3000) を開くと結果を確認できる。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`app/page.tsx` を編集するとページを変更できる。ファイルを編集すると、ページは自動的に更新される。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+このプロジェクトは [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) を使い、Vercel の新しいフォントファミリーである [Geist](https://vercel.com/font) を自動的に最適化して読み込む。
 
-## Configuration
+## 設定
 
-`NEXT_PUBLIC_API_BASE_URL` — base URL of the `manager:api` backend. Defaults to `http://localhost:8080` if unset, so no `.env` file is needed to run against a locally running backend on its default port. This must be a browser-reachable URL, since the video playback/download page fetches video bytes directly from the backend rather than through the Next.js server.
+`NEXT_PUBLIC_API_BASE_URL` — `manager:api` バックエンドのベース URL。未設定の場合は `http://localhost:8080` が既定となるため、既定のポートで動作しているローカルのバックエンドに対して実行するのに `.env` ファイルは不要。動画の再生/ダウンロードのページは、Next.js のサーバーを経由せずバックエンドから直接動画のバイト列を取得するため、これはブラウザから到達可能な URL でなければならない。
 
-## Recording search
+## 録画の検索
 
-The home page combines a literal name substring, exact channel ID, local
-recording timestamps, processing status, drop-count bounds and available file
-type. All fields are optional. The end timestamp is exclusive; for a whole day
-choose the next midnight. Timestamps use the recording environment's local
-time without timezone conversion. Numeric drop filters exclude unknown drops.
-TS/encoded availability uses `FILE_MOVED` file metadata, not a live NAS check;
-encoded means `video/*` except `video/vnd.dlna.mpeg-tts`.
+ホームページでは、名前のリテラルの部分文字列、正確なチャンネル ID、ローカルの録画日時、
+処理ステータス、ドロップ数の上下限、利用可能なファイル種別を組み合わせて検索する。
+すべての項目は任意。終了日時は含まれない。1 日全体を指定するには翌日の
+0 時を選ぶ。日時は、タイムゾーン変換なしの録画環境のローカル時刻を使う。
+ドロップ数の数値フィルタは、不明なドロップ数を除外する。
+TS/エンコード済みの有無は、NAS の実際のチェックではなく `FILE_MOVED` のファイルメタデータを使う。
+エンコード済みとは、`video/vnd.dlna.mpeg-tts` を除く `video/*` を指す。
 
-Sorting supports recording time, original duration and original byte size in
-either direction, with a stable program-ID tie-break. Search defaults to 10
-items per page. Filters, sorting and page size are kept in the URL and restored
-on reload; submitting the form resets the offset to zero. Invalid conditions
-show an editable error instead of silently changing the query. Empty results
-and service failures have separate messages.
+並べ替えは、録画日時、元の長さ、元のバイトサイズを昇順・降順のどちらでも指定でき、
+同点は program ID で安定して解消される。検索は既定で 1 ページ 10 件。
+フィルタ、並べ替え、ページサイズは URL に保持され、再読み込み時に復元される。フォームを送信すると
+オフセットは 0 に戻る。不正な条件は、黙ってクエリを変更せず、編集可能なエラーを
+表示する。結果が空の場合とサービスの失敗の場合には、それぞれ別のメッセージを表示する。
 
-`GET /api/v1/programs` accepts `name`, `channel`, `recordedFrom`, `recordedTo`,
-`status`, `minDrops`, `maxDrops`, `fileType`, `sort`, `direction`, `limit`, and
-`offset`, and returns `{ programs, total, limit, offset }`. Enum values are
-uppercase: `REGISTERED|COMPLETED|ERROR`, `TS|ENCODED`,
-`RECORDED_AT|DURATION|SIZE`, `ASC|DESC`. The API defaults to limit 100, offset 0,
-recorded-time descending; limit must be 1–500. Invalid values or reversed
-bounds return HTTP 400. Existing name-only queries still work. Query semantics
-are shared with the manager CLI's `ProgramSearchQuery` in core.
+`GET /api/v1/programs` は `name`、`channel`、`recordedFrom`、`recordedTo`、
+`status`、`minDrops`、`maxDrops`、`fileType`、`sort`、`direction`、`limit`、`offset` を受け付け、
+`{ programs, total, limit, offset }` を返す。列挙値は
+大文字: `REGISTERED|COMPLETED|ERROR`、`TS|ENCODED`、
+`RECORDED_AT|DURATION|SIZE`、`ASC|DESC`。API の既定は limit 100、offset 0、
+録画日時の降順で、limit は 1〜500 でなければならない。不正な値や
+逆転した範囲は HTTP 400 を返す。名前のみの既存のクエリも引き続き動作する。クエリの
+セマンティクスは、core の manager CLI の `ProgramSearchQuery` と共通である。
 
-## Scripts
+## スクリプト
 
-- `pnpm dev` - start the development server
-- `pnpm build` - build for production
-- `pnpm start` - run the production build
-- `pnpm lint` - run ESLint
-- `pnpm typecheck` - run TypeScript type checking
-- `pnpm test` - run the test suite
-- `pnpm test:watch` - run the test suite in watch mode
-- `pnpm coverage` - run the test suite with coverage report
+- `pnpm dev` - 開発サーバーを起動する
+- `pnpm build` - 本番用にビルドする
+- `pnpm start` - 本番ビルドを実行する
+- `pnpm lint` - ESLint を実行する
+- `pnpm typecheck` - TypeScript の型チェックを実行する
+- `pnpm test` - テストスイートを実行する
+- `pnpm test:watch` - テストスイートをウォッチモードで実行する
+- `pnpm coverage` - カバレッジレポート付きでテストスイートを実行する
 
-## Learn More
+## さらに学ぶ
 
-To learn more about Next.js, take a look at the following resources:
+Next.js について詳しく知るには、次のリソースを参照:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- [Next.js Documentation](https://nextjs.org/docs) - Next.js の機能と API について学ぶ。
+- [Learn Next.js](https://nextjs.org/learn) - インタラクティブな Next.js のチュートリアル。
 
-The `/duplicates` page compares the existing CLI duplicate groups and recommendation order. Selection starts empty, and a warning appears while every member of a group is selected (nothing of that broadcast would be kept); cleanup uses the same server actions and preview/confirmation UI as bulk library management. Saved failure results remain visible even when refreshing removes the last duplicate group. FILE_MOVED file listings are metadata, not a new NAS verification.
+`/duplicates` ページは、既存の CLI の重複グループと推奨順を比較する。選択は空の状態から始まり、グループのすべてのメンバーが選択されている間は警告が表示される (その放送のものが何も残らないため)。クリーンアップは、一括ライブラリ管理と同じ server action とプレビュー/確認の UI を使う。保存された失敗結果は、更新によって最後の重複グループが消えても表示され続ける。FILE_MOVED のファイル一覧はメタデータであり、新たな NAS の検証ではない。
 
-The `/storage` page shows registered original TS/encoded/other storage, the largest recordings and duplicate cleanup candidates. It uses the read-only `/api/v1/storage` endpoint and links to recording details; no deletion action is offered. Physical usage and actual reclaimable capacity remain unknown until verified. Pending metadata and excluded shared paths are labeled explicitly.
+`/storage` ページは、登録済みの元の TS/エンコード済み/その他のストレージ、最大の録画、重複クリーンアップの候補を表示する。読み取り専用の `/api/v1/storage` エンドポイントを使い、録画の詳細へのリンクを持つ。削除の操作は提供しない。物理的な使用量と実際に解放可能な容量は、検証されるまで不明のままである。保留中のメタデータと除外された共有パスは明示的にラベル付けされる。
 
-## Browser-local playback history
+## ブラウザローカルの再生履歴
 
-The responsive player supports 0.5–2× speed and a restart button. Position is stored per video in this browser's localStorage (`tsvideos.playback.v1`), at most every five seconds during playback and on pause, seek, page hide, or navigation. No account/server storage or cross-device synchronization is used. Up to 50 unfinished videos are kept; clearing browser data removes this history. Disabled or malformed storage does not prevent playback.
+レスポンシブなプレーヤーは、0.5〜2 倍の速度と、最初から再生するボタンをサポートする。再生位置は
+動画ごとにこのブラウザの localStorage (`tsvideos.playback.v1`) に保存され、再生中は最大 5 秒に 1 回、
+および一時停止・シーク・ページを隠したとき・ページ遷移時に保存される。アカウントやサーバー側のストレージ、
+端末間の同期は使わない。未視聴の動画は最大 50 件まで保持され、ブラウザのデータを消去するとこの履歴も消える。
+ストレージが無効または不正でも、再生は妨げられない。
 
-A video is complete at 95% or within its final 10 seconds; completed and restarted entries are removed. Saved positions beyond a newly shortened duration restart at zero. The home page offers continue-watching links, checks known program/file metadata, distinguishes deleted files from unavailable checks, and allows history removal. Direct video links without program metadata remain usable and are labeled unchecked. Media bytes still stream directly from the configured backend URL.
+動画は、95% に達したとき、または最後の 10 秒以内で完了とみなされ、完了した項目と最初から再生した項目は削除される。新しく短くなった長さを超える保存済みの位置は 0 から再開する。ホームページには続きから見るリンクがあり、既知の program/ファイルのメタデータを確認して、削除されたファイルと確認できなかった場合を区別し、履歴を削除できる。program のメタデータがない動画への直接リンクも引き続き利用でき、未確認とラベル付けされる。動画のバイト列は、引き続き設定されたバックエンドの URL から直接ストリーミングされる。
 
-Continue-watching metadata checks use a same-origin Next.js route to avoid requiring cross-origin browser API access. Only program/file JSON is proxied; media streaming remains direct. API failures remain unchecked, while confirmed HTTP 404 means removed. The route (`/api/playback/programs/[id]`) returns only each video file's `id`, `mp4` and `status`, is unauthenticated like the backend it proxies, and each program is checked once per page load (a failed check is retried only after reload).
+続きから見る項目のメタデータ確認は、ブラウザからのクロスオリジンの API アクセスを必要としないよう、同一オリジンの Next.js のルートを使う。プロキシされるのは program/ファイルの JSON のみで、動画のストリーミングは直接のまま。API の失敗は未確認のままとなり、HTTP 404 が確認できた場合のみ削除済みとなる。このルート (`/api/playback/programs/[id]`) が返すのは各動画ファイルの `id`、`mp4`、`status` のみで、プロキシ先のバックエンドと同様に認証はなく、各 program はページの読み込みごとに 1 回確認される (失敗した確認は再読み込み後にのみ再試行される)。
 
-The `title` and `programId` query parameters on `/video/[id]/view` are not verified against the backend; a hand-crafted link can store a misleading title or program in local history (display only, React-escaped, capped at 300 characters).
+`/video/[id]/view` の `title` と `programId` のクエリパラメータはバックエンドで検証されない。手で作ったリンクにより、誤解を招くタイトルや program がローカルの履歴に保存される可能性がある (表示のみで、React によりエスケープされ、300 文字に制限される)。
 
-History writes are read-modify-write on one localStorage key without locking, so two tabs saving different videos at the same instant can drop one update.
+履歴の書き込みは、ロックなしで 1 つの localStorage キーを読み取り・変更・書き込みするため、2 つのタブが同時に別の動画を保存すると、一方の更新が失われることがある。
