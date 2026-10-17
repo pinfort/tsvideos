@@ -48,6 +48,7 @@ class CleanupPlanCli(
     override fun run() =
         cleanupErrors {
             if (duplicates == (before != null)) throw UsageError("Choose --duplicates OR an explicit --recorded-before cutoff")
+            if (before != null && keep.isNotEmpty()) throw UsageError("--keep applies only to --duplicates")
             val criteria = CleanupCriteria(if (duplicates) CleanupMode.DUPLICATES else CleanupMode.RETENTION, before, channel, keep)
             echo(CleanupPlanJson.write(command.plan(criteria)))
         }
@@ -69,11 +70,13 @@ class CleanupApplyCli(
             if (!dryRun && !yes) throw UsageError("Review the plan, then use --yes to apply it (or --dry-run to validate)")
             val path = Path.of(file)
             if (!Files.isRegularFile(path)) throw CliktError("Plan file not found", statusCode = 3)
-            require(Files.size(path) <= 4 * 1024 * 1024) { "Plan file too large" }
+            if (Files.size(path) > MAX_PLAN_FILE_BYTES) throw UsageError("Plan file too large (maximum 4 MiB)")
+            // Read outside the parse catch so I/O failures stay operational errors (exit 1), not "invalid JSON".
+            val text = Files.readString(path)
             val plan =
                 try {
-                    CleanupPlanJson.read(Files.readString(path))
-                } catch (_: Exception) {
+                    CleanupPlanJson.read(text)
+                } catch (_: RuntimeException) {
                     throw UsageError("Invalid cleanup plan JSON")
                 }
             val result =
@@ -88,6 +91,8 @@ class CleanupApplyCli(
             unresolvedExitCode(result.outcomes)?.let { throw CliktError("Cleanup has unresolved targets", statusCode = it) }
         }
 }
+
+private const val MAX_PLAN_FILE_BYTES = 4L * 1024 * 1024
 
 private fun outcomesJson(
     dryRun: Boolean,

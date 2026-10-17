@@ -44,7 +44,11 @@ class CleanupTest :
         expect("plan requires one explicit mode and preserves repeated keep IDs") {
             val core = mockk<CleanupPlanCommand>()
             every { core.plan(any()) } returns plan
-            for (args in listOf(listOf("plan"), listOf("plan", "--duplicates", "--recorded-before", "2026-01-01T00:00:00"))) {
+            for (args in listOf(
+                listOf("plan"),
+                listOf("plan", "--duplicates", "--recorded-before", "2026-01-01T00:00:00"),
+                listOf("plan", "--recorded-before", "2026-01-01T00:00:00", "--keep", "2"),
+            )) {
                 Cleanup(core).testCleanup(args).statusCode shouldBe 2
             }
             val result = Cleanup(core).testCleanup(listOf("plan", "--duplicates", "--keep", "2", "--keep", "4"))
