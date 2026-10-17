@@ -13,7 +13,7 @@ const criteria: Record<KeepCriterion, string> = {
 };
 function formatDuration(seconds: number) {
   // A failed duration probe is stored as 0, so non-positive means unknown.
-  return seconds <= 0 ? "不明" : `${seconds} 秒`;
+  return seconds <= 0 ? "不明" : `${Math.round(seconds)} 秒`;
 }
 
 export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[] }) {

@@ -37,6 +37,7 @@ export function BulkPrograms({
   const router = useRouter();
   const [selected, setSelected] = useState<number[]>([]);
   const [selectedAction, setAction] = useState<"DELETE" | "MOVE">("DELETE");
+  // deleteOnly callers hide the picker; derive the action so MOVE can never be sent from them.
   const action = deleteOnly ? "DELETE" : selectedAction;
   const [directory, setDirectory] = useState("");
   const [plan, setPlan] = useState<BulkPlan | null>(null);
