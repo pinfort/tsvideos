@@ -5,6 +5,7 @@ import { ApiError } from "@/lib/api/client";
 
 const { getPrograms } = vi.hoisted(() => ({ getPrograms: vi.fn() }));
 vi.mock("@/lib/api/programs", () => ({ getPrograms }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 import HomePage from "./page";
 

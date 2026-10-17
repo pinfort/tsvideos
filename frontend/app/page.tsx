@@ -6,7 +6,7 @@ import {
   type ProgramQueryParams,
 } from "@/lib/program-query";
 import { Pager } from "@/components/pager";
-import { ProgramsTable } from "@/components/programs-table";
+import { BulkPrograms } from "@/components/bulk-programs";
 import { SearchForm } from "@/components/search-form";
 import { getPrograms } from "@/lib/api/programs";
 import { ApiError } from "@/lib/api/client";
@@ -62,7 +62,7 @@ export default async function HomePage({
               {result.programs.length}件表示）
             </p>
             {result.programs.length ? (
-              <ProgramsTable programs={result.programs} />
+              <BulkPrograms key={JSON.stringify(values)} programs={result.programs} />
             ) : (
               <p className="rounded border border-zinc-200 p-6">
                 条件に一致する録画がありません。検索条件やページを変更してください。
