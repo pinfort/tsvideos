@@ -25,13 +25,36 @@ describe("ProgramsTable", () => {
     render(<ProgramsTable programs={[makeProgram()]} />);
 
     expect(screen.getByText("1")).toBeInTheDocument();
-    expect(screen.getByText("Sample Program")).toHaveAttribute("href", "/programs/1");
+    expect(screen.getByText("Sample Program")).toHaveAttribute(
+      "href",
+      "/programs/1",
+    );
     expect(screen.getByText("録画済み")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
   });
 
   it("renders one row per program", () => {
-    render(<ProgramsTable programs={[makeProgram({ id: 1 }), makeProgram({ id: 2, name: "Second" })]} />);
+    render(
+      <ProgramsTable
+        programs={[
+          makeProgram({ id: 1 }),
+          makeProgram({ id: 2, name: "Second" }),
+        ]}
+      />,
+    );
     expect(screen.getAllByRole("row")).toHaveLength(3); // header + 2 data rows
   });
+});
+
+it("disables unselected recordings at the 100 item limit while keeping selected items removable", () => {
+  render(
+    <ProgramsTable
+      programs={[makeProgram({ id: 1 }), makeProgram({ id: 101 })]}
+      selected={Array.from({ length: 100 }, (_, i) => i + 1)}
+      onSelect={() => {}}
+    />,
+  );
+  expect(screen.getByLabelText("録画 1 を選択")).toBeEnabled();
+  expect(screen.getByLabelText("録画 1 を選択")).toBeChecked();
+  expect(screen.getByLabelText("録画 101 を選択")).toBeDisabled();
 });

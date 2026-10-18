@@ -80,3 +80,28 @@ TS/エンコード済みの有無は、NAS の実際のチェックではなく 
 `/video/[id]/view` の `title` と `programId` のクエリパラメータはバックエンドで検証されない。手で作ったリンクにより、誤解を招くタイトルや program がローカルの履歴に保存される可能性がある (表示のみで、React によりエスケープされ、300 文字に制限される)。
 
 履歴の書き込みは、ロックなしで 1 つの localStorage キーを読み取り・変更・書き込みするため、2 つのタブが同時に別の動画を保存すると、一方の更新が失われることがある。
+
+## 共通 UI（shadcn/ui）
+
+検索フォーム・録画一覧・一括操作の確認は、`components/ui/` の Button、Input、Native Select、
+Badge、Table、Alert Dialog を使う。shadcn/ui の公式レジストリから取り込んだソースを
+このリポジトリで保守し、Radix UI がダイアログのフォーカス制御を担う。
+設定は `components.json`（new-york、RSC、Tailwind CSS 4）、クラスの結合は `lib/utils.ts` の `cn` に集約する。
+
+部品を追加するときは `frontend/` で `pnpm dlx shadcn@latest add <component>` を実行する
+（[公式ドキュメント](https://ui.shadcn.com/docs/installation/manual)）。追加後は依存関係・import・差分をレビューし、
+`@/components/ui` と `@/lib/utils` を参照するようにする。既存部品の上書きはローカルの変更を確認してから行う。
+新規部品には同じディレクトリに `*.test.tsx` を追加し、ラベル・ネイティブフォームの値・
+キーボード操作など利用者に見える振る舞いを検証する。検索フォームは Server Component のままとし、
+操作やフォーカス管理が必要な部品だけ Client Component にする。
+
+テーマは `app/globals.css` の意味別 CSS 変数（background、foreground、primary、muted、
+destructive、border、input、ring）と radius で管理する。色を変更するときはライト／ダークの両方を更新する。
+表示モードは OS／ブラウザの `prefers-color-scheme` に従い、ネイティブの入力部品にも `color-scheme` を適用する。
+余白・高さ・角丸・フォーカス表示は各共通部品に集約し、画面ではグリッドやセクションの間隔を指定する。
+一覧は狭い画面では表の内側を横スクロールでき、確認ダイアログは画面内で縦スクロールできる。
+
+一括操作はプレビュー取得後にダイアログを開き、対象・NAS パス・保持する元録画・実行内容を表示する。
+初期フォーカスはキャンセル。Tab はダイアログ内を移動し、キャンセル／Escape で閉じるとプレビューボタンに戻る。
+適用中はキャンセル・Escape・再実行を無効にし、完了後は結果を表示する。検索の GET 送信、選択上限 100 件、
+サーバー側の fingerprint 検証を伴うプレビュー／適用の契約は変更しない。
