@@ -35,12 +35,17 @@ object TransientProcessingFailure {
                     it is SQLNonTransientException ||
                     it is SecurityException ||
                     it is IllegalArgumentException ||
+                    // Deliberately broad: callers attach suppressed cleanup/claim-release failures (and "retry refused"
+                    // markers) to say the durable state is unproven. Any suppressed exception therefore disables retry,
+                    // including ones a library attaches; prefer a missed retry over an unsafe one.
                     it.suppressed.isNotEmpty()
             }
         ) {
             return null
         }
         return when {
+            // A read timeout may arrive after the server applied the operation. That is safe only because callers
+            // re-check that the durable state is unambiguous (never CREATING/FINALIZING) before retrying.
             causes.any { it is SocketTimeoutException || it is ConnectException || it is NoRouteToHostException } -> "NETWORK_UNAVAILABLE"
             causes.any { it is SQLTransientConnectionException } -> "DATABASE_CONNECTION_UNAVAILABLE"
             else -> null

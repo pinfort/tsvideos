@@ -33,3 +33,6 @@ processor-tool:
     port: ${AMATSUKAZE_PORT:32768}
     default-profile: ${AMATSUKAZE_DEFAULT_PROFILE:30fps_light}
     atx-div-profile: ${AMATSUKAZE_ATX_DIV_PROFILE:30fps_light_atx_div}
+
+processor-preflight:
+  space-multiplier: ${PROCESSOR_PREFLIGHT_SPACE_MULTIPLIER:3}

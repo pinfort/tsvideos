@@ -16,6 +16,11 @@ class ProcessingCancellationTest :
             ran shouldBe false
             cancellation.awaitStopped(1) shouldBe true
         }
+        expect("stop without an owner releases the shutdown wait at once") {
+            val cancellation = ProcessingCancellation()
+            cancellation.requestStop()
+            cancellation.awaitStopped(0) shouldBe true
+        }
         expect("one owner only and bounded wait while uncooperative work remains") {
             val cancellation = ProcessingCancellation()
             val entered = CountDownLatch(1)
@@ -44,6 +49,16 @@ class ProcessingCancellationTest :
                 owner.join(5000)
             }
             cancellation.awaitStopped(10) shouldBe true
+        }
+        expect("an interrupt flag alone counts as a stop: only requestStop interrupts the owner (revisit for #69)") {
+            try {
+                Thread.currentThread().interrupt()
+                ProcessingCancellation.isInterrupted(IllegalStateException("unrelated")) shouldBe true
+            } finally {
+                Thread.interrupted()
+            }
+            ProcessingCancellation.isInterrupted(IllegalStateException("unrelated")) shouldBe false
+            ProcessingCancellation.isInterrupted(RuntimeException(InterruptedException())) shouldBe true
         }
         expect("recovery temporarily clears and restores interrupted status") {
             try {

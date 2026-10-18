@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.core.command
 
 import me.pinfort.tsvideos.core.domain.DuplicateGroup
+import me.pinfort.tsvideos.core.domain.DuplicateKeepCriterion
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import org.springframework.stereotype.Component
@@ -15,18 +16,33 @@ class DuplicateProgramCommand(
         // 0.5 以下だと、長時間の録画とそれに含まれる別々の番組がまとめてひとつのグループになりうる
         const val DEFAULT_MIN_OVERLAP_RATIO = 0.8
 
-        // drops が少ない → COMPLETED → 長い → 大きい → 古い id の順に残す
-        private val keepOrder: Comparator<Program> =
-            compareBy<Program> { if (it.drops < 0) Int.MAX_VALUE else it.drops }
-                .thenBy {
-                    when (it.status) {
-                        Program.Status.COMPLETED -> 0
-                        Program.Status.REGISTERED -> 1
-                        Program.Status.ERROR -> 2
-                    }
-                }.thenByDescending { it.duration }
-                .thenByDescending { it.size }
-                .thenBy { it.id }
+        // drops が少ない → COMPLETED → 長い → 大きい → 古い id の順に残す。
+        // keepOrder とレビュー画面の「決め手」はどちらもこの一覧から作るので、順序を変えるときはここだけ直す
+        val keepCriteria: List<Pair<DuplicateKeepCriterion, Comparator<Program>>> =
+            listOf(
+                DuplicateKeepCriterion.DROPS to compareBy { if (it.drops < 0) Int.MAX_VALUE else it.drops },
+                DuplicateKeepCriterion.STATUS to
+                    compareBy {
+                        when (it.status) {
+                            Program.Status.COMPLETED -> 0
+                            Program.Status.REGISTERED -> 1
+                            Program.Status.ERROR -> 2
+                        }
+                    },
+                DuplicateKeepCriterion.DURATION to compareByDescending { it.duration },
+                DuplicateKeepCriterion.SIZE to compareByDescending { it.size },
+                DuplicateKeepCriterion.ID to compareBy { it.id },
+            )
+
+        private val keepOrder: Comparator<Program> = keepCriteria.map { it.second }.reduce { a, b -> a.then(b) }
+
+        /** [winner] が [runnerUp] より先に並んだ最初の基準。id は一意なので通常は ID までに必ず決まる */
+        fun decisiveCriterion(
+            winner: Program,
+            runnerUp: Program,
+        ): DuplicateKeepCriterion =
+            keepCriteria.firstOrNull { (_, order) -> order.compare(winner, runnerUp) != 0 }?.first
+                ?: DuplicateKeepCriterion.ID
     }
 
     // 全件をメモリに載せて判定する。program が数万件規模である前提

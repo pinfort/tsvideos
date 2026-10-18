@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.external.tool
 
+import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.core.external.shell.ShellClient
 import org.slf4j.Logger
@@ -45,11 +46,7 @@ class DurationProbeClient(
                 }
             }
         } catch (e: Exception) {
-            if (me.pinfort.tsvideos.core.component.ProcessingCancellation
-                    .isInterrupted(e)
-            ) {
-                throw e
-            }
+            if (ProcessingCancellation.isInterrupted(e)) throw e
             logger.warn("Failed to probe duration, file=$file", e)
             0.0
         }

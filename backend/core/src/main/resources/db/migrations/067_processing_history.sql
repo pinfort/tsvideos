@@ -1,4 +1,4 @@
--- Apply after 064 and 072. History intentionally has no cascading foreign keys to live jobs/artifacts.
+-- Apply after 064, in filename order. History intentionally has no (cascading) foreign keys to live jobs/artifacts, so it does not depend on 072.
 CREATE TABLE IF NOT EXISTS processing_history_identity (
  job_id BIGINT NOT NULL PRIMARY KEY,
  identity_key CHAR(64) CHARACTER SET ascii NOT NULL,

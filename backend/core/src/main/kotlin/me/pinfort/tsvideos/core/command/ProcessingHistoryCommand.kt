@@ -12,6 +12,7 @@ import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.ProcessingStatus
 import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
 import me.pinfort.tsvideos.core.external.database.mapper.ProcessingHistoryMapper
+import org.slf4j.Logger
 import org.springframework.dao.DataAccessException
 import org.springframework.stereotype.Component
 import org.springframework.transaction.PlatformTransactionManager
@@ -26,6 +27,7 @@ import java.util.concurrent.atomic.AtomicLong
 class ProcessingHistoryCommand(
     private val mapper: ProcessingHistoryMapper,
     transactionManager: PlatformTransactionManager,
+    private val logger: Logger,
     private val cancellation: ProcessingCancellation = ProcessingCancellation(),
 ) {
     private val transaction =
@@ -84,11 +86,10 @@ class ProcessingHistoryCommand(
     ) {
         require(outcome != ProcessingOutcome.ACTIVE)
         require((outcome == ProcessingOutcome.COMPLETED) == (error == null))
-        require(artifact == null || artifact.type in setOf("INPUT", "SPLITTED_FILE", "UPLOAD_MANIFEST", "PROGRAM"))
         transaction.execute {
             val stage = checkNotNull(mapper.stage(stageId)) { "Stage does not exist" }
             check(mapper.lockAttempt(stage.attemptId)?.outcome == ProcessingOutcome.ACTIVE) { "Attempt is not active" }
-            check(mapper.finishStage(stageId, outcome.name, error?.name, artifact?.type, artifact?.id, artifact?.path) == 1) {
+            check(mapper.finishStage(stageId, outcome.name, error?.name, artifact?.type?.name, artifact?.id, artifact?.path) == 1) {
                 "Stage was already finished"
             }
             check(mapper.heartbeat(stage.attemptId) == 1)
@@ -115,17 +116,27 @@ class ProcessingHistoryCommand(
         transaction.execute { check(mapper.heartbeat(attemptId) == 1) { "Attempt is not active" } }
     }
 
-    /** Progress heartbeats are throttled independently from recording timestamps. */
+    /**
+     * Progress heartbeats are throttled independently from recording timestamps. They are best effort:
+     * history is evidence, not authority, so a failed heartbeat must not abort the compress/upload it observes.
+     */
     fun progress(
         attemptId: Long,
         listener: (Long, Long) -> Unit,
+        clock: () -> Long = System::nanoTime,
     ): (Long, Long) -> Unit {
-        val last = AtomicLong(0)
+        val last = AtomicLong(NEVER)
         return { value, total ->
             cancellation.check()
-            val now = System.nanoTime()
+            val now = clock()
             val previous = last.get()
-            if ((previous == 0L || now - previous >= 10_000_000_000L) && last.compareAndSet(previous, now)) heartbeat(attemptId)
+            if ((previous == NEVER || now - previous >= HEARTBEAT_INTERVAL_NANOS) && last.compareAndSet(previous, now)) {
+                try {
+                    heartbeat(attemptId)
+                } catch (e: Exception) {
+                    logger.warn("Recording progress heartbeat of attempt $attemptId failed; continuing", e)
+                }
+            }
             listener(value, total)
         }
     }
@@ -138,42 +149,45 @@ class ProcessingHistoryCommand(
     ): T {
         cancellation.check()
         val event = startStage(attemptId, stage)
-        try {
-            val result = operation()
-            cancellation.check()
-            finishStage(event, ProcessingOutcome.COMPLETED, artifact = artifact(result))
-            return result
-        } catch (failure: Exception) {
+        val result =
             try {
-                val outcome = outcome(failure)
-                val error = classify(failure)
-                ProcessingCancellation.recovery { finishStage(event, outcome, error) }
-            } catch (
-                historyFailure: Exception,
-            ) {
-                failure.addSuppressed(historyFailure)
+                operation().also { cancellation.check() }
+            } catch (failure: Exception) {
+                val code = classify(failure)
+                try {
+                    ProcessingCancellation.recovery { finishStage(event, outcome(code), code) }
+                } catch (historyFailure: Exception) {
+                    failure.addSuppressed(historyFailure)
+                }
+                throw failure
             }
-            throw failure
-        }
+        // The work succeeded, so a failure below is a bookkeeping failure and must not record the stage as FAILED.
+        finishStage(event, ProcessingOutcome.COMPLETED, artifact = artifact(result))
+        return result
     }
 
     fun failed(
         attemptId: Long,
         failure: Exception,
     ) {
-        val outcome = outcome(failure)
-        val error = classify(failure)
-        ProcessingCancellation.recovery { finish(attemptId, outcome, error) }
+        val code = classify(failure)
+        ProcessingCancellation.recovery { finish(attemptId, outcome(code), code) }
     }
 
     fun history(jobId: Long? = null): List<ProcessingAttemptHistory> =
         checkNotNull(
             readTransaction.execute {
                 require(jobId == null || jobId > 0)
-                val identities = mapper.identities().associateBy { it.jobId }
-                mapper.attempts().filter { jobId == null || it.jobId == jobId }.map {
-                    ProcessingAttemptHistory(checkNotNull(identities[it.jobId]), it, mapper.stages(it.id))
-                }
+                val identities = mapper.identities(jobId).associateBy { it.jobId }
+                val attempts = mapper.attempts(jobId)
+                // Chunked so that --all over a large history stays well under max_allowed_packet.
+                val stages =
+                    attempts
+                        .map { it.id }
+                        .chunked(STAGE_CHUNK)
+                        .flatMap { mapper.stagesOf(it) }
+                        .groupBy { it.attemptId }
+                attempts.map { ProcessingAttemptHistory(checkNotNull(identities[it.jobId]), it, stages[it.id].orEmpty()) }
             },
         )
 
@@ -181,10 +195,10 @@ class ProcessingHistoryCommand(
         checkNotNull(
             readTransaction.execute {
                 require(jobId == null || jobId > 0)
-                val identities = mapper.identities().associateBy { it.jobId }
-                val jobs = mapper.liveJobs().associateBy { it.id }
-                val attempts = mapper.attempts().groupBy { it.jobId }
-                (identities.keys + jobs.keys).sorted().filter { jobId == null || jobId == it }.map { id ->
+                val identities = mapper.identities(jobId).associateBy { it.jobId }
+                val jobs = mapper.liveJobs(jobId).associateBy { it.id }
+                val attempts = mapper.attempts(jobId).groupBy { it.jobId }
+                (identities.keys + jobs.keys).sorted().map { id ->
                     val job = jobs[id]
                     val identity = identities[id]
                     val history = attempts[id].orEmpty()
@@ -200,14 +214,8 @@ class ProcessingHistoryCommand(
             },
         )
 
-    private fun outcome(failure: Exception) =
-        if (classify(failure) ==
-            ProcessingErrorCode.INTERRUPTED
-        ) {
-            ProcessingOutcome.INTERRUPTED
-        } else {
-            ProcessingOutcome.FAILED
-        }
+    private fun outcome(code: ProcessingErrorCode) =
+        if (code == ProcessingErrorCode.INTERRUPTED) ProcessingOutcome.INTERRUPTED else ProcessingOutcome.FAILED
 
     private fun classify(failure: Exception): ProcessingErrorCode {
         val causes = generateSequence<Throwable>(failure) { it.cause }.take(16).toList()
@@ -218,5 +226,13 @@ class ProcessingHistoryCommand(
             causes.any { it is IllegalArgumentException } -> ProcessingErrorCode.INVALID_INPUT
             else -> ProcessingErrorCode.OPERATION_FAILED
         }
+    }
+
+    private companion object {
+        const val HEARTBEAT_INTERVAL_NANOS = 10_000_000_000L
+
+        // System.nanoTime() may return any value, including 0, so "no heartbeat yet" needs its own sentinel.
+        const val NEVER = Long.MIN_VALUE
+        const val STAGE_CHUNK = 1000
     }
 }

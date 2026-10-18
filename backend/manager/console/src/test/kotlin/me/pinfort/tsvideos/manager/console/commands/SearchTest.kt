@@ -8,6 +8,7 @@ import io.mockk.mockk
 import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.domain.Program
+import me.pinfort.tsvideos.core.domain.ProgramSearchPage
 import java.time.LocalDateTime
 
 class SearchTest :
@@ -40,7 +41,7 @@ class SearchTest :
 
         context("execute") {
             expect("success") {
-                every { programCommand.selectByName(any(), any(), any()) } returns listOf(dummyProgram)
+                every { programCommand.search(any()) } returns ProgramSearchPage(listOf(dummyProgram), 1, 100, 0)
                 every { programCommand.hasTsFile(any()) } returns true
                 every { terminalTextColorComponent.error(any()) } returns "1\t2023/01/01 00:00:00\tchannelName\t3\ttrue\ttitle"
 

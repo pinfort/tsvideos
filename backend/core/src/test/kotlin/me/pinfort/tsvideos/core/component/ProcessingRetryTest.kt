@@ -6,9 +6,17 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import me.pinfort.tsvideos.core.config.ProcessingRetryConfigurationProperties
+import org.springframework.boot.context.properties.EnableConfigurationProperties
+import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.context.annotation.Import
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.nio.file.AccessDeniedException
+
+/** The processor application registers the same properties through its scan of the core config package. */
+@EnableConfigurationProperties(ProcessingRetryConfigurationProperties::class)
+@Import(ProcessingRetry::class, ProcessingRetryRuntime::class, ProcessingCancellation::class)
+private class RetryContext
 
 class ProcessingRetryTest :
     ExpectSpec({
@@ -128,5 +136,21 @@ class ProcessingRetryTest :
                     maxDelayMillis = 100,
                 )
             }
+        }
+        expect("documented processor-retry properties reach the Spring retry bean") {
+            ApplicationContextRunner()
+                .withUserConfiguration(RetryContext::class.java)
+                .withPropertyValues("processor-retry.max-attempts=1")
+                .run { context ->
+                    context.getBean(ProcessingRetryConfigurationProperties::class.java).maxAttempts shouldBe 1
+                    var calls = 0
+                    shouldThrow<SocketTimeoutException> {
+                        context.getBean(ProcessingRetry::class.java).execute("UPLOAD", { true }) {
+                            calls++
+                            throw SocketTimeoutException()
+                        }
+                    }
+                    calls shouldBe 1
+                }
         }
     })
