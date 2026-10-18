@@ -29,8 +29,11 @@ import org.springframework.boot.testcontainers.context.ImportTestcontainers
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig
 import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionSynchronizationManager
+import org.springframework.transaction.support.TransactionTemplate
 import java.io.File
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -137,8 +140,8 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             val f = fixture()
             try {
                 val scope =
-                    org.springframework.transaction.support.TransactionTemplate(transactions).apply {
-                        propagationBehavior = org.springframework.transaction.TransactionDefinition.PROPAGATION_NOT_SUPPORTED
+                    TransactionTemplate(transactions).apply {
+                        propagationBehavior = TransactionDefinition.PROPAGATION_NOT_SUPPORTED
                     }
                 scope.execute {
                     manifests.find(f.job, ProcessingIdentity.hash("output")) shouldBe null
@@ -439,7 +442,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                     state: String,
                     claimed: Boolean,
                 ) {
-                    org.springframework.transaction.support.TransactionSynchronizationManager
+                    TransactionSynchronizationManager
                         .isActualTransactionActive() shouldBe false
                     dataSource.connection.use { connection ->
                         connection.autoCommit = true

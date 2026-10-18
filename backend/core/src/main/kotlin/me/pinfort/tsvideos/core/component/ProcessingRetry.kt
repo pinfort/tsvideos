@@ -93,13 +93,12 @@ class ProcessingRetry(
                         attempt < configuration.maxAttempts &&
                         inspect(failure, eligible)
                 if (!allowed) {
-                    logger.warn(
-                        "{} stopped at attempt {}/{} ({})",
-                        operation,
-                        attempt,
-                        configuration.maxAttempts,
-                        reason ?: "NOT_RETRYABLE",
-                    )
+                    // A permanent failure is logged by the caller; only a stopped transient retry deserves a warning.
+                    if (reason == null) {
+                        logger.debug("{} stopped at attempt {}/{} (NOT_RETRYABLE)", operation, attempt, configuration.maxAttempts)
+                    } else {
+                        logger.warn("{} stopped at attempt {}/{} ({})", operation, attempt, configuration.maxAttempts, reason)
+                    }
                     throw failure
                 }
                 cancellation.check()
