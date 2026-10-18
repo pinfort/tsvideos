@@ -2,6 +2,8 @@ package me.pinfort.tsvideos.core.command
 
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.component.ProcessingRetry
+import me.pinfort.tsvideos.core.component.RetryOperation
+import me.pinfort.tsvideos.core.component.RetryRefusedException
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest
@@ -61,7 +63,7 @@ class VerifiedUploadCommand(
         target: String,
         progress: (Long, Long) -> Unit = { _, _ -> },
     ): VerifiedUploadReceipt =
-        retry.execute("UPLOAD", {
+        retry.execute(RetryOperation.UPLOAD, {
             retryEligible(
                 transaction.execute { manifests.find(jobId, ProcessingIdentity.hash(artifact)) },
                 setOf(State.NEW, State.TEMP_VERIFIED, State.FINALIZED, State.REGISTERED) + State.OWNED_TEMPORARY,
@@ -185,7 +187,7 @@ class VerifiedUploadCommand(
                     nas.delete(current.nasType, current.temporaryPath)
                     claimed.transition(State.NEW)
                 } catch (cleanup: Exception) {
-                    cleanup.addSuppressed(IllegalStateException("Owned temporary cleanup failed; retry refused"))
+                    cleanup.addSuppressed(RetryRefusedException("Owned temporary cleanup failed; retry refused"))
                     throw cleanup
                 }
             }
@@ -245,7 +247,7 @@ class VerifiedUploadCommand(
         mime: String?,
         encoding: String?,
     ): CreatedFile =
-        retry.execute("REGISTER_UPLOAD", {
+        retry.execute(RetryOperation.REGISTER_UPLOAD, {
             retryEligible(transaction.execute { manifests.get(receipt.manifestId) }, State.VERIFIED)
         }) {
             registerOnce(receipt, splittedFileId, mime, encoding)
@@ -300,7 +302,7 @@ class VerifiedUploadCommand(
         jobId: Long,
         artifact: String,
     ): VerifiedUploadReceipt =
-        retry.execute("VERIFY_UPLOAD", {
+        retry.execute(RetryOperation.VERIFY_UPLOAD, {
             retryEligible(transaction.execute { manifests.find(jobId, ProcessingIdentity.hash(artifact)) }, setOf(State.REGISTERED))
         }) { verifyRegisteredOnce(jobId, artifact) }
 
@@ -440,7 +442,10 @@ class VerifiedUploadCommand(
                 // A release failure must not hide why the action failed. An interrupted owner still releases.
                 runCatching { ProcessingCancellation.recovery { release(id, token) } }
                     .exceptionOrNull()
-                    ?.let(e::addSuppressed)
+                    ?.let {
+                        e.addSuppressed(it)
+                        e.addSuppressed(RetryRefusedException("Upload claim release unconfirmed; retry refused"))
+                    }
                 throw e
             }
         // Deliberately not swallowed: a caller must not continue as if the claim were free. The completed state is
@@ -450,7 +455,7 @@ class VerifiedUploadCommand(
             try {
                 ProcessingCancellation.recovery { release(id, token) }
             } catch (releaseFailure: Exception) {
-                releaseFailure.addSuppressed(IllegalStateException("Upload claim release unconfirmed; retry refused"))
+                releaseFailure.addSuppressed(RetryRefusedException("Upload claim release unconfirmed; retry refused"))
                 throw releaseFailure
             }
         }

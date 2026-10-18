@@ -7,11 +7,13 @@ import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldStartWith
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.core.component.ProcessingRetry
 import me.pinfort.tsvideos.core.component.ProcessingRetryRuntime
+import me.pinfort.tsvideos.core.component.RetryRefusedException
 import me.pinfort.tsvideos.core.config.ProcessingRetryConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest.State
@@ -280,7 +282,8 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             }
             try {
                 shouldThrow<SocketTimeoutException> { f.upload() } shouldBe primary
-                generateSequence(primary.suppressed.single()) { it.cause }.last() shouldBe release
+                generateSequence(primary.suppressed.first()) { it.cause }.last() shouldBe release
+                primary.suppressed.last().shouldBeInstanceOf<RetryRefusedException>()
                 verify(exactly = 1) { f.nas.transfer(any(), any(), any(), any(), any()) }
                 (f.manifest().claimToken != null) shouldBe true
                 f.source.exists() shouldBe true
@@ -370,6 +373,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.manifest().claimToken shouldBe null
                 f.source.exists() shouldBe true
             } finally {
+                Thread.interrupted()
                 f.source.delete()
             }
         }
@@ -791,7 +795,8 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 val command = VerifiedUploadCommand(failing, f.nas, created, files, transactions)
                 val error = shouldThrow<IllegalStateException> { command.deleteLocal(receipt) }
                 error.message shouldBe "Remote artifact has not been registered"
-                error.suppressed.map { it.message } shouldBe listOf("release failed")
+                error.suppressed.map { it.message } shouldBe
+                    listOf("release failed", "Upload claim release unconfirmed; retry refused")
                 f.source.exists() shouldBe true
             } finally {
                 Thread.interrupted()

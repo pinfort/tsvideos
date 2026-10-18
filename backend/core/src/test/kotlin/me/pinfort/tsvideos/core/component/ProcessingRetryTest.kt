@@ -37,7 +37,7 @@ class ProcessingRetryTest :
         expect("bounded backoff with jitter retries transient eligible operations and returns success") {
             val delays = mutableListOf<Long>()
             var calls = 0
-            retry(4, delays).execute("UPLOAD", { true }) {
+            retry(4, delays).execute(RetryOperation.UPLOAD, { true }) {
                 if (++calls < 4) throw SocketTimeoutException("secret")
                 "done"
             } shouldBe "done"
@@ -49,7 +49,7 @@ class ProcessingRetryTest :
             var calls = 0
             val failure = SocketTimeoutException()
             shouldThrow<SocketTimeoutException> {
-                retry(3, delays).execute("UPLOAD", { true }) {
+                retry(3, delays).execute(RetryOperation.UPLOAD, { true }) {
                     calls++
                     throw failure
                 }
@@ -62,7 +62,7 @@ class ProcessingRetryTest :
                 var calls = 0
                 val delays = mutableListOf<Long>()
                 shouldThrow<Exception> {
-                    retry(3, delays).execute("UPLOAD", { true }) {
+                    retry(3, delays).execute(RetryOperation.UPLOAD, { true }) {
                         calls++
                         throw failure
                     }
@@ -71,7 +71,12 @@ class ProcessingRetryTest :
                 delays.size shouldBe 0
             }
             val delays = mutableListOf<Long>()
-            shouldThrow<SocketTimeoutException> { retry(3, delays).execute("UPLOAD", { false }) { throw SocketTimeoutException() } }
+            shouldThrow<SocketTimeoutException> {
+                retry(
+                    3,
+                    delays,
+                ).execute(RetryOperation.UPLOAD, { false }) { throw SocketTimeoutException() }
+            }
             delays.size shouldBe 0
         }
         expect("backoff cancellation propagates immediately with interrupt flag") {
@@ -79,7 +84,7 @@ class ProcessingRetryTest :
             var calls = 0
             try {
                 shouldThrow<InterruptedException> {
-                    retry(3, delays) { throw InterruptedException() }.execute("UPLOAD", { true }) {
+                    retry(3, delays) { throw InterruptedException() }.execute(RetryOperation.UPLOAD, { true }) {
                         calls++
                         throw SocketTimeoutException()
                     }
@@ -95,7 +100,7 @@ class ProcessingRetryTest :
             val proofFailure = IOException()
             val delays = mutableListOf<Long>()
             shouldThrow<SocketTimeoutException> {
-                retry(3, delays).execute("UPLOAD", { throw proofFailure }) { throw original }
+                retry(3, delays).execute(RetryOperation.UPLOAD, { throw proofFailure }) { throw original }
             } shouldBe original
             original.suppressed.single() shouldBe proofFailure
             delays.size shouldBe 0
@@ -117,7 +122,7 @@ class ProcessingRetryTest :
             var calls = 0
             val failure = SocketTimeoutException()
             shouldThrow<SocketTimeoutException> {
-                retry(3, mutableListOf()).execute("UPLOAD", { ++proofs == 1 }) {
+                retry(3, mutableListOf()).execute(RetryOperation.UPLOAD, { ++proofs == 1 }) {
                     calls++
                     throw failure
                 }
@@ -125,9 +130,11 @@ class ProcessingRetryTest :
             calls shouldBe 1
             proofs shouldBe 2
         }
-        expect("classification is bounded and suppressed recovery failure blocks retry") {
+        expect("classification is bounded and only a retry-refused marker blocks retry") {
             TransientProcessingFailure.reason(IOException("wrapped", SocketTimeoutException())) shouldBe "NETWORK_UNAVAILABLE"
             val timeout = SocketTimeoutException().apply { addSuppressed(IOException("cleanup failed")) }
+            TransientProcessingFailure.reason(timeout) shouldBe "NETWORK_UNAVAILABLE"
+            timeout.addSuppressed(RetryRefusedException("cleanup failed; retry refused"))
             TransientProcessingFailure.reason(timeout) shouldBe null
             shouldThrow<IllegalArgumentException> { ProcessingRetryConfigurationProperties(0) }
             shouldThrow<IllegalArgumentException> {
@@ -145,7 +152,7 @@ class ProcessingRetryTest :
                     context.getBean(ProcessingRetryConfigurationProperties::class.java).maxAttempts shouldBe 1
                     var calls = 0
                     shouldThrow<SocketTimeoutException> {
-                        context.getBean(ProcessingRetry::class.java).execute("UPLOAD", { true }) {
+                        context.getBean(ProcessingRetry::class.java).execute(RetryOperation.UPLOAD, { true }) {
                             calls++
                             throw SocketTimeoutException()
                         }

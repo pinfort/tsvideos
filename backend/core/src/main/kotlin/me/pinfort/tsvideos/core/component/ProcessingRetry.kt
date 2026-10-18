@@ -21,6 +21,18 @@ class ProcessingRetryRuntime {
     fun random(): Double = Random.nextDouble()
 }
 
+/** Retryable operations; each has durable manifest reconciliation in VerifiedUploadCommand. */
+enum class RetryOperation { UPLOAD, REGISTER_UPLOAD, VERIFY_UPLOAD }
+
+/**
+ * Attached as a suppressed exception when the durable state is unproven (cleanup or claim release failed), so a
+ * transient-looking primary failure is not retried. Other suppressed exceptions, such as close failures that
+ * try-with-resources or jcifs attach, do not veto a retry.
+ */
+class RetryRefusedException(
+    message: String,
+) : IllegalStateException(message)
+
 /** Typed conservative classification: a generic IO error is not evidence of a transient network error. */
 object TransientProcessingFailure {
     fun reason(failure: Throwable): String? {
@@ -35,10 +47,7 @@ object TransientProcessingFailure {
                     it is SQLNonTransientException ||
                     it is SecurityException ||
                     it is IllegalArgumentException ||
-                    // Deliberately broad: callers attach suppressed cleanup/claim-release failures (and "retry refused"
-                    // markers) to say the durable state is unproven. Any suppressed exception therefore disables retry,
-                    // including ones a library attaches; prefer a missed retry over an unsafe one.
-                    it.suppressed.isNotEmpty()
+                    it.suppressed.any { suppressed -> suppressed is RetryRefusedException }
             }
         ) {
             return null
@@ -63,11 +72,10 @@ class ProcessingRetry(
     private val logger = LoggerFactory.getLogger(ProcessingRetry::class.java)
 
     fun <T> execute(
-        operation: String,
+        operation: RetryOperation,
         eligible: () -> Boolean,
         action: () -> T,
     ): T {
-        require(operation in setOf("UPLOAD", "REGISTER_UPLOAD", "VERIFY_UPLOAD"))
         var attempt = 1
         var cap = configuration.initialDelayMillis
         while (true) {
@@ -83,13 +91,7 @@ class ProcessingRetry(
                 val allowed =
                     reason != null &&
                         attempt < configuration.maxAttempts &&
-                        try {
-                            eligible()
-                        } catch (inspectionFailure: Exception) {
-                            failure.addSuppressed(inspectionFailure)
-                            if (ProcessingCancellation.isInterrupted(inspectionFailure)) Thread.currentThread().interrupt()
-                            false
-                        }
+                        inspect(failure, eligible)
                 if (!allowed) {
                     logger.warn(
                         "{} stopped at attempt {}/{} ({})",
@@ -112,18 +114,23 @@ class ProcessingRetry(
                 }
                 cancellation.check()
                 // Backoff is not a lease: another owner may have advanced the durable state.
-                val stillEligible =
-                    try {
-                        eligible()
-                    } catch (inspectionFailure: Exception) {
-                        failure.addSuppressed(inspectionFailure)
-                        if (ProcessingCancellation.isInterrupted(inspectionFailure)) Thread.currentThread().interrupt()
-                        false
-                    }
-                if (!stillEligible) throw failure
+                if (!inspect(failure, eligible)) throw failure
                 attempt++
                 cap = (cap * 2).coerceAtMost(configuration.maxDelayMillis)
             }
         }
     }
+
+    /** An inspection failure is kept on the original failure and counts as "not eligible". */
+    private fun inspect(
+        failure: Exception,
+        eligible: () -> Boolean,
+    ): Boolean =
+        try {
+            eligible()
+        } catch (inspectionFailure: Exception) {
+            failure.addSuppressed(inspectionFailure)
+            if (ProcessingCancellation.isInterrupted(inspectionFailure)) Thread.currentThread().interrupt()
+            false
+        }
 }
