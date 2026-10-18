@@ -234,3 +234,7 @@ See [processing preflight](docs/processing-preflight.md) for CLI checks, space e
 ### Manual collections and tags
 
 See [library organization](docs/library-organization.md) for the required `053_library_organization.sql` migration, name normalization, APIs and recording-preserving deletion rules.
+
+## Transient upload retries
+
+See [bounded verified-upload retries](docs/processing-retries.md) for configuration, eligible failures and ownership safeguards.

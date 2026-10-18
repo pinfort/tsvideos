@@ -1,6 +1,9 @@
 package me.pinfort.tsvideos.core.command
 
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
+import me.pinfort.tsvideos.core.component.ProcessingRetry
+import me.pinfort.tsvideos.core.component.RetryOperation
+import me.pinfort.tsvideos.core.component.RetryRefusedException
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest
@@ -32,6 +35,7 @@ class VerifiedUploadCommand(
     private val createdMapper: CreatedFileMapper,
     transactionManager: PlatformTransactionManager,
     @Value("\${processor.upload.verify-sha256:false}") private val checksumRequired: Boolean = false,
+    private val retry: ProcessingRetry = ProcessingRetry(),
 ) {
     private val transaction =
         TransactionTemplate(transactionManager).apply {
@@ -58,6 +62,23 @@ class VerifiedUploadCommand(
         type: SambaClient.NasType,
         target: String,
         progress: (Long, Long) -> Unit = { _, _ -> },
+    ): VerifiedUploadReceipt =
+        retry.execute(RetryOperation.UPLOAD, {
+            retryEligible(
+                transaction.execute { manifests.find(jobId, ProcessingIdentity.hash(artifact)) },
+                setOf(State.NEW, State.TEMP_VERIFIED, State.FINALIZED, State.REGISTERED) + State.OWNED_TEMPORARY,
+            )
+        }) {
+            uploadOnce(jobId, artifact, source, type, target, progress)
+        }
+
+    private fun uploadOnce(
+        jobId: Long,
+        artifact: String,
+        source: File,
+        type: SambaClient.NasType,
+        target: String,
+        progress: (Long, Long) -> Unit,
     ): VerifiedUploadReceipt {
         require(jobId > 0) { "Upload job id must be positive: $jobId" }
         require(artifact.isNotBlank()) { "Upload artifact name must not be blank" }
@@ -162,8 +183,13 @@ class VerifiedUploadCommand(
             }
             State.TRANSFERRING -> {
                 // Only this state proves exclusive open succeeded. Never delete a merely reserved path.
-                nas.delete(current.nasType, current.temporaryPath)
-                claimed.transition(State.NEW)
+                try {
+                    nas.delete(current.nasType, current.temporaryPath)
+                    claimed.transition(State.NEW)
+                } catch (cleanup: Exception) {
+                    cleanup.addSuppressed(RetryRefusedException("Owned temporary cleanup failed; retry refused"))
+                    throw cleanup
+                }
             }
             else -> Unit
         }
@@ -221,6 +247,18 @@ class VerifiedUploadCommand(
         mime: String?,
         encoding: String?,
     ): CreatedFile =
+        retry.execute(RetryOperation.REGISTER_UPLOAD, {
+            retryEligible(transaction.execute { manifests.get(receipt.manifestId) }, State.VERIFIED)
+        }) {
+            registerOnce(receipt, splittedFileId, mime, encoding)
+        }
+
+    private fun registerOnce(
+        receipt: VerifiedUploadReceipt,
+        splittedFileId: Long,
+        mime: String?,
+        encoding: String?,
+    ): CreatedFile =
         withClaim(receipt.manifestId) { manifest, token ->
             check(manifest.state in State.VERIFIED) { "Upload is not verified" }
             verifyRemote(manifest, manifest.finalPath)
@@ -261,6 +299,14 @@ class VerifiedUploadCommand(
 
     /** Used before deleting the raw recording: no metadata-only legacy receipt is accepted. */
     fun verifyRegistered(
+        jobId: Long,
+        artifact: String,
+    ): VerifiedUploadReceipt =
+        retry.execute(RetryOperation.VERIFY_UPLOAD, {
+            retryEligible(transaction.execute { manifests.find(jobId, ProcessingIdentity.hash(artifact)) }, setOf(State.REGISTERED))
+        }) { verifyRegisteredOnce(jobId, artifact) }
+
+    private fun verifyRegisteredOnce(
         jobId: Long,
         artifact: String,
     ): VerifiedUploadReceipt {
@@ -329,7 +375,7 @@ class VerifiedUploadCommand(
     /** Explicit reset only: no glob/age sweep and no unproven temporary ownership. */
     fun retireAfterReset(jobId: Long) {
         checkNotNull(transaction.execute { manifests.forJob(jobId) }).forEach { entry ->
-            withClaim(entry.id) { current, token ->
+            withClaim(entry.id, releaseAfterSuccess = false) { current, token ->
                 check(current.state !in State.AMBIGUOUS) { "Ambiguous upload must be reconciled before reset" }
                 check(current.createdFileId == null || transaction.execute { createdMapper.find(current.createdFileId) } == null) {
                     "Registered file row remains; preserve upload ownership"
@@ -373,8 +419,14 @@ class VerifiedUploadCommand(
         check(digest == manifest.sourceSha256 && ProcessingIdentity.from(source) == identity) { "Local source changed; preserved" }
     }
 
+    private fun retryEligible(
+        manifest: UploadManifest?,
+        states: Set<State>,
+    ): Boolean = manifest != null && manifest.claimToken == null && manifest.state in states
+
     private fun <T> withClaim(
         id: Long,
+        releaseAfterSuccess: Boolean = true,
         action: (UploadManifest, String) -> T,
     ): T {
         val token = UUID.randomUUID().toString()
@@ -388,14 +440,32 @@ class VerifiedUploadCommand(
                 action(checkNotNull(transaction.execute { manifests.get(id) }), token)
             } catch (e: Throwable) {
                 // A release failure must not hide why the action failed. An interrupted owner still releases.
-                runCatching { ProcessingCancellation.recovery { transaction.execute { manifests.release(id, token) } } }
+                runCatching { ProcessingCancellation.recovery { release(id, token) } }
                     .exceptionOrNull()
-                    ?.let(e::addSuppressed)
+                    ?.let {
+                        e.addSuppressed(it)
+                        e.addSuppressed(RetryRefusedException("Upload claim release unconfirmed; retry refused"))
+                    }
                 throw e
             }
         // Deliberately not swallowed: a caller must not continue as if the claim were free. The completed state is
         // durable, so after `tvpcli release-claim` the next call resumes from it instead of redoing the work.
-        ProcessingCancellation.recovery { transaction.execute { manifests.release(id, token) } }
+        // A successful retire removes the row under this token, so there is nothing left to release.
+        if (releaseAfterSuccess) {
+            try {
+                ProcessingCancellation.recovery { release(id, token) }
+            } catch (releaseFailure: Exception) {
+                releaseFailure.addSuppressed(RetryRefusedException("Upload claim release unconfirmed; retry refused"))
+                throw releaseFailure
+            }
+        }
         return result
+    }
+
+    private fun release(
+        id: Long,
+        token: String,
+    ) {
+        check(transaction.execute { manifests.release(id, token) } == 1) { "Upload claim release lost ownership" }
     }
 }

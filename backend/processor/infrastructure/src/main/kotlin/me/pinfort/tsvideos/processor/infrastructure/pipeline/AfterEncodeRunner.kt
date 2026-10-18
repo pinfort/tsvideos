@@ -16,7 +16,6 @@ import me.pinfort.tsvideos.core.domain.ProcessingAttempt
 import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.core.domain.ProcessingErrorCode
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
-import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.Program
@@ -77,17 +76,22 @@ class AfterEncodeRunner(
     ) {
         cancellation.check()
         if (!input.success) {
-            if (!dryRun) recordEncoderFailure(input)
-            notifyError(input)
-            return
+            val failure = IllegalStateException("Encoder reported failure")
+            reportSafely(failure, {
+                if (!dryRun) recordEncoderFailure(input)
+            }, { logger.error("Encoder reported failure, itemId=${input.itemId}") }, {
+                if (!dryRun) notifyError(input)
+            })
+            throw failure
         }
 
         val splittedFile = findOriginalSplittedFile(input.inPath)
         if (splittedFile == null) {
-            // executedFileId が取れないと後続の完了処理ができないため、何も登録せずに中断する
-            logger.error("original splitted file not found, inPath=${input.inPath}")
-            slackClient.notify("original splitted file not found. in_path:${input.inPath}")
-            return
+            val failure = IllegalStateException("Original split record missing")
+            reportSafely(failure, { logger.error("Original split record missing") }, {
+                if (!dryRun) slackClient.notify("original splitted file not found. in_path:${input.inPath}")
+            })
+            throw failure
         }
 
         val (job, token) =
@@ -102,13 +106,14 @@ class AfterEncodeRunner(
                 job to token
             } catch (e: Exception) {
                 // 別のコールバックが処理中の可能性があるため、番組の状態は変えずに通知だけ行う
-                report("claiming encode callback failed. in_path:${input.inPath}", e)
-                return
+                report("claiming encode callback failed. in_path:${input.inPath}", e, dryRun)
+                throw e
             }
         // claim 前のスナップショット。この呼び出し内で完了した後の失敗は履歴の記録だけなので、catch で completed として扱う。
         val alreadyCompleted = job?.state == "COMPLETED"
         var completed = false
         var attempt: ProcessingAttempt? = null
+        var primaryFailure: Exception? = null
         try {
             if (!dryRun) attempt = history.begin(checkNotNull(job), ProcessingAttemptKind.CALLBACK)
             require(input.files.isNotEmpty()) { "Callback output list is empty" }
@@ -163,23 +168,23 @@ class AfterEncodeRunner(
         } catch (e: Exception) {
             if (completed) {
                 // The program is already COMPLETED and its files are gone; only the history write failed.
-                report("recording completed callback history failed; program stays COMPLETED. in_path:${input.inPath}", e)
+                report("recording completed callback history failed; program stays COMPLETED. in_path:${input.inPath}", e, dryRun)
                 return
             }
+            primaryFailure = e
             if (attempt != null) {
                 try {
                     history.failed(attempt.id, e)
                 } catch (historyFailure: Exception) {
                     e.addSuppressed(historyFailure)
+                    if (ProcessingCancellation.isInterrupted(historyFailure)) Thread.currentThread().interrupt()
                 }
             }
             if (ProcessingCancellation.isInterrupted(e)) throw e
-            // アップロード済みのファイルや削除済みのローカルファイルは戻せないため、
-            // 通知して番組を ERROR にするだけに留める。無人のバッチから呼ばれるので、
-            // 例外をそのまま投げると誰も気づけない。
+            // Report once, then propagate failure so unattended callers receive a nonzero exit.
             if (alreadyCompleted) {
                 logger.error("Rejected callback for completed job ${job?.id}; existing outcome preserved", e)
-                return
+                throw e
             }
             notifyFailure(
                 splittedFile.executedFileId,
@@ -187,23 +192,22 @@ class AfterEncodeRunner(
                 e,
                 dryRun,
             )
-            return
+            throw e
         } finally {
-            if (job != null && token != null) releaseCallback(job, token)
+            if (job != null && token != null) {
+                try {
+                    ProcessingCancellation.recovery { processingJobCommand.releaseCallback(job, token) }
+                } catch (releaseFailure: Exception) {
+                    if (primaryFailure == null) {
+                        report("releasing callback claim of job ${job.id} failed; reconcile the stale claim $token", releaseFailure)
+                        throw releaseFailure
+                    }
+                    primaryFailure.addSuppressed(releaseFailure)
+                    if (ProcessingCancellation.isInterrupted(releaseFailure)) Thread.currentThread().interrupt()
+                }
+            }
         }
         if (completed) logger.info("uploading file completed, targets=${input.files}")
-    }
-
-    /** 解放の失敗で処理結果の例外を上書きしないよう、通知だけ行う。残った claim は手動での reconcile が必要。 */
-    private fun releaseCallback(
-        job: ProcessingJob,
-        token: String,
-    ) {
-        try {
-            ProcessingCancellation.recovery { processingJobCommand.releaseCallback(job, token) }
-        } catch (e: Exception) {
-            report("releasing callback claim of job ${job.id} failed; reconcile the stale claim $token", e)
-        }
     }
 
     /** Best effort: Slack is the only signal from this unattended batch, so history must not block notifyError. */
@@ -294,16 +298,35 @@ class AfterEncodeRunner(
         e: Exception,
         dryRun: Boolean,
     ) {
-        report(message, e)
-        programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.ERROR, dryRun)
+        reportSafely(
+            e,
+            { logger.error(message, e) },
+            { if (!dryRun) slackClient.notify("$message, e:${e.message}\nstackTrace:\n```\n${e.stackTraceToString()}\n```") },
+            { programCommand.updateStatusByExecutedFileId(executedFileId, Program.Status.ERROR, dryRun) },
+        )
+    }
+
+    private fun reportSafely(
+        failure: Exception,
+        vararg reports: () -> Unit,
+    ) {
+        reports.forEach { report ->
+            try {
+                ProcessingCancellation.recovery(report)
+            } catch (reportFailure: Exception) {
+                failure.addSuppressed(reportFailure)
+                if (ProcessingCancellation.isInterrupted(reportFailure)) Thread.currentThread().interrupt()
+            }
+        }
     }
 
     private fun report(
         message: String,
         e: Exception,
+        dryRun: Boolean = false,
     ) {
         logger.error(message, e)
-        slackClient.notify("$message, e:${e.message}\nstackTrace:\n```\n${e.stackTraceToString()}\n```")
+        if (!dryRun) slackClient.notify("$message, e:${e.message}\nstackTrace:\n```\n${e.stackTraceToString()}\n```")
     }
 
     /**
