@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.processor.console
 
+import me.pinfort.tsvideos.console.common.charset.ConsoleCharset
 import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
 import org.mybatis.spring.annotation.MapperScan
 import org.springframework.boot.autoconfigure.SpringBootApplication
@@ -23,6 +24,7 @@ import kotlin.system.exitProcess
 class ConsoleApplication
 
 fun main(args: Array<String>) {
+    ConsoleCharset.configureLogging()
     if (hasOption(args, "--json")) System.setOut(java.io.PrintStream(System.out, true, Charsets.UTF_8))
     val command = DiagnosticEnvironment.commandArguments(args).firstOrNull()
     if (command == "preflight") exitProcess(PreflightBootstrap.run(args))
