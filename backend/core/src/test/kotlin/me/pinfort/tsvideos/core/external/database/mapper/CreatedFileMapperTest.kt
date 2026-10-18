@@ -102,6 +102,27 @@ class CreatedFileMapperTest : ExpectSpec() {
             }
         }
 
+        context("updateResolutionIfMissing") {
+            expect("sets a missing resolution and leaves a stored one alone") {
+                val connection = dataSource.connection
+                connection.prepareStatement("DELETE FROM created_file").execute()
+                connection
+                    .prepareStatement(
+                        "INSERT INTO created_file(id,splitted_file_id,file,size,mime,encoding,status,width,height) " +
+                            "VALUES(1,2,'a',3,'video/mp4',NULL,'FILE_MOVED',NULL,NULL),(2,2,'b',3,'video/mp4',NULL,'FILE_MOVED',1920,1080)",
+                    ).execute()
+                connection.commit()
+
+                createdFileMapper.updateResolutionIfMissing(1, 1280, 720) shouldBe 1
+                createdFileMapper.updateResolutionIfMissing(2, 1280, 720) shouldBe 0
+                connection.commit()
+
+                createdFileMapper.find(1)?.let { it.width to it.height } shouldBe (1280 to 720)
+                createdFileMapper.find(2)?.let { it.width to it.height } shouldBe (1920 to 1080)
+                connection.close()
+            }
+        }
+
         context("find") {
             expect("single") {
                 val connection = dataSource.connection

@@ -277,8 +277,14 @@ class VerifiedUploadCommand(
                         file.encoding == encoding &&
                         file.status == CreatedFile.Status.FILE_MOVED,
                 ) { "Registered artifact record does not match this registration" }
-                // The resolution is best-effort metadata (a re-run may probe null), so it is not part of this identity check.
-                file
+                // The resolution is best-effort metadata, so it is not part of this identity check: a re-run that probes
+                // null keeps the stored value, and one that probes a value fills in a resolution the first run missed.
+                if (resolution != null && file.width == null && file.height == null) {
+                    transaction.execute { createdMapper.updateResolutionIfMissing(file.id, resolution.width, resolution.height) }
+                    file.copy(width = resolution.width, height = resolution.height)
+                } else {
+                    file
+                }
             } else {
                 checkNotNull(
                     transaction.execute {

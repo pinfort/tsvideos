@@ -515,6 +515,21 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.source.delete()
             }
         }
+        expect("a re-run fills in a resolution the first registration could not probe, but never overwrites one") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                val first = f.command.register(receipt, 876543, "video/mp4", null)
+                first.width shouldBe null
+                val rerun = f.command.register(receipt, 876543, "video/mp4", null, VideoResolution(1280, 720))
+                rerun.id shouldBe first.id
+                (rerun.width to rerun.height) shouldBe (1280 to 720)
+                f.command.register(receipt, 876543, "video/mp4", null, VideoResolution(1920, 1080)).width shouldBe 1280
+                files.find(first.id)?.toDomain()?.let { it.width to it.height } shouldBe (1280 to 720)
+            } finally {
+                f.source.delete()
+            }
+        }
         expect("successful upload is registered exactly once and repeated callback survives local deletion") {
             val f = fixture()
             try {

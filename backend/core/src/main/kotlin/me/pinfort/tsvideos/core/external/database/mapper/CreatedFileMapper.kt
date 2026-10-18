@@ -166,6 +166,25 @@ interface CreatedFileMapper {
             UPDATE
                 created_file
             SET
+                width = #{width},
+                height = #{height}
+            WHERE
+                id = #{id}
+                AND width IS NULL
+                AND height IS NULL
+        """,
+    )
+    fun updateResolutionIfMissing(
+        id: Long,
+        width: Int,
+        height: Int,
+    ): Int
+
+    @Update(
+        """
+            UPDATE
+                created_file
+            SET
                 status = #{status}
             WHERE
                 id = #{id}
