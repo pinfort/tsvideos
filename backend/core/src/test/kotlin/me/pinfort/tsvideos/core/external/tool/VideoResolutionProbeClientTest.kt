@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.external.tool
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
@@ -55,5 +56,21 @@ class VideoResolutionProbeClientTest :
         expect("returns null when ffprobe fails") {
             every { shellClient.executeCapturingOutput(any(), any(), any()) } returns result(1, "")
             client.probe(file) shouldBe null
+        }
+
+        expect("uses the first non-blank line of multi-line output") {
+            every { shellClient.executeCapturingOutput(any(), any(), any()) } returns result(0, "\n1280,720\n1920,1080\n")
+            client.probe(file) shouldBe VideoResolution(1280, 720)
+        }
+
+        expect("returns null when ffprobe cannot be run") {
+            every { shellClient.executeCapturingOutput(any(), any(), any()) } throws java.io.IOException("missing")
+            client.probe(file) shouldBe null
+        }
+
+        expect("does not swallow interruption as an unknown resolution") {
+            every { shellClient.executeCapturingOutput(any(), any(), any()) } throws InterruptedException()
+            shouldThrow<InterruptedException> { client.probe(file) }
+            Thread.interrupted()
         }
     })

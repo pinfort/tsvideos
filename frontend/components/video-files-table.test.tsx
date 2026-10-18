@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { CreatedFile } from "@/lib/api/types";
 import { VideoFilesTable } from "./video-files-table";
@@ -28,8 +28,9 @@ describe("VideoFilesTable", () => {
         ]}
       />,
     );
-    expect(screen.getByText("1920×1080")).toBeInTheDocument();
-    expect(screen.getByText("-")).toBeInTheDocument();
+    const [known, unknown] = screen.getAllByRole("row");
+    expect(within(known).getByText("1920×1080")).toBeInTheDocument();
+    expect(within(unknown).getByText("-")).toBeInTheDocument();
   });
 
   it("links to the viewer when a file has an mp4 rendition", () => {
