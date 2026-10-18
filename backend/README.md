@@ -122,6 +122,15 @@ DB 上のパスは SMB 共有からの相対パスであるため、`..`・`.`�
 
 デフォルトは SMB の存在・通常ファイル種別・サイズだけを調べ、ダウンロードや ffprobe は実行しません。将来の任意モード `--deep` は、通常検証に成功したメディアだけを別ステップでプローブし、読み取り／デコードエラー・ストリーム情報を独立した `mediaCheck` 結果として返す設計です。明示的な実行時間・転送量の上限と一時ファイルの後処理が必要であり、通常検証の `VERIFIED` を「デコード確認済み」と読み替えません。この PR はこのモードの境界を定義するもので、`--deep` の実装は含みません（未対応オプションとして終了コード `2`）。
 
+## コンソールの文字コード (Windows)
+
+`tvmcli` / `tvpcli` 共通（`console-common` の `ConsoleCharset`）。
+
+- 標準出力の `--json` / `--ids-only` は常に UTF-8。
+- ログ（標準エラー出力）は端末に合わせる。JDK 19 以降の `System.err.charset()` に従い、端末接続時はコンソールのコードページ（日本語 Windows では CP932）、リダイレクト時は `native.encoding` になる。
+- 強制したい場合は環境変数 `TSVIDEOS_LOG_CHARSET`（例: `UTF-8`）または `-Dtsvideos.log.charset=UTF-8` を指定する。UTF-8 でファイルへ保存するなら `set TSVIDEOS_LOG_CHARSET=UTF-8` の上で `2> process.log` とする。
+- 未設定・不正値のときは上記の自動判定になる。`chcp 65001` は不要。
+
 ## CLI のバージョン確認
 
 `tvmcli`（`manager:console`）と `tvpcli`（`processor:console`）は `--version` でバージョンと git コミットハッシュを `tvmcli version 0.0.1-SNAPSHOT (d87cab7)` の形式で表示します。どちらもビルド時に `core` のリソース（`version.properties`）へ埋め込まれます（バージョンは Gradle プロジェクトバージョン、コミットハッシュは `git rev-parse --short HEAD`）。git リポジトリ外でビルドした場合（Docker ビルドなど）はコミットハッシュが取得できないため、バージョンのみを表示します。

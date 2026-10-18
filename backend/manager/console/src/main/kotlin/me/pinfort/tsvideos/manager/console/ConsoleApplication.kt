@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.manager.console
 
+import me.pinfort.tsvideos.console.common.charset.ConsoleCharset
 import org.mybatis.spring.annotation.MapperScan
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
@@ -27,6 +28,7 @@ import kotlin.system.exitProcess
 class ConsoleApplication
 
 fun main(args: Array<String>) {
+    ConsoleCharset.configureLogging()
     // Java's native stdout encoding can still follow the Windows console code page.
     // Set this before Spring/Clikt capture the stream so redirected JSON is UTF-8.
     if (args.any { it == "--json" || it == "--ids-only" || it == "cleanup" }) {
