@@ -63,6 +63,11 @@ class VideoResolutionProbeClientTest :
             client.probe(file) shouldBe VideoResolution(1280, 720)
         }
 
+        expect("ignores extra trailing fields") {
+            every { shellClient.executeCapturingOutput(any(), any(), any()) } returns result(0, "1920,1080,\n")
+            client.probe(file) shouldBe VideoResolution(1920, 1080)
+        }
+
         expect("returns null when ffprobe cannot be run") {
             every { shellClient.executeCapturingOutput(any(), any(), any()) } throws java.io.IOException("missing")
             client.probe(file) shouldBe null

@@ -5,10 +5,13 @@ import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.mockk.every
 import me.pinfort.tsvideos.core.command.ProgramCommand
+import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
 import me.pinfort.tsvideos.core.domain.ProgramSearchPage
 import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
+import org.hamcrest.Matchers.hasKey
+import org.hamcrest.Matchers.nullValue
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
 import org.springframework.test.web.servlet.MockMvc
@@ -177,6 +180,25 @@ class ProgramControllerTest : DescribeSpec() {
                     .perform(get("/api/v1/programs/1"))
                     .andDo(print())
                     .andExpect(status().isOk)
+            }
+
+            it("emits the resolution keys for every video file, null when unknown") {
+                every { programCommand.find(1L) } returns program
+                every { programCommand.findDetail(1L) } returns programDetail
+                every { programCommand.videoFiles(program) } returns
+                    listOf(
+                        CreatedFile(1, 2, "a.mp4", 3, "video/mp4", null, CreatedFile.Status.FILE_MOVED, 1920, 1080),
+                        CreatedFile(2, 2, "a.ass", 3, null, null, CreatedFile.Status.FILE_MOVED),
+                    )
+
+                mockMvc
+                    .perform(get("/api/v1/programs/1"))
+                    .andExpect(status().isOk)
+                    .andExpect(jsonPath("$.videoFiles[0].width").value(1920))
+                    .andExpect(jsonPath("$.videoFiles[0].height").value(1080))
+                    .andExpect(jsonPath("$.videoFiles[1]", hasKey("width")))
+                    .andExpect(jsonPath("$.videoFiles[1].width").value(nullValue()))
+                    .andExpect(jsonPath("$.videoFiles[1].height").value(nullValue()))
             }
 
             it("not found when find returns null") {
