@@ -8,6 +8,8 @@ data class CreatedFile(
     val mime: String?,
     val encoding: String?,
     val status: Status,
+    val width: Int? = null,
+    val height: Int? = null,
 ) {
     enum class Status {
         REGISTERED,

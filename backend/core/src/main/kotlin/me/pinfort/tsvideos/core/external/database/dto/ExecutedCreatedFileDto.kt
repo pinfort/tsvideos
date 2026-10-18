@@ -12,8 +12,10 @@ data class ExecutedCreatedFileDto(
     val mime: String?,
     val encoding: String?,
     val status: CreatedFileDto.Status,
+    val width: Int? = null,
+    val height: Int? = null,
 ) {
-    fun toCreatedFileDto(): CreatedFileDto = CreatedFileDto(id, splittedFileId, file, size, mime, encoding, status)
+    fun toCreatedFileDto(): CreatedFileDto = CreatedFileDto(id, splittedFileId, file, size, mime, encoding, status, width, height)
 
     fun toDomain(): CreatedFile = toCreatedFileDto().toDomain()
 }

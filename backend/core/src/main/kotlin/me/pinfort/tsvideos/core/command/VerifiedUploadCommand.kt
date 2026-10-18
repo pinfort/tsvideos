@@ -220,6 +220,8 @@ class VerifiedUploadCommand(
         splittedFileId: Long,
         mime: String?,
         encoding: String?,
+        width: Int? = null,
+        height: Int? = null,
     ): CreatedFile =
         withClaim(receipt.manifestId) { manifest, token ->
             check(manifest.state in State.VERIFIED) { "Upload is not verified" }
@@ -234,13 +236,15 @@ class VerifiedUploadCommand(
                         file.size == manifest.sourceSize &&
                         file.mime == mime &&
                         file.encoding == encoding &&
+                        file.width == width &&
+                        file.height == height &&
                         file.status == CreatedFile.Status.FILE_MOVED,
                 ) { "Registered artifact record does not match this registration" }
                 file
             } else {
                 checkNotNull(
                     transaction.execute {
-                        val file = createdFiles.insert(splittedFileId, manifest.finalPath, manifest.sourceSize, mime, encoding)
+                        val file = createdFiles.insert(splittedFileId, manifest.finalPath, manifest.sourceSize, mime, encoding, width = width, height = height)
                         check(manifests.register(manifest.id, token, file.id) == 1) { "Upload registration lost ownership" }
                         file
                     },

@@ -10,6 +10,8 @@ data class CreatedFileDto(
     val mime: String?,
     val encoding: String?,
     val status: Status,
+    val width: Int? = null,
+    val height: Int? = null,
 ) {
     enum class Status {
         REGISTERED,
@@ -31,5 +33,7 @@ data class CreatedFileDto(
                     Status.ENCODE_SUCCESS -> CreatedFile.Status.ENCODE_SUCCESS
                     Status.FILE_MOVED -> CreatedFile.Status.FILE_MOVED
                 },
+            width = width,
+            height = height,
         )
 }

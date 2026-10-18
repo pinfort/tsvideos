@@ -22,6 +22,7 @@ import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.external.samba.SambaClient
+import me.pinfort.tsvideos.core.external.tool.VideoResolutionProbeClient
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
@@ -51,6 +52,7 @@ class AfterEncodeRunner(
     private val processingJobCommand: ProcessingJobCommand,
     private val verifiedUploadCommand: VerifiedUploadCommand,
     private val history: ProcessingHistoryCommand,
+    private val videoResolutionProbeClient: VideoResolutionProbeClient,
     private val cancellation: ProcessingCancellation = ProcessingCancellation(),
 ) {
     /**
@@ -146,7 +148,16 @@ class AfterEncodeRunner(
                                 target,
                                 history.progress(active.id, onUploadProgress),
                             )
-                        verifiedUploadCommand.register(uploaded, splittedFile.id, mime.mime, mime.encoding)
+                        // Probe the local file: it is byte-identical to the verified upload and avoids a NAS round trip.
+                        val resolution = videoResolutionProbeClient.probe(path.toFile())
+                        verifiedUploadCommand.register(
+                            uploaded,
+                            splittedFile.id,
+                            mime.mime,
+                            mime.encoding,
+                            resolution?.width,
+                            resolution?.height,
+                        )
                         uploaded
                     }
                 history.stage(active.id, ProcessingStage.FINALIZE) { verifiedUploadCommand.deleteLocal(receipt) }

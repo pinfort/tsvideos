@@ -37,6 +37,8 @@ class ProgramDetailToTextComponentTest :
                             size = 3,
                             encoding = "encoding",
                             status = CreatedFile.Status.FILE_MOVED,
+                            width = 1920,
+                            height = 1080,
                         ),
                     ),
                 tags = listOf(ExecutedFileTag.EWS),
@@ -56,11 +58,18 @@ class ProgramDetailToTextComponentTest :
                     緊急警報放送: あり
                     文字スーパー: なし
                     ファイル: 1件
-                    id	mime	name
-                    1	mime	file
+                    id	mime	name	resolution
+                    1	mime	file	1920x1080
 
                     """.trimIndent()
                 actual shouldBe expected
+            }
+
+            expect("shows a dash when the resolution is unknown") {
+                val file = programDetail.createdFiles.single().copy(width = null, height = null)
+                val actual = programDetailToTextComponent.convertConsole(programDetail.copy(createdFiles = listOf(file)))
+
+                actual.lines() shouldContain "1\tmime\tfile\t-"
             }
 
             expect("shows unchecked when the recording predates emergency detection") {

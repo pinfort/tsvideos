@@ -23,6 +23,10 @@ export interface CreatedFile {
   mime: string | null;
   encoding: string | null;
   status: CreatedFileStatus;
+  // Pixel size of the encoded video; null for non-video files and for files
+  // registered before resolutions were recorded.
+  width?: number | null;
+  height?: number | null;
   // Kotlin's `val isMp4/isTs: Boolean` generate isXxx() getters, and Jackson
   // strips the "is" prefix from boolean getters, so the wire keys are "mp4"/"ts".
   mp4: boolean;
