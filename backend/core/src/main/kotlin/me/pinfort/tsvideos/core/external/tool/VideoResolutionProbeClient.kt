@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.core.external.tool
 
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
+import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.shell.ShellClient
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
@@ -14,17 +15,12 @@ class VideoResolutionProbeClient(
     private val processorToolConfigurationProperties: ProcessorToolConfigurationProperties,
     private val logger: Logger,
 ) {
-    data class Resolution(
-        val width: Int,
-        val height: Int,
-    )
-
     // The resolution is supplementary metadata: ordinary probe failures (including non-video files) return null;
     // interruption must propagate to stop the invocation.
     fun probe(
         file: File,
         timeoutSec: Long = 60,
-    ): Resolution? =
+    ): VideoResolution? =
         try {
             val result =
                 shellClient.executeCapturingOutput(
@@ -58,11 +54,16 @@ class VideoResolutionProbeClient(
             null
         }
 
-    private fun parse(stdout: String): Resolution? {
-        val parts = stdout.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.split(",") ?: return null
+    private fun parse(stdout: String): VideoResolution? {
+        val parts =
+            stdout
+                .lineSequence()
+                .firstOrNull { it.isNotBlank() }
+                ?.trim()
+                ?.split(",") ?: return null
         if (parts.size < 2) return null
         val width = parts[0].trim().toIntOrNull() ?: return null
         val height = parts[1].trim().toIntOrNull() ?: return null
-        return if (width > 0 && height > 0) Resolution(width, height) else null
+        return if (width > 0 && height > 0) VideoResolution(width, height) else null
     }
 }

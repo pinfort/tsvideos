@@ -17,6 +17,7 @@ import me.pinfort.tsvideos.core.component.RetryRefusedException
 import me.pinfort.tsvideos.core.config.ProcessingRetryConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest.State
+import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.domain.sha256Hex
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
@@ -497,6 +498,19 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.upload() shouldBe receipt
                 f.command.register(receipt, 876543, "video/mp4", null).id shouldBe registered.id
                 f.remote.keys shouldBe setOf(f.target)
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("resolution is stored on registration and a re-run whose probe failed still converges") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                val first = f.command.register(receipt, 876543, "video/mp4", null, VideoResolution(1920, 1080))
+                first.width shouldBe 1920
+                first.height shouldBe 1080
+                f.command.register(receipt, 876543, "video/mp4", null).id shouldBe first.id
+                files.find(first.id)?.toDomain()?.let { it.width to it.height } shouldBe (1920 to 1080)
             } finally {
                 f.source.delete()
             }

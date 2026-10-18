@@ -71,7 +71,7 @@ class BulkLibraryCommandTest :
                 ExecutedFileDto.Status.SPLITTED,
             )
         val split = SplittedFileDto(20, 10, "C:\\split.m2ts", 12, 12.0, SplittedFileDto.Status.ENCODE_TASK_ADDED)
-        val file = CreatedFileDto(30, 20, "base/a/alpha/video.mp4", 12, "video/mp4", null, CreatedFileDto.Status.FILE_MOVED)
+        val file = CreatedFileDto(30, 20, "base/a/alpha/video.mp4", 12, "video/mp4", null, CreatedFileDto.Status.FILE_MOVED, 1920, 1080)
         val request = BulkRequest(listOf(1), BulkAction.DELETE)
         beforeTest {
             clearMocks(programs, executed, splits, created, mapper, tx, logger)

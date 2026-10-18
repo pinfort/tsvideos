@@ -26,7 +26,7 @@ export function VideoFilesTable({
           <tr key={file.id}>
             <td className="px-4 py-2">{file.file}</td>
             <td className="px-4 py-2 whitespace-nowrap">
-              {file.width && file.height ? `${file.width}×${file.height}` : "-"}
+              {file.width != null && file.height != null ? `${file.width}×${file.height}` : "-"}
             </td>
             <td className="px-4 py-2">
               {file.mp4 ? (

@@ -5,6 +5,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
+import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.shell.ShellClient
 import me.pinfort.tsvideos.core.external.shell.ShellResult
 import org.slf4j.Logger
@@ -36,7 +37,7 @@ class VideoResolutionProbeClientTest :
 
         expect("parses width and height") {
             every { shellClient.executeCapturingOutput(any(), any(), any()) } returns result(0, "1920,1080\n")
-            client.probe(file) shouldBe VideoResolutionProbeClient.Resolution(1920, 1080)
+            client.probe(file) shouldBe VideoResolution(1920, 1080)
         }
 
         expect("returns null when the file has no video stream") {

@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.core.command
 
 import jcifs.CIFSException
 import me.pinfort.tsvideos.core.domain.CreatedFile
+import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
 import me.pinfort.tsvideos.core.external.samba.NasComponent
@@ -30,13 +31,22 @@ class CreatedFileCommand(
         encoding: String?,
         status: CreatedFile.Status = CreatedFile.Status.FILE_MOVED,
         dryRun: Boolean = false,
-        width: Int? = null,
-        height: Int? = null,
+        resolution: VideoResolution? = null,
     ): CreatedFile {
         val id =
             if (!dryRun) {
                 val keyHolder = GeneratedKeyHolder()
-                createdFileMapper.insert(splittedFileId, file, size, mime, encoding, status.name, keyHolder, width, height)
+                createdFileMapper.insert(
+                    splittedFileId,
+                    file,
+                    size,
+                    mime,
+                    encoding,
+                    status.name,
+                    keyHolder,
+                    resolution?.width,
+                    resolution?.height,
+                )
                 keyHolder.id
             } else {
                 0L
@@ -50,8 +60,8 @@ class CreatedFileCommand(
                 mime = mime,
                 encoding = encoding,
                 status = status,
-                width = width,
-                height = height,
+                width = resolution?.width,
+                height = resolution?.height,
             )
         logger.info("Insert created file, id=$id, createdFile=$createdFile")
         return createdFile

@@ -48,7 +48,7 @@ class DuplicateReviewCommandTest : ExpectSpec() {
             sql(
                 listOf(
                     "INSERT INTO splitted_file VALUES (1,1,'s1',1,1,'REGISTERED')",
-                    "INSERT INTO created_file VALUES (1,1,'ready',100,'video/mp4',NULL,'FILE_MOVED'),(2,1,'pending',200,'video/mp4',NULL,'REGISTERED')",
+                    "INSERT INTO created_file(id, splitted_file_id, file, size, mime, encoding, status) VALUES (1,1,'ready',100,'video/mp4',NULL,'FILE_MOVED'),(2,1,'pending',200,'video/mp4',NULL,'REGISTERED')",
                 ),
             )
             val result = command().review().groups.single()
@@ -121,7 +121,7 @@ class DuplicateReviewCommandTest : ExpectSpec() {
                     "INSERT INTO executed_file VALUES (3,'c',5,100,'2026-01-01','ch','c','ch',60,'SPLITTED')",
                     "INSERT INTO program VALUES (3,'c',3,'COMPLETED')",
                     "INSERT INTO splitted_file VALUES (1,1,'s1',1,1,'REGISTERED'),(2,2,'s2',1,1,'REGISTERED'),(3,3,'s3',1,1,'REGISTERED')",
-                    "INSERT INTO created_file VALUES " +
+                    "INSERT INTO created_file(id, splitted_file_id, file, size, mime, encoding, status) VALUES " +
                         "(4,3,'c2',10,'video/mp4',NULL,'FILE_MOVED'),(3,3,'c1',10,'video/mp4',NULL,'FILE_MOVED')," +
                         "(2,2,'b1',10,'video/mp4',NULL,'FILE_MOVED'),(1,1,'a1',10,'video/mp4',NULL,'ENCODE_SUCCESS')",
                 ),

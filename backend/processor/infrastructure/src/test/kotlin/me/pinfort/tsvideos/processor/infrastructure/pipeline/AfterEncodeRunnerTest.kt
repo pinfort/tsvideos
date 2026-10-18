@@ -23,6 +23,7 @@ import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.domain.VerifiedUploadReceipt
+import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.VideoResolutionProbeClient
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
@@ -83,7 +84,7 @@ class AfterEncodeRunnerTest :
                 every { jobs.claimCallback(any()) } returns "token"
                 every { samba.resolvePathUnderBaseDir(any(), any()) } answers { "base/${secondArg<String>()}" }
                 every { validation.validate(1) } returns true
-                every { resolutionProbe.probe(any()) } returns VideoResolutionProbeClient.Resolution(1920, 1080)
+                every { resolutionProbe.probe(any()) } returns VideoResolution(1920, 1080)
                 every { uploads.upload(any(), any(), any(), any(), any(), any()) } returns receipt
                 every { uploads.deleteLocal(receipt) } answers {
                     output.delete()
@@ -188,6 +189,19 @@ class AfterEncodeRunnerTest :
                 f.cleanup()
             }
         }
+        expect("non-video outputs are registered without probing a resolution") {
+            val f = Fixture()
+            val subtitle = File(f.output.parentFile, "video.ass").apply { writeText("subtitle") }
+            try {
+                f.run(files = listOf(f.output, subtitle))
+                verify(exactly = 1) { f.resolutionProbe.probe(f.output) }
+                verify(exactly = 0) { f.resolutionProbe.probe(subtitle) }
+                verify { f.uploads.register(f.receipt, 20, "video/mp4", null, VideoResolution(1920, 1080)) }
+                verify { f.uploads.register(f.receipt, 20, null, null, null) }
+            } finally {
+                f.cleanup()
+            }
+        }
         expect("verified receipt is registered before output deletion and original archive checked before completion") {
             val f = Fixture()
             try {
@@ -201,7 +215,7 @@ class AfterEncodeRunnerTest :
                         "base/m/myprogram/video.mp4",
                         any(),
                     )
-                    f.uploads.register(f.receipt, 20, "video/mp4", null, 1920, 1080)
+                    f.uploads.register(f.receipt, 20, "video/mp4", null, VideoResolution(1920, 1080))
                     f.uploads.deleteLocal(f.receipt)
                     f.uploads.verifyRegistered(1, "original")
                     f.jobs.complete(f.job)
@@ -224,7 +238,9 @@ class AfterEncodeRunnerTest :
                         "upload" ->
                             every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws
                                 IllegalStateException("upload failure")
-                        "register" -> every { f.uploads.register(any(), any(), any(), any()) } throws IllegalStateException("db failure")
+                        "register" ->
+                            every { f.uploads.register(any(), any(), any(), any(), any()) } throws
+                                IllegalStateException("db failure")
                         else -> every { f.uploads.deleteLocal(any()) } throws IllegalStateException("delete failure")
                     }
                     shouldThrow<IllegalStateException> { f.run() }

@@ -402,7 +402,19 @@ class BulkLibraryCommand(
                             )
                         },
                         s.splitFiles.map { listOf(it.id, it.executedFileId, it.file, it.size, it.duration, it.status) },
-                        s.createdFiles.map { listOf(it.id, it.splittedFileId, it.file, it.size, it.mime, it.encoding, it.status) },
+                        s.createdFiles.map {
+                            listOf(
+                                it.id,
+                                it.splittedFileId,
+                                it.file,
+                                it.size,
+                                it.mime,
+                                it.encoding,
+                                it.status,
+                                it.width,
+                                it.height,
+                            )
+                        },
                     )
                 },
                 destinations.toSortedMap().map { (k, v) -> listOf(k, v) },

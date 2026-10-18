@@ -154,15 +154,14 @@ class AfterEncodeRunner(
                                 history.progress(active.id, onUploadProgress),
                             )
                         // Probe the local file: it is byte-identical to the verified upload and avoids a NAS round trip.
-                        val resolution = videoResolutionProbeClient.probe(path.toFile())
-                        verifiedUploadCommand.register(
-                            uploaded,
-                            splittedFile.id,
-                            mime.mime,
-                            mime.encoding,
-                            resolution?.width,
-                            resolution?.height,
-                        )
+                        // Subtitles and other non-video outputs have no resolution, so they are not probed.
+                        val resolution =
+                            if (mime.mime?.startsWith("video/") == true && mime.encoding == null) {
+                                videoResolutionProbeClient.probe(path.toFile())
+                            } else {
+                                null
+                            }
+                        verifiedUploadCommand.register(uploaded, splittedFile.id, mime.mime, mime.encoding, resolution)
                         uploaded
                     }
                 history.stage(active.id, ProcessingStage.FINALIZE) { verifiedUploadCommand.deleteLocal(receipt) }
