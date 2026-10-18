@@ -1,7 +1,9 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -115,6 +117,61 @@ class AfterEncodeRunnerTest :
                 root.deleteRecursively()
             }
         }
+        expect("exhausted upload failure retains notification and release failures without another Slack attempt") {
+            val f = Fixture()
+            val primary = java.net.SocketTimeoutException("exhausted")
+            val notification = IllegalStateException("notification")
+            val release = IllegalStateException("release")
+            every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws primary
+            every { f.slack.notify(any()) } throws notification
+            every { f.jobs.releaseCallback(any(), any()) } throws release
+            try {
+                shouldThrow<java.net.SocketTimeoutException> { f.run() } shouldBe primary
+                primary.suppressed.toList() shouldBe listOf(notification, release)
+                verify(exactly = 1) { f.slack.notify(any()) }
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
+                f.original.exists() shouldBe true
+                f.output.exists() shouldBe true
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("all rejected dry-run callbacks avoid Slack and database mutation") {
+            val f = Fixture()
+            try {
+                shouldThrow<IllegalStateException> { f.run(success = false, dryRun = true) }
+                every { f.validation.validate(1) } returns false
+                shouldThrow<IllegalStateException> { f.run(dryRun = true) }
+                every { f.splits.findByFile(any()) } returns null
+                shouldThrow<IllegalStateException> { f.run(dryRun = true) }
+                verify(exactly = 0) { f.slack.notify(any()) }
+                verify(exactly = 0) { f.history.begin(any(), any()) }
+                verify(exactly = 0) { f.jobs.claimCallback(any()) }
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, true) }
+                f.original.exists() shouldBe true
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("interrupted failure reporting retains primary and restores cancellation flag") {
+            val f = Fixture()
+            val primary = IllegalStateException("permanent failure")
+            val interrupted = InterruptedException("notification interrupted")
+            every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws primary
+            every { f.slack.notify(any()) } throws interrupted
+            try {
+                shouldThrow<IllegalStateException> { f.run() } shouldBe primary
+                primary.suppressed.single() shouldBe interrupted
+                Thread.currentThread().isInterrupted shouldBe true
+                me.pinfort.tsvideos.core.component.ProcessingCancellation
+                    .isInterrupted(primary) shouldBe true
+                verify(exactly = 1) { f.slack.notify(any()) }
+                f.original.exists() shouldBe true
+            } finally {
+                Thread.interrupted()
+                f.cleanup()
+            }
+        }
         expect("callback interruption propagates, preserves originals and releases ownership") {
             val f = Fixture()
             every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws InterruptedException()
@@ -170,7 +227,8 @@ class AfterEncodeRunnerTest :
                         "register" -> every { f.uploads.register(any(), any(), any(), any()) } throws IllegalStateException("db failure")
                         else -> every { f.uploads.deleteLocal(any()) } throws IllegalStateException("delete failure")
                     }
-                    f.run()
+                    shouldThrow<IllegalStateException> { f.run() }
+                    verify(exactly = 1) { f.slack.notify(any()) }
                     f.original.exists() shouldBe true
                     f.output.exists() shouldBe true
                     verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
@@ -205,7 +263,8 @@ class AfterEncodeRunnerTest :
                         "validation" -> every { f.validation.validate(1) } returns false
                         else -> every { f.validation.validate(1) } throws IllegalStateException("unavailable")
                     }
-                    f.run()
+                    shouldThrow<IllegalStateException> { f.run() }
+                    verify(exactly = 1) { f.slack.notify(any()) }
                     f.original.exists() shouldBe true
                     f.input.exists() shouldBe true
                     f.split.exists() shouldBe true
@@ -220,7 +279,7 @@ class AfterEncodeRunnerTest :
             val f = Fixture()
             try {
                 every { f.programs.findByExecutedFileId(10) } returns null
-                f.run()
+                shouldThrow<IllegalStateException> { f.run() }
                 f.original.exists() shouldBe true
                 verify { f.slack.notify(match { it.contains("program not found") }) }
             } finally {
@@ -230,7 +289,7 @@ class AfterEncodeRunnerTest :
         expect("failed encoder callback touches no uploads") {
             val f = Fixture()
             try {
-                f.run(success = false)
+                shouldThrow<IllegalStateException> { f.run(success = false) }
                 f.output.exists() shouldBe true
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
                 verify { f.slack.notify(match { it.contains("encode failed") }) }
@@ -242,7 +301,7 @@ class AfterEncodeRunnerTest :
             val f = Fixture()
             try {
                 every { f.validation.validate(1) } returns false
-                f.run()
+                shouldThrow<IllegalStateException> { f.run() }
                 verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
                 verify { f.slack.notify(match { it.contains("program invalid. programId:1") }) }
                 f.original.exists() shouldBe true
@@ -254,10 +313,10 @@ class AfterEncodeRunnerTest :
             val f = Fixture()
             try {
                 every { f.validation.validate(1) } returns false
-                f.run(dryRun = true)
+                shouldThrow<IllegalStateException> { f.run(dryRun = true) }.message shouldBe "program invalid. programId:1"
                 verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, true) }
                 verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(any(), any(), false) }
-                verify { f.slack.notify(match { it.contains("program invalid. programId:1") }) }
+                verify(exactly = 0) { f.slack.notify(any()) }
                 listOf(f.output, f.original, f.input, f.split).forEach { it.exists() shouldBe true }
             } finally {
                 f.cleanup()
@@ -267,7 +326,7 @@ class AfterEncodeRunnerTest :
             val f = Fixture()
             try {
                 every { f.history.begin(any(), any()) } throws IllegalStateException("History identity conflict")
-                f.run(success = false)
+                shouldThrow<IllegalStateException> { f.run(success = false) }
                 verify { f.slack.notify(match { it.contains("encode failed") }) }
             } finally {
                 f.cleanup()
@@ -277,7 +336,7 @@ class AfterEncodeRunnerTest :
             val f = Fixture()
             try {
                 every { f.splits.findByFile(any()) } returns null
-                f.run()
+                shouldThrow<IllegalStateException> { f.run() }
                 verify(exactly = 0) { f.jobs.claimCallback(any()) }
                 verify(exactly = 0) { f.history.begin(any(), any()) }
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
@@ -289,8 +348,8 @@ class AfterEncodeRunnerTest :
         expect("duplicate and empty output manifests cannot upload") {
             val f = Fixture()
             try {
-                f.run(files = emptyList())
-                f.run(files = listOf(f.output, f.output))
+                shouldThrow<IllegalArgumentException> { f.run(files = emptyList()) }
+                shouldThrow<IllegalArgumentException> { f.run(files = listOf(f.output, f.output)) }
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
                 f.output.exists() shouldBe true
             } finally {
@@ -315,8 +374,8 @@ class AfterEncodeRunnerTest :
             val f = Fixture()
             try {
                 f.output.delete()
-                f.run(dryRun = true)
-                verify { f.slack.notify(match { it.contains("Callback output missing") }) }
+                shouldThrow<IllegalStateException> { f.run(dryRun = true) }.message shouldContain "Callback output missing"
+                verify(exactly = 0) { f.slack.notify(any()) }
                 verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
                 listOf(f.original, f.input, f.split).forEach { it.exists() shouldBe true }
             } finally {
@@ -341,7 +400,7 @@ class AfterEncodeRunnerTest :
                 val f = Fixture()
                 try {
                     stub(f)
-                    f.run()
+                    shouldThrow<Exception> { f.run() }
                     verify { f.slack.notify(match { it.contains("claiming encode callback failed") }) }
                     verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(any(), any(), any()) }
                     verify(exactly = 0) { f.uploads.upload(any(), any(), any(), any(), any(), any()) }
@@ -358,7 +417,7 @@ class AfterEncodeRunnerTest :
                 every { f.jobs.findByExecutedFile(10) } returns
                     f.job.copy(callbackClaim = "other-owner", updatedAt = LocalDateTime.of(2026, 10, 1, 3, 4))
                 every { f.jobs.claimCallback(any()) } returns null
-                f.run()
+                shouldThrow<IllegalStateException> { f.run() }
                 verify { f.slack.notify(match { it.contains("other-owner") && it.contains("2026-10-01T03:04") }) }
             } finally {
                 f.cleanup()
@@ -368,7 +427,7 @@ class AfterEncodeRunnerTest :
             val f = Fixture()
             try {
                 every { f.jobs.releaseCallback(any(), "token") } throws IllegalStateException("claim lost")
-                f.run()
+                shouldThrow<IllegalStateException> { f.run() }.message shouldBe "claim lost"
                 verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
                 verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, any()) }
                 verify { f.slack.notify(match { it.contains("releasing callback claim of job 1 failed") }) }
@@ -381,10 +440,11 @@ class AfterEncodeRunnerTest :
             try {
                 every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws RuntimeException("smb timeout")
                 every { f.jobs.releaseCallback(any(), "token") } throws IllegalStateException("claim lost")
-                f.run()
+                val failure = shouldThrow<RuntimeException> { f.run() }
+                failure.message shouldBe "smb timeout"
+                failure.suppressed.map { it.message } shouldBe listOf("claim lost")
                 verify { f.slack.notify(match { it.contains("smb timeout") }) }
                 verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.ERROR, false) }
-                verify { f.slack.notify(match { it.contains("releasing callback claim of job 1 failed") }) }
             } finally {
                 f.cleanup()
             }
@@ -404,7 +464,7 @@ class AfterEncodeRunnerTest :
             val f = Fixture()
             try {
                 every { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) } throws RuntimeException("db down")
-                f.run()
+                shouldThrow<RuntimeException> { f.run() }
                 f.input.exists() shouldBe false
                 f.original.exists() shouldBe false
                 verify { f.slack.notify(match { it.contains("db down") }) }
@@ -446,7 +506,7 @@ class AfterEncodeRunnerTest :
             try {
                 every { f.jobs.findByExecutedFile(10) } returns f.job.copy(state = "COMPLETED")
                 every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws IllegalStateException("source gone")
-                f.run()
+                shouldThrow<IllegalStateException> { f.run() }
                 verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(any(), any(), any()) }
                 verify { f.jobs.releaseCallback(any(), "token") }
             } finally {
