@@ -154,14 +154,8 @@ class AfterEncodeRunner(
                                 history.progress(active.id, onUploadProgress),
                             )
                         // Probe the local file: it is byte-identical to the verified upload and avoids a NAS round trip.
-                        // Subtitles and other non-video outputs have no resolution, so they are not probed; a non-null
-                        // encoding means a compressed (e.g. gzip) file, which ffprobe cannot read as video either.
-                        val resolution =
-                            if (mime.mime?.startsWith("video/") == true && mime.encoding == null) {
-                                videoResolutionProbeClient.probe(path.toFile())
-                            } else {
-                                null
-                            }
+                        // Subtitles, compressed files and other non-video outputs have no readable resolution.
+                        val resolution = if (mime.isProbeableVideo) videoResolutionProbeClient.probe(path.toFile()) else null
                         verifiedUploadCommand.register(uploaded, splittedFile.id, mime.mime, mime.encoding, resolution)
                         uploaded
                     }
