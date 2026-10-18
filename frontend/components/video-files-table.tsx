@@ -25,6 +25,9 @@ export function VideoFilesTable({
         {files.map((file) => (
           <tr key={file.id}>
             <td className="px-4 py-2">{file.file}</td>
+            <td className="px-4 py-2 whitespace-nowrap">
+              {file.width != null && file.height != null ? `${file.width}×${file.height}` : "-"}
+            </td>
             <td className="px-4 py-2">
               {file.mp4 ? (
                 <Link

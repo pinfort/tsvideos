@@ -105,6 +105,8 @@ object ReadJson {
                 "mime" to mime,
                 "encoding" to encoding,
                 "status" to status.name,
+                "width" to width,
+                "height" to height,
             )
         }
 }

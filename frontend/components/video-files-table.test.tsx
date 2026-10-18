@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { CreatedFile } from "@/lib/api/types";
 import { VideoFilesTable } from "./video-files-table";
@@ -19,6 +19,20 @@ function makeFile(overrides: Partial<CreatedFile> = {}): CreatedFile {
 }
 
 describe("VideoFilesTable", () => {
+  it("shows the resolution when known and a dash otherwise", () => {
+    render(
+      <VideoFilesTable
+        files={[
+          makeFile({ id: 1, file: "a.mp4", width: 1920, height: 1080 }),
+          makeFile({ id: 2, file: "b.ass", width: null, height: null }),
+        ]}
+      />,
+    );
+    const [known, unknown] = screen.getAllByRole("row");
+    expect(within(known).getByText("1920×1080")).toBeInTheDocument();
+    expect(within(unknown).getByText("-")).toBeInTheDocument();
+  });
+
   it("links to the viewer when a file has an mp4 rendition", () => {
     render(<VideoFilesTable files={[makeFile({ id: 3, file: "video.mp4", mp4: true })]} />);
     expect(screen.getByText("視聴")).toHaveAttribute("href", "/video/3/view");

@@ -13,7 +13,7 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | 番組 | `Program` (`program`) | 録画から作られ、manager が管理する単位。エンコード後の成果物 (作成ファイル) を束ねる |
 | 番組詳細 | `ProgramDetail` | 番組に作成ファイル・タグ・チェックを加えた表示用のモデル |
 | 分割ファイル | `SplittedFile` (`splitted_file`) | TsSplitter が録画から分割したファイル。本編にあたるものをメインの分割ファイルと呼ぶ |
-| 作成ファイル | `CreatedFile` (`created_file`) | Amatsukaze のエンコードで作られた成果物 (主に mp4)。NAS に保管される |
+| 作成ファイル | `CreatedFile` (`created_file`) | Amatsukaze のエンコードで作られた成果物 (主に mp4)。NAS に保管される。動画の解像度 (`width`/`height`) を持つ。動画以外のファイルと解像度記録前のデータは未設定 (null) |
 | チャンネル | `channel` | 放送のチャンネル番号 |
 | チャンネル名 | `channelName` | 放送局名 |
 | ドロップ | `drops` | 録画中に欠落したフレーム数。TsSelect の `tsDump` で数える |

@@ -14,8 +14,8 @@ import org.apache.ibatis.annotations.Update
 interface CreatedFileMapper {
     @Insert(
         """
-            INSERT INTO created_file(splitted_file_id, file, size, mime, encoding, status)
-            VALUES(#{splittedFileId}, #{file}, #{size}, #{mime}, #{encoding}, #{status})
+            INSERT INTO created_file(splitted_file_id, file, size, mime, encoding, status, width, height)
+            VALUES(#{splittedFileId}, #{file}, #{size}, #{mime}, #{encoding}, #{status}, #{width}, #{height})
         """,
     )
     @Options(useGeneratedKeys = true, keyProperty = "keyHolder.id")
@@ -27,6 +27,8 @@ interface CreatedFileMapper {
         encoding: String?,
         status: String,
         keyHolder: GeneratedKeyHolder,
+        width: Int? = null,
+        height: Int? = null,
     ): Int
 
     @Select(
@@ -38,7 +40,9 @@ interface CreatedFileMapper {
                 size,
                 mime,
                 encoding,
-                status
+                status,
+                width,
+                height
             FROM
                 created_file
             WHERE
@@ -56,7 +60,9 @@ interface CreatedFileMapper {
                 size,
                 mime,
                 encoding,
-                status
+                status,
+                width,
+                height
             FROM
                 created_file
             WHERE
@@ -74,7 +80,9 @@ interface CreatedFileMapper {
                 created_file.size,
                 created_file.mime,
                 created_file.encoding,
-                created_file.status
+                created_file.status,
+                created_file.width,
+                created_file.height
             FROM
                 created_file
             LEFT JOIN splitted_file
@@ -94,7 +102,9 @@ interface CreatedFileMapper {
                 created_file.size,
                 created_file.mime,
                 created_file.encoding,
-                created_file.status
+                created_file.status,
+                created_file.width,
+                created_file.height
             FROM
                 created_file
             INNER JOIN splitted_file
@@ -116,7 +126,9 @@ interface CreatedFileMapper {
                 created_file.size,
                 created_file.mime,
                 created_file.encoding,
-                created_file.status
+                created_file.status,
+                created_file.width,
+                created_file.height
             FROM
                 created_file
             INNER JOIN splitted_file
@@ -147,6 +159,25 @@ interface CreatedFileMapper {
     fun updateFile(
         createdFileId: Long,
         file: String,
+    ): Int
+
+    @Update(
+        """
+            UPDATE
+                created_file
+            SET
+                width = #{width},
+                height = #{height}
+            WHERE
+                id = #{id}
+                AND width IS NULL
+                AND height IS NULL
+        """,
+    )
+    fun updateResolutionIfMissing(
+        id: Long,
+        width: Int,
+        height: Int,
     ): Int
 
     @Update(

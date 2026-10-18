@@ -13,7 +13,10 @@ class MimeTypeComponent {
     data class MimeType(
         val mime: String?,
         val encoding: String?,
-    )
+    ) {
+        /** An uncompressed video that a media probe (ffprobe) can read directly; a compressed (e.g. gzip) file cannot be. */
+        val isProbeableVideo: Boolean get() = mime?.startsWith("video/") == true && encoding == null
+    }
 
     companion object {
         private const val GZIP_SUFFIX = ".gz"

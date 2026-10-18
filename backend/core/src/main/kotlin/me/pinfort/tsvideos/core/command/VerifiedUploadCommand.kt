@@ -9,6 +9,7 @@ import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest
 import me.pinfort.tsvideos.core.domain.UploadManifest.State
 import me.pinfort.tsvideos.core.domain.VerifiedUploadReceipt
+import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.domain.sha256Hex
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
@@ -246,11 +247,12 @@ class VerifiedUploadCommand(
         splittedFileId: Long,
         mime: String?,
         encoding: String?,
+        resolution: VideoResolution? = null,
     ): CreatedFile =
         retry.execute(RetryOperation.REGISTER_UPLOAD, {
             retryEligible(transaction.execute { manifests.get(receipt.manifestId) }, State.VERIFIED)
         }) {
-            registerOnce(receipt, splittedFileId, mime, encoding)
+            registerOnce(receipt, splittedFileId, mime, encoding, resolution)
         }
 
     private fun registerOnce(
@@ -258,6 +260,7 @@ class VerifiedUploadCommand(
         splittedFileId: Long,
         mime: String?,
         encoding: String?,
+        resolution: VideoResolution?,
     ): CreatedFile =
         withClaim(receipt.manifestId) { manifest, token ->
             check(manifest.state in State.VERIFIED) { "Upload is not verified" }
@@ -274,11 +277,26 @@ class VerifiedUploadCommand(
                         file.encoding == encoding &&
                         file.status == CreatedFile.Status.FILE_MOVED,
                 ) { "Registered artifact record does not match this registration" }
-                file
+                // The resolution is best-effort metadata, so it is not part of this identity check: a re-run that probes
+                // null keeps the stored value, and one that probes a value fills in a resolution the first run missed.
+                if (resolution != null && file.width == null && file.height == null) {
+                    transaction.execute { createdMapper.updateResolutionIfMissing(file.id, resolution.width, resolution.height) }
+                    file.copy(width = resolution.width, height = resolution.height)
+                } else {
+                    file
+                }
             } else {
                 checkNotNull(
                     transaction.execute {
-                        val file = createdFiles.insert(splittedFileId, manifest.finalPath, manifest.sourceSize, mime, encoding)
+                        val file =
+                            createdFiles.insert(
+                                splittedFileId,
+                                manifest.finalPath,
+                                manifest.sourceSize,
+                                mime,
+                                encoding,
+                                resolution = resolution,
+                            )
                         check(manifests.register(manifest.id, token, file.id) == 1) { "Upload registration lost ownership" }
                         file
                     },

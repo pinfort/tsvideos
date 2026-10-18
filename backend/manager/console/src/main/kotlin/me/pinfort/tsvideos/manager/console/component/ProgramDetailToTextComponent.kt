@@ -23,9 +23,10 @@ class ProgramDetailToTextComponent {
             sb.appendLine("$label: ${detectionText(programDetail.detected(tag))}")
         }
         sb.appendLine("ファイル: ${videoFiles.size}件")
-        sb.appendLine("id\tmime\tname")
+        sb.appendLine("id\tmime\tname\tresolution")
         videoFiles.forEach {
-            sb.appendLine("${it.id}\t${it.mime}\t${it.file}")
+            val resolution = if (it.width != null && it.height != null) "${it.width}x${it.height}" else "-"
+            sb.appendLine("${it.id}\t${it.mime}\t${it.file}\t$resolution")
         }
         return sb.toString()
     }

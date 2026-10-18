@@ -32,7 +32,7 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 `tvpcli` は3つのサブコマンドを持ちます。
 
 - `process <パス>...` — 録画ファイル（または `.m2ts` を含むディレクトリ）をドロップチェック(tsselect) → TsSplitter → 圧縮・NAS アップロード → Amatsukaze タスク登録 のパイプラインで処理します。
-- `after-encode` — Amatsukaze のエンコード実行後バッチから呼び出します。エンコード済みファイルを `created_file` として登録し、NAS へアップロードしたうえで元ファイルを削除し、番組を `COMPLETED` にします。
+- `after-encode` — Amatsukaze のエンコード実行後バッチから呼び出します。エンコード済みファイルを `created_file` として登録し（ffprobe で取得した動画の解像度 `width`/`height` も保存します。動画でない場合や取得できない場合は NULL。マイグレーション `073_created_file_resolution.sql`）、NAS へアップロードしたうえで元ファイルを削除し、番組を `COMPLETED` にします。
 - `reset <録画ファイル>` — 指定した録画ファイルの処理をリセットします。`executed_file` → `program` を辿り、`splitted_file` / `created_file` の各レコード、NAS 上のファイル、ローカルに残った分割ファイルを削除したうえで `program` と `executed_file` のレコードも消します（元の録画ファイルは残します）。実行前に確認を求めます。ロールバックは行いません（Python 版 `reset.py` の移植）。
 
 いずれも `-d` / `--dry-run` で書き込みを行わずに実行できます。

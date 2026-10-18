@@ -40,4 +40,19 @@ class MimeTypeComponentTest :
                 mimeTypeComponent.guess("foo") shouldBe MimeTypeComponent.MimeType(null, null)
             }
         }
+
+        context("isProbeableVideo") {
+            expect("uncompressed video") {
+                mimeTypeComponent.guess("foo.mp4").isProbeableVideo shouldBe true
+                mimeTypeComponent.guess("foo.m2ts").isProbeableVideo shouldBe true
+            }
+
+            expect("compressed video") {
+                mimeTypeComponent.guess("foo.m2ts.gz").isProbeableVideo shouldBe false
+            }
+
+            expect("non-video") {
+                mimeTypeComponent.guess("foo.ass").isProbeableVideo shouldBe false
+            }
+        }
     })

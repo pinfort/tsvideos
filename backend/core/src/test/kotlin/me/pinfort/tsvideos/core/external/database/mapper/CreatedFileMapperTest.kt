@@ -77,6 +77,52 @@ class CreatedFileMapperTest : ExpectSpec() {
             }
         }
 
+        context("resolution") {
+            expect("is written on insert and read back by every select") {
+                val connection = dataSource.connection
+                connection.prepareStatement("DELETE FROM created_file").execute()
+                connection.prepareStatement("DELETE FROM splitted_file").execute()
+                connection
+                    .prepareStatement(
+                        "INSERT INTO splitted_file(id,executed_file_id,file,size,duration,status) VALUES(2,5,'s',6,7.0,'COMPRESS_SAVED')",
+                    ).execute()
+                connection.commit()
+
+                val keyHolder = GeneratedKeyHolder()
+                createdFileMapper.insert(2, "test", 3, "video/mp4", null, "FILE_MOVED", keyHolder, 1920, 1080)
+                connection.commit()
+
+                val expected = CreatedFileDto(keyHolder.id, 2, "test", 3, "video/mp4", null, CreatedFileDto.Status.FILE_MOVED, 1920, 1080)
+                createdFileMapper.find(keyHolder.id) shouldBe expected
+                createdFileMapper.selectBySplittedFileId(2) shouldBe listOf(expected)
+                createdFileMapper.selectByExecutedFileId(5) shouldBe listOf(expected)
+                createdFileMapper.selectAllWithExecutedFileId().map { it.toCreatedFileDto() } shouldBe listOf(expected)
+                createdFileMapper.selectMovedByExecutedFileIds(listOf(5)).map { it.toCreatedFileDto() } shouldBe listOf(expected)
+                connection.close()
+            }
+        }
+
+        context("updateResolutionIfMissing") {
+            expect("sets a missing resolution and leaves a stored one alone") {
+                val connection = dataSource.connection
+                connection.prepareStatement("DELETE FROM created_file").execute()
+                connection
+                    .prepareStatement(
+                        "INSERT INTO created_file(id,splitted_file_id,file,size,mime,encoding,status,width,height) " +
+                            "VALUES(1,2,'a',3,'video/mp4',NULL,'FILE_MOVED',NULL,NULL),(2,2,'b',3,'video/mp4',NULL,'FILE_MOVED',1920,1080)",
+                    ).execute()
+                connection.commit()
+
+                createdFileMapper.updateResolutionIfMissing(1, 1280, 720) shouldBe 1
+                createdFileMapper.updateResolutionIfMissing(2, 1280, 720) shouldBe 0
+                connection.commit()
+
+                createdFileMapper.find(1)?.let { it.width to it.height } shouldBe (1280 to 720)
+                createdFileMapper.find(2)?.let { it.width to it.height } shouldBe (1920 to 1080)
+                connection.close()
+            }
+        }
+
         context("find") {
             expect("single") {
                 val connection = dataSource.connection
