@@ -13,6 +13,18 @@ export function SearchForm({
 }) {
   const v = (key: string, fallback = "") =>
     typeof values[key] === "string" ? (values[key] as string) : fallback;
+  const advancedKeys = [
+    "collectionId",
+    "libraryTagId",
+    "channel",
+    "status",
+    "recordedFrom",
+    "recordedTo",
+    "fileType",
+    "minDrops",
+    "maxDrops",
+  ];
+  const activeCount = advancedKeys.filter((key) => v(key) !== "").length;
   return (
     <form
       action="/"
@@ -24,7 +36,20 @@ export function SearchForm({
       <Link href="/collections" className="text-link underline">
         コレクション・手動タグを管理
       </Link>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <label className="flex flex-col gap-1 text-sm">
+        番組名
+        <Input
+          name="name"
+          defaultValue={v("name")}
+          placeholder="番組名で検索"
+        />
+      </label>
+      <details className="rounded-md border p-3">
+        <summary className="cursor-pointer text-sm font-medium">
+          詳細条件
+          {activeCount > 0 && `（指定中: ${activeCount}件）`}
+        </summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {(["collections", "tags"] as const).map((kind) => {
           const key = kind === "collections" ? "collectionId" : "libraryTagId";
           const current = v(key);
@@ -48,14 +73,6 @@ export function SearchForm({
             </label>
           );
         })}
-        <label className="flex flex-col gap-1 text-sm">
-          番組名
-          <Input
-            name="name"
-            defaultValue={v("name")}
-            placeholder="番組名で検索"
-          />
-        </label>
         <label className="flex flex-col gap-1 text-sm">
           チャンネルID
           <Input
@@ -148,7 +165,8 @@ export function SearchForm({
             required
           />
         </label>
-      </div>
+        </div>
+      </details>
       <input type="hidden" name="offset" value="0" />
       <p className="text-xs text-muted-foreground">
         日時は録画環境の現地時刻です。ドロップ数の指定時は未確認の録画を除きます。形式は登録済みファイルの情報で判定します。

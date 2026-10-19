@@ -57,6 +57,17 @@ describe("SearchForm", () => {
   });
 });
 
+it("folds the advanced filters by default while keeping the program name visible", () => {
+  render(<SearchForm values={{ channel: "BS1" }} />);
+  const details = screen
+    .getByText(/詳細条件/)
+    .closest("details") as HTMLDetailsElement;
+  expect(details.open).toBe(false);
+  expect(details).toHaveTextContent("指定中: 1件");
+  expect(details).not.toContainElement(screen.getByLabelText("番組名"));
+  expect(details).toContainElement(screen.getByLabelText("チャンネルID"));
+});
+
 it("preserves manual organization filters including a deleted ID and resets only pagination", () => {
   render(
     <SearchForm
