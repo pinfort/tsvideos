@@ -51,6 +51,7 @@ export function BulkPrograms({
 }) {
   const router = useRouter();
   const previewButton = useRef<HTMLButtonElement>(null);
+  const results = useRef<HTMLElement>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [selectedAction, setAction] = useState<"DELETE" | "MOVE">("DELETE");
   // deleteOnly callers hide the picker; derive the action so MOVE can never be sent from them.
@@ -70,6 +71,7 @@ export function BulkPrograms({
     setPending(true);
     setError("");
     setOutcomes([]);
+    setPlan(null);
     try {
       setPlan(
         await previewBulk({
@@ -190,7 +192,10 @@ export function BulkPrograms({
             }}
             onCloseAutoFocus={(event) => {
               event.preventDefault();
-              previewButton.current?.focus();
+              // Preview is disabled once every target succeeded and the selection is empty.
+              const button = previewButton.current;
+              if (button && !button.matches(":disabled")) button.focus();
+              else results.current?.focus();
             }}
           >
             <AlertDialogTitle>
@@ -261,7 +266,7 @@ export function BulkPrograms({
         )}
       </AlertDialog>
       {outcomes.length > 0 && (
-        <section aria-label="処理結果">
+        <section aria-label="処理結果" ref={results} tabIndex={-1}>
           <h2>処理結果</h2>
           <ul>
             {outcomes.map((o) => (

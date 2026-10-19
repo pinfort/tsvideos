@@ -207,3 +207,22 @@ it("words the confirmation for a move and shows each destination", async () => {
     screen.getByRole("button", { name: "確認して移動を実行" }),
   ).toBeEnabled();
 });
+
+it("moves focus to the results when every target succeeded and preview is disabled", async () => {
+  const user = userEvent.setup();
+  applyBulk.mockResolvedValue({
+    outcomes: [{ id: 1, status: "SUCCESS", message: "done" }],
+  });
+  render(<BulkPrograms programs={programs} />);
+  await user.click(screen.getByLabelText("録画 1 を選択"));
+  await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
+  await user.click(
+    await screen.findByRole("button", { name: "確認して削除を実行" }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("region", { name: "処理結果" })).toHaveFocus(),
+  );
+  expect(
+    screen.getByRole("button", { name: "対象をプレビュー" }),
+  ).toBeDisabled();
+});

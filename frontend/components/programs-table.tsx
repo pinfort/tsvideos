@@ -54,6 +54,7 @@ export function ProgramsTable({
               <TableCell>
                 <input
                   type="checkbox"
+                  className="size-4 accent-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   aria-label={`録画 ${program.id} を選択`}
                   checked={selected?.includes(program.id) ?? false}
                   disabled={
@@ -76,6 +77,7 @@ export function ProgramsTable({
             <TableCell>{program.executedFileId}</TableCell>
             <TableCell>
               <Badge
+                // The API may add statuses before this map does; status-labels falls back to 異常 too.
                 variant={statusBadgeVariant[program.status] ?? "secondary"}
               >
                 {programStatusToJapanese(program.status)}
