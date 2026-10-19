@@ -32,8 +32,16 @@ class MimeTypeComponentTest :
                 mimeTypeComponent.guess("FOO.MP4") shouldBe MimeTypeComponent.MimeType("video/mp4", null)
             }
 
+            expect("subtitle and auxiliary files") {
+                mimeTypeComponent.guess("foo.ass") shouldBe MimeTypeComponent.MimeType("text/x-ssa", null)
+                mimeTypeComponent.guess("foo.srt") shouldBe MimeTypeComponent.MimeType("application/x-subrip", null)
+                mimeTypeComponent.guess("foo.txt") shouldBe MimeTypeComponent.MimeType("text/plain", null)
+                mimeTypeComponent.guess("foo.json") shouldBe MimeTypeComponent.MimeType("application/json", null)
+                mimeTypeComponent.guess("foo.aac") shouldBe MimeTypeComponent.MimeType("audio/aac", null)
+            }
+
             expect("unknown extension") {
-                mimeTypeComponent.guess("foo.srt") shouldBe MimeTypeComponent.MimeType(null, null)
+                mimeTypeComponent.guess("foo.unknown") shouldBe MimeTypeComponent.MimeType(null, null)
             }
 
             expect("no extension") {

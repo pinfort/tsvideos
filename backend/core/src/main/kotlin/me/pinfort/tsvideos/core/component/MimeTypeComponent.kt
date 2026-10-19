@@ -26,6 +26,16 @@ class MimeTypeComponent {
                 "mp4" to "video/mp4",
                 "m2ts" to "video/vnd.dlna.mpeg-tts",
                 "ts" to "video/vnd.dlna.mpeg-tts",
+                // Amatsukaze が動画と一緒に出力する字幕・補助ファイル。video/ 以外なので統計・検索では動画として数えられない。
+                "ass" to "text/x-ssa",
+                "srt" to "application/x-subrip",
+                "txt" to "text/plain",
+                "log" to "text/plain",
+                "json" to "application/json",
+                "xml" to "application/xml",
+                "aac" to "audio/aac",
+                "m4a" to "audio/mp4",
+                "wav" to "audio/wav",
             )
     }
 
