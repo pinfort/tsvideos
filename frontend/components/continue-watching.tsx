@@ -76,10 +76,7 @@ export function ContinueWatching() {
             {check(entry) === "missing" ? (
               <span>{entry.title}（削除済み・利用不可）</span>
             ) : (
-              <Link
-                className="text-blue-600 underline"
-                href={playbackHref(entry)}
-              >
+              <Link className="text-link underline" href={playbackHref(entry)}>
                 {entry.title}
               </Link>
             )}

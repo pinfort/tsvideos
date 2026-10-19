@@ -69,7 +69,7 @@ export function ProgramsTable({
             <TableCell>
               <Link
                 href={`/programs/${program.id}`}
-                className="text-blue-600 hover:underline dark:text-blue-400"
+                className="text-link hover:underline"
               >
                 {program.name}
               </Link>

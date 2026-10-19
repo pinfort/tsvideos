@@ -32,7 +32,7 @@ export function VideoFilesTable({
               {file.mp4 ? (
                 <Link
                   href={viewHref(file, programId, title)}
-                  className="text-blue-600 hover:underline dark:text-blue-400"
+                  className="text-link hover:underline"
                 >
                   視聴
                 </Link>

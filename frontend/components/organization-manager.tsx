@@ -79,7 +79,7 @@ export function OrganizationManager({ options }: { options: Organization }) {
               >
                 <Link
                   href={`/?${kind === "collections" ? "collectionId" : "libraryTagId"}=${label.id}&sort=RECORDED_AT&direction=ASC`}
-                  className="text-blue-600 underline"
+                  className="text-link underline"
                 >
                   {label.name}（{label.programCount}件）を録画順に表示
                 </Link>

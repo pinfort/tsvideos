@@ -21,10 +21,7 @@ export function SearchForm({
       aria-label="録画検索"
     >
       <h1 className="text-2xl font-semibold">録画を検索</h1>
-      <Link
-        href="/collections"
-        className="text-blue-600 underline dark:text-blue-400"
-      >
+      <Link href="/collections" className="text-link underline">
         コレクション・手動タグを管理
       </Link>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -158,10 +155,7 @@ export function SearchForm({
       </p>
       <div className="flex items-center gap-4">
         <Button type="submit">検索</Button>
-        <Link
-          href="/"
-          className="text-sm text-blue-600 underline dark:text-blue-400"
-        >
+        <Link href="/" className="text-sm text-link underline">
           条件をクリア
         </Link>
       </div>

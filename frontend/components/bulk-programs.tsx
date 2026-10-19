@@ -177,7 +177,8 @@ export function BulkPrograms({
           対象をプレビュー
         </Button>
       </fieldset>
-      {pending && !confirming && <p role="status">処理中…</p>}
+      {/* Live regions stay mounted so screen readers announce the text change. */}
+      <p role="status">{pending && !confirming ? "処理中…" : ""}</p>
       {error && <p role="alert">{error}</p>}
       <AlertDialog
         open={confirming}
@@ -261,7 +262,7 @@ export function BulkPrograms({
                 を実行
               </Button>
             </AlertDialogFooter>
-            {pending && <p role="status">処理中…</p>}
+            <p role="status">{pending ? "処理中…" : ""}</p>
           </AlertDialogContent>
         )}
       </AlertDialog>
