@@ -278,10 +278,14 @@ class VerifiedUploadCommand(
                         file.status == CreatedFile.Status.FILE_MOVED,
                 ) { "Registered artifact record does not match this registration" }
                 // A record registered before its extension had a known mime stores NULL; a re-run fills it in rather than
-                // treating the newly guessed mime as a conflict. A stored mime is never overwritten.
+                // treating the newly guessed mime as a conflict. A stored mime is never overwritten, so if another writer
+                // filled it first the stored value must still match this registration.
                 val withMime =
                     if (mime != null && file.mime == null) {
-                        transaction.execute { createdMapper.updateMimeIfMissing(file.id, mime) }
+                        if (transaction.execute { createdMapper.updateMimeIfMissing(file.id, mime) } == 0) {
+                            val stored = transaction.execute { createdMapper.find(file.id) }?.toDomain()?.mime
+                            check(stored == mime) { "Registered artifact record does not match this registration" }
+                        }
                         file.copy(mime = mime)
                     } else {
                         file
