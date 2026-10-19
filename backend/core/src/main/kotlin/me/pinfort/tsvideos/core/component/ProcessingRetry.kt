@@ -1,7 +1,7 @@
 package me.pinfort.tsvideos.core.component
 
-import jcifs.smb.SmbAuthException
 import me.pinfort.tsvideos.core.config.ProcessingRetryConfigurationProperties
+import me.pinfort.tsvideos.core.storage.NasAuthenticationException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.io.FileNotFoundException
@@ -43,7 +43,8 @@ object TransientProcessingFailure {
                     it is AccessDeniedException ||
                     it is NoSuchFileException ||
                     it is FileNotFoundException ||
-                    it is SmbAuthException ||
+                    // NAS operations translate a rejected login (anywhere in the jcifs chain) into this type.
+                    it is NasAuthenticationException ||
                     it is SQLNonTransientException ||
                     it is SecurityException ||
                     it is IllegalArgumentException ||

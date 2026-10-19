@@ -5,6 +5,7 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
 import me.pinfort.tsvideos.core.config.SambaConfigurationProperties
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import java.nio.file.Files
@@ -44,7 +45,7 @@ class VerifiedUploadNasTest :
         expect("exclusive transfer never overwrites a pre-existing temporary artifact") {
             val source = Files.createTempFile("smb-upload", ".bin").toFile().apply { writeText("first source") }
             val path = "bucket/${UUID.randomUUID()}/artifact.upload-test"
-            val type = SambaClient.NasType.VIDEO_STORE_NAS
+            val type = NasStore.VIDEO_STORE_NAS
             try {
                 var owned = false
                 nas.transfer(type, path, source, { owned = true }, { _, _ -> })
@@ -66,7 +67,7 @@ class VerifiedUploadNasTest :
             val temporary = "$directory/artifact.upload-test"
             val final = "$directory/artifact.bin"
             val other = "$directory/other.upload-test"
-            val type = SambaClient.NasType.ORIGINAL_STORE_NAS
+            val type = NasStore.ORIGINAL_STORE_NAS
             try {
                 var bytes = 0L
                 val sent = nas.transfer(type, temporary, source, {}, { value, _ -> bytes = value })

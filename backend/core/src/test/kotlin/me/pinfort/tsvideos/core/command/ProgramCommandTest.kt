@@ -27,7 +27,7 @@ import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
 import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import me.pinfort.tsvideos.core.external.database.mapper.SplittedFileMapper
-import me.pinfort.tsvideos.core.external.samba.SambaClient
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.slf4j.Logger
 import java.nio.file.Path
 import java.time.LocalDateTime
@@ -456,7 +456,7 @@ class ProgramCommandTest :
                 every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto)
                 every { splittedFileCommand.delete(any()) } just Runs
                 every { logger.info(any()) } just Runs
-                every { createdFileCommand.delete(any()) } returns SambaClient.NasType.ORIGINAL_STORE_NAS
+                every { createdFileCommand.delete(any()) } returns NasStore.ORIGINAL_STORE_NAS
                 every { executedFileCommand.delete(any()) } just Runs
                 every { programMapper.deleteById(any()) } just Runs
 
@@ -494,7 +494,7 @@ class ProgramCommandTest :
                 every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto)
                 every { splittedFileCommand.delete(any(), any()) } just Runs
                 every { logger.info(any()) } just Runs
-                every { createdFileCommand.delete(any(), any()) } returns SambaClient.NasType.ORIGINAL_STORE_NAS
+                every { createdFileCommand.delete(any(), any()) } returns NasStore.ORIGINAL_STORE_NAS
                 every { executedFileCommand.delete(any(), any()) } just Runs
                 every { programMapper.deleteById(any()) } just Runs
 
@@ -546,7 +546,7 @@ class ProgramCommandTest :
         context("moveCreatedFiles") {
             expect("success") {
                 every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto)
-                every { createdFileCommand.move(any(), any()) } returns SambaClient.NasType.ORIGINAL_STORE_NAS
+                every { createdFileCommand.move(any(), any()) } returns NasStore.ORIGINAL_STORE_NAS
                 every { logger.info(any()) } just Runs
                 every { directoryNameComponent.replaceWithGivenDirectoryName(any(), any()) } returns Path.of("newPath")
 
@@ -564,7 +564,7 @@ class ProgramCommandTest :
                 every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto, second)
                 every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file1"), any()) } returns Path.of("new/file1")
                 every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file2"), any()) } returns Path.of("new/file2")
-                every { createdFileCommand.move(createdFile, "new\\file1") } returns SambaClient.NasType.VIDEO_STORE_NAS
+                every { createdFileCommand.move(createdFile, "new\\file1") } returns NasStore.VIDEO_STORE_NAS
                 every { createdFileCommand.move(second.toDomain(), "new\\file2") } throws RuntimeException("nas")
                 every { createdFileCommand.restoreMoved(any()) } just Runs
 
@@ -575,7 +575,7 @@ class ProgramCommandTest :
 
             expect("dryRun") {
                 every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto)
-                every { createdFileCommand.move(any(), any(), any()) } returns SambaClient.NasType.ORIGINAL_STORE_NAS
+                every { createdFileCommand.move(any(), any(), any()) } returns NasStore.ORIGINAL_STORE_NAS
                 every { logger.info(any()) } just Runs
                 every { directoryNameComponent.replaceWithGivenDirectoryName(any(), any()) } returns Path.of("newPath")
 

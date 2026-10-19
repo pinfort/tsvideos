@@ -20,8 +20,8 @@ import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
-import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.VideoResolutionProbeClient
+import me.pinfort.tsvideos.core.storage.NasStore
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
@@ -149,7 +149,7 @@ class AfterEncodeRunner(
                                 checkNotNull(job).id,
                                 "encoded:${path.toFile().canonicalPath}",
                                 path.toFile(),
-                                SambaClient.NasType.VIDEO_STORE_NAS,
+                                NasStore.VIDEO_STORE_NAS,
                                 target,
                                 history.progress(active.id, onUploadProgress),
                             )
@@ -254,7 +254,7 @@ class AfterEncodeRunner(
         nasDestinationResolver.resolve(
             file.parent.parent.parent,
             file.fileName.toString(),
-            SambaClient.NasType.VIDEO_STORE_NAS,
+            NasStore.VIDEO_STORE_NAS,
         )
 
     /** 番組を COMPLETED にして番組IDを返す。失敗は例外として投げ、呼び出し元で履歴に記録してから通知する。 */

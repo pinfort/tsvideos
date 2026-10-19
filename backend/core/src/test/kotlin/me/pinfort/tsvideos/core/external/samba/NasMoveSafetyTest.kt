@@ -9,6 +9,7 @@ import io.mockk.verify
 import jcifs.SmbConstants
 import jcifs.SmbResource
 import jcifs.smb.SmbFile
+import me.pinfort.tsvideos.core.storage.NasStore
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
@@ -41,7 +42,7 @@ class NasMoveSafetyTest :
             nas = NasComponent(client, mockk(relaxed = true))
         }
         expect("exclusive copy and readback complete before source deletion") {
-            nas.moveResource(old, new) shouldBe SambaClient.NasType.VIDEO_STORE_NAS
+            nas.moveResource(old, new) shouldBe NasStore.VIDEO_STORE_NAS
             output.toByteArray().toList() shouldBe listOf<Byte>(1, 2, 3)
             verify(exactly = 1) {
                 target.openOutputStream(
@@ -100,7 +101,7 @@ class NasMoveSafetyTest :
                 every { video.resolve(name) } returns file
                 every { file.exists() } returns true
                 every { file.isFile } returns true
-                nas.deleteResource(name) shouldBe SambaClient.NasType.VIDEO_STORE_NAS
+                nas.deleteResource(name) shouldBe NasStore.VIDEO_STORE_NAS
                 verify(exactly = 1) { file.delete() }
             }
         }

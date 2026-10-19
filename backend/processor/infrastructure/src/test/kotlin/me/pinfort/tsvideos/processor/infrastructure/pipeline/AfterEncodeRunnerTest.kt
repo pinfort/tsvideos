@@ -26,6 +26,7 @@ import me.pinfort.tsvideos.core.domain.VerifiedUploadReceipt
 import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.VideoResolutionProbeClient
+import me.pinfort.tsvideos.core.storage.NasStore
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
 import org.slf4j.Logger
 import java.io.File
@@ -211,7 +212,7 @@ class AfterEncodeRunnerTest :
                         1,
                         "encoded:${f.output.canonicalPath}",
                         f.output,
-                        SambaClient.NasType.VIDEO_STORE_NAS,
+                        NasStore.VIDEO_STORE_NAS,
                         "base/m/myprogram/video.mp4",
                         any(),
                     )
@@ -402,7 +403,7 @@ class AfterEncodeRunnerTest :
             val f = Fixture("Ａnime:０１")
             try {
                 f.run()
-                verify { f.uploads.upload(1, any(), f.output, SambaClient.NasType.VIDEO_STORE_NAS, "base/A/Anime：01/video.mp4", any()) }
+                verify { f.uploads.upload(1, any(), f.output, NasStore.VIDEO_STORE_NAS, "base/A/Anime：01/video.mp4", any()) }
             } finally {
                 f.cleanup()
             }

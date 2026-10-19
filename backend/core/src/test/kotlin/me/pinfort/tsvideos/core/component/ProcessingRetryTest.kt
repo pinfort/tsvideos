@@ -6,6 +6,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import me.pinfort.tsvideos.core.config.ProcessingRetryConfigurationProperties
+import me.pinfort.tsvideos.core.storage.NasAuthenticationException
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Import
@@ -113,7 +114,7 @@ class ProcessingRetryTest :
                         .NoSuchFileException("missing")
                         .apply { initCause(SocketTimeoutException()) },
                     java.sql.SQLNonTransientException("invalid", SocketTimeoutException()),
-                    mockk<jcifs.smb.SmbAuthException>(relaxed = true) { every { cause } returns SocketTimeoutException() },
+                    NasAuthenticationException("NAS upload failed: credentials rejected", SocketTimeoutException()),
                 )
             failures.forEach { TransientProcessingFailure.reason(it) shouldBe null }
         }

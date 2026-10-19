@@ -23,6 +23,7 @@ import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
 import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.samba.VerifiedUploadNas
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -102,7 +103,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 remote.remove(secondArg())
                 Unit
             }
-            val created = CreatedFileCommand(files, mockk(), mockk(), mockk(relaxed = true))
+            val created = CreatedFileCommand(files, mockk(), mockk(relaxed = true))
             val source = Files.createTempFile("verified-upload-", ".mp4").toFile().apply { writeText("complete video") }
             val job = UUID.randomUUID().mostSignificantBits.and(Long.MAX_VALUE)
             return Fixture(
@@ -133,9 +134,41 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             )
         }
 
-        fun Fixture.upload() = command.upload(job, "output", source, SambaClient.NasType.VIDEO_STORE_NAS, target)
+        fun Fixture.upload() = command.upload(job, "output", source, NasStore.VIDEO_STORE_NAS, target)
 
         fun Fixture.manifest() = checkNotNull(manifests.find(job, ProcessingIdentity.hash("output")))
+
+        expect("nas_type keeps the former SambaClient.NasType constant names in both directions") {
+            val f = fixture()
+            try {
+                f.upload()
+
+                fun rawNasType(): String =
+                    dataSource.connection.use { connection ->
+                        connection.autoCommit = true
+                        connection.prepareStatement("SELECT nas_type FROM upload_manifest WHERE job_id=?").use { statement ->
+                            statement.setLong(1, f.job)
+                            statement.executeQuery().use { rows ->
+                                rows.next() shouldBe true
+                                rows.getString(1)
+                            }
+                        }
+                    }
+                rawNasType() shouldBe "VIDEO_STORE_NAS"
+                f.manifest().nasType shouldBe NasStore.VIDEO_STORE_NAS
+                // A row written before NasStore existed holds the same names and reads back unchanged.
+                dataSource.connection.use { connection ->
+                    connection.autoCommit = true
+                    connection.prepareStatement("UPDATE upload_manifest SET nas_type='ORIGINAL_STORE_NAS' WHERE job_id=?").use {
+                        it.setLong(1, f.job)
+                        it.executeUpdate() shouldBe 1
+                    }
+                }
+                f.manifest().nasType shouldBe NasStore.ORIGINAL_STORE_NAS
+            } finally {
+                f.source.delete()
+            }
+        }
 
         expect("NOT_SUPPORTED synchronization re-reads newly committed ownership instead of cached absence") {
             val f = fixture()
@@ -478,7 +511,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.command.deleteLocal(receipt)
                 f.source.exists() shouldBe false
                 f.upload() shouldBe receipt
-                real.exists(SambaClient.NasType.VIDEO_STORE_NAS, f.target) shouldBe true
+                real.exists(NasStore.VIDEO_STORE_NAS, f.target) shouldBe true
             } finally {
                 f.source.delete()
                 container.stop()
@@ -648,7 +681,6 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                                 IllegalStateException("db")
                         },
                         mockk(),
-                        mockk(),
                         mockk(relaxed = true),
                     )
                 val command = VerifiedUploadCommand(manifests, f.nas, failing, files, transactions)
@@ -715,7 +747,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 val receipt = owner.upload()
                 val error =
                     shouldThrow<IllegalStateException> {
-                        other.command.upload(other.job, "output", other.source, SambaClient.NasType.VIDEO_STORE_NAS, owner.target)
+                        other.command.upload(other.job, "output", other.source, NasStore.VIDEO_STORE_NAS, owner.target)
                     }
                 error.message shouldBe
                     "Destination ${owner.target} belongs to upload ${receipt.manifestId} of job ${owner.job}; reconciliation required"
@@ -761,10 +793,10 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                     manifests.transition(firstArg(), secondArg(), thirdArg(), arg(3))
                 }
                 every { failing.release(any(), any()) } throws IllegalStateException("db blip")
-                val created = CreatedFileCommand(files, mockk(), mockk(), mockk(relaxed = true))
+                val created = CreatedFileCommand(files, mockk(), mockk(relaxed = true))
                 val command = VerifiedUploadCommand(failing, f.nas, created, files, transactions, true)
                 shouldThrow<IllegalStateException> {
-                    command.upload(f.job, "output", f.source, SambaClient.NasType.VIDEO_STORE_NAS, f.target)
+                    command.upload(f.job, "output", f.source, NasStore.VIDEO_STORE_NAS, f.target)
                 }.message shouldBe "db blip"
                 f.manifest().state shouldBe State.FINALIZED
                 f.command.releaseAbandonedClaim(f.command.claimed(f.job).single())
@@ -840,7 +872,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 every { failing.claim(any(), any()) } answers { manifests.claim(firstArg(), secondArg()) }
                 every { failing.get(any()) } answers { manifests.get(firstArg()) }
                 every { failing.release(any(), any()) } throws IllegalStateException("release failed")
-                val created = CreatedFileCommand(files, mockk(), mockk(), mockk(relaxed = true))
+                val created = CreatedFileCommand(files, mockk(), mockk(relaxed = true))
                 val command = VerifiedUploadCommand(failing, f.nas, created, files, transactions)
                 val error = shouldThrow<IllegalStateException> { command.deleteLocal(receipt) }
                 error.message shouldBe "Remote artifact has not been registered"
@@ -899,7 +931,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             val windows = System.getProperty("os.name").startsWith("Windows")
             val permissions = if (!windows) Files.getPosixFilePermissions(directory) else null
             try {
-                val receipt = f.command.upload(f.job, "protected", protectedSource, SambaClient.NasType.VIDEO_STORE_NAS, f.target)
+                val receipt = f.command.upload(f.job, "protected", protectedSource, NasStore.VIDEO_STORE_NAS, f.target)
                 f.command.register(receipt, 1, "video/mp4", null)
                 if (windows) {
                     check(protectedSource.setReadOnly())
@@ -971,7 +1003,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 every { failing.get(any()) } answers { manifests.get(firstArg()) }
                 every { failing.release(any(), any()) } answers { manifests.release(firstArg(), secondArg()) }
                 every { failing.register(any(), any(), any()) } returns 0
-                val created = CreatedFileCommand(files, mockk(), mockk(), mockk(relaxed = true))
+                val created = CreatedFileCommand(files, mockk(), mockk(relaxed = true))
                 val command = VerifiedUploadCommand(failing, f.nas, created, files, transactions)
                 val splitId = f.job
                 shouldThrow<IllegalStateException> { command.register(receipt, splitId, "video/mp4", null) }
@@ -990,7 +1022,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             try {
                 listOf("/abs/file", "a\\b", "a//b", "a/../b", "a/./b", "a/b:stream", "a/what?", "a/line\nbreak").forEach { path ->
                     shouldThrow<IllegalArgumentException> {
-                        f.command.upload(f.job, "output", f.source, SambaClient.NasType.VIDEO_STORE_NAS, path)
+                        f.command.upload(f.job, "output", f.source, NasStore.VIDEO_STORE_NAS, path)
                     }.message shouldStartWith "NAS target"
                     manifests.find(f.job, ProcessingIdentity.hash("output")) shouldBe null
                 }
@@ -1027,7 +1059,7 @@ class VerifiedUploadSpringConfiguration {
         VerifiedUploadCommand(
             manifests,
             nas,
-            CreatedFileCommand(files, mockk(), mockk(), mockk(relaxed = true)),
+            CreatedFileCommand(files, mockk(), mockk(relaxed = true)),
             files,
             transactions,
             true,

@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.core.external.samba
 
 import jcifs.SmbConstants
 import jcifs.SmbResource
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 import java.io.File
@@ -11,6 +12,7 @@ import java.security.DigestInputStream
 import java.security.MessageDigest
 import java.util.Locale
 
+/** Public operations throw storage exceptions ([SambaFailures]) instead of jcifs ones. */
 @Component
 class NasComponent(
     private val sambaClient: SambaClient,
@@ -27,17 +29,14 @@ class NasComponent(
     fun matchesSize(
         file: String,
         expectedBytes: Long,
-        nasType: SambaClient.NasType,
-    ): Boolean {
-        val nas =
-            when (nasType) {
-                SambaClient.NasType.VIDEO_STORE_NAS -> videoStoreNas
-                SambaClient.NasType.ORIGINAL_STORE_NAS -> originalStoreNas
-            }
-        return nas.resolve(file.replace('\\', '/')).use { it.exists() && it.length() == expectedBytes }
-    }
+        nasType: NasStore,
+    ): Boolean =
+        sambaOperation("size check") {
+            store(nasType).resolve(file.replace('\\', '/')).use { it.exists() && it.length() == expectedBytes }
+        }
 
-    fun getResource(file: String): SmbResource {
+    // Internal so the jcifs handle stays inside storage; it has no production caller (removal is module-boundaries U4).
+    internal fun getResource(file: String): SmbResource {
         // replace because windows path using '\'
         val resource = videoStoreNas.resolve(file.replace('\\', '/'))
         if (resource.exists()) return resource
@@ -50,33 +49,35 @@ class NasComponent(
      * created_file の file は VIDEO_STORE_NAS / ORIGINAL_STORE_NAS のどちらにも存在しうるため、
      * getResource と同じ順序で両方を確認する。見つからない場合は例外ではなく false を返す。
      */
-    fun resourceExists(file: String): Boolean {
-        val normalized = file.replace('\\', '/')
-        if (videoStoreNas.resolve(normalized).exists()) return true
-        return originalStoreNas.resolve(normalized).exists()
-    }
+    fun resourceExists(file: String): Boolean =
+        sambaOperation("existence check") {
+            val normalized = file.replace('\\', '/')
+            videoStoreNas.resolve(normalized).exists() || originalStoreNas.resolve(normalized).exists()
+        }
 
-    fun deleteResource(file: String): SambaClient.NasType {
+    fun deleteResource(file: String): NasStore {
         validateFilePath(file)
-        val resource = videoStoreNas.resolve(file.replace('\\', '/'))
-        if (resource.exists()) {
-            check(resource.isFile) { "Refusing to delete a directory" }
-            resource.delete()
-            return SambaClient.NasType.VIDEO_STORE_NAS
+        return sambaOperation("delete") {
+            val resource = videoStoreNas.resolve(file.replace('\\', '/'))
+            if (resource.exists()) {
+                check(resource.isFile) { "Refusing to delete a directory" }
+                resource.delete()
+                return NasStore.VIDEO_STORE_NAS
+            }
+            val originalResource = originalStoreNas.resolve(file.replace('\\', '/'))
+            if (originalResource.exists()) {
+                check(originalResource.isFile) { "Refusing to delete a directory" }
+                originalResource.delete()
+                return NasStore.ORIGINAL_STORE_NAS
+            }
+            throw Exception("File not found, path=$file")
         }
-        val originalResource = originalStoreNas.resolve(file.replace('\\', '/'))
-        if (originalResource.exists()) {
-            check(originalResource.isFile) { "Refusing to delete a directory" }
-            originalResource.delete()
-            return SambaClient.NasType.ORIGINAL_STORE_NAS
-        }
-        throw Exception("File not found, path=$file")
     }
 
     fun moveResource(
         oldFile: String,
         newFile: String,
-    ): SambaClient.NasType {
+    ): NasStore {
         validateFilePath(oldFile)
         validateFilePath(newFile)
         require(oldFile.replace('\\', '/').lowercase(Locale.ROOT) != newFile.replace('\\', '/').lowercase(Locale.ROOT)) {
@@ -84,9 +85,21 @@ class NasComponent(
         }
         val candidates =
             listOf(
-                videoStoreNas to SambaClient.NasType.VIDEO_STORE_NAS,
-                originalStoreNas to SambaClient.NasType.ORIGINAL_STORE_NAS,
+                videoStoreNas to NasStore.VIDEO_STORE_NAS,
+                originalStoreNas to NasStore.ORIGINAL_STORE_NAS,
             )
+        // The partial-copy cleanup below sees the raw failure; only the exception leaving the move is translated.
+        val movedFrom = sambaOperation("move") { moveFirstFound(candidates, oldFile, newFile) }
+        if (movedFrom != null) return movedFrom
+        logger.warn("Move source not found, oldFile=$oldFile")
+        throw IllegalStateException("Source file not found, path=$oldFile")
+    }
+
+    private fun moveFirstFound(
+        candidates: List<Pair<SmbResource, NasStore>>,
+        oldFile: String,
+        newFile: String,
+    ): NasStore? {
         for ((nas, type) in candidates) {
             nas.resolve(oldFile.replace('\\', '/')).use { source ->
                 if (!source.exists()) return@use
@@ -129,8 +142,7 @@ class NasComponent(
                 return type
             }
         }
-        logger.warn("Move source not found, oldFile=$oldFile")
-        throw IllegalStateException("Source file not found, path=$oldFile")
+        return null
     }
 
     // Resolve a fresh handle: jcifs caches attributes on an existing resource.
@@ -184,48 +196,44 @@ class NasComponent(
     fun uploadResource(
         localFile: File,
         targetFile: String,
-        nasType: SambaClient.NasType,
+        nasType: NasStore,
     ): Boolean = uploadResource(localFile, targetFile, nasType, NO_OP_PROGRESS_LISTENER)
 
     fun uploadResource(
         localFile: File,
         targetFile: String,
-        nasType: SambaClient.NasType,
+        nasType: NasStore,
         onProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit,
-    ): Boolean {
-        val nas =
-            when (nasType) {
-                SambaClient.NasType.VIDEO_STORE_NAS -> videoStoreNas
-                SambaClient.NasType.ORIGINAL_STORE_NAS -> originalStoreNas
+    ): Boolean =
+        sambaOperation("upload") {
+            val resource = store(nasType).resolve(targetFile.replace('\\', '/'))
+            if (resource.exists()) {
+                logger.info("Upload skipped, file already exists, targetFile=$targetFile")
+                return false
             }
-        val resource = nas.resolve(targetFile.replace('\\', '/'))
-        if (resource.exists()) {
-            logger.info("Upload skipped, file already exists, targetFile=$targetFile")
-            return false
-        }
-        createDirectories(targetFile, nasType)
-        val totalBytes = localFile.length()
-        resource.openOutputStream().use { out ->
-            localFile.inputStream().buffered().use { input ->
-                val buffer = ByteArray(UPLOAD_BUFFER_SIZE)
-                var transferred = 0L
-                onProgress(transferred, totalBytes)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read == -1) break
-                    out.write(buffer, 0, read)
-                    transferred += read
+            createDirectories(targetFile, nasType)
+            val totalBytes = localFile.length()
+            resource.openOutputStream().use { out ->
+                localFile.inputStream().buffered().use { input ->
+                    val buffer = ByteArray(UPLOAD_BUFFER_SIZE)
+                    var transferred = 0L
                     onProgress(transferred, totalBytes)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        out.write(buffer, 0, read)
+                        transferred += read
+                        onProgress(transferred, totalBytes)
+                    }
                 }
             }
+            logger.info("Upload file, localFile=$localFile, targetFile=$targetFile")
+            true
         }
-        logger.info("Upload file, localFile=$localFile, targetFile=$targetFile")
-        return true
-    }
 
     fun createDirectories(
         file: String,
-        nasType: SambaClient.NasType,
+        nasType: NasStore,
     ) {
         val programDirectory = Path.of(file.replace('\\', '/')).parent
         val indexDirectory = programDirectory.parent
@@ -236,23 +244,34 @@ class NasComponent(
 
     fun createDirectory(
         directory: String,
-        nasType: SambaClient.NasType,
+        nasType: NasStore,
     ) {
-        when (nasType) {
-            SambaClient.NasType.VIDEO_STORE_NAS -> {
-                val resource = videoStoreNas.resolve(directory)
-                if (!resource.exists()) {
-                    logger.info("Create directory, directory=$directory")
-                    resource.mkdir()
-                }
-            }
-            SambaClient.NasType.ORIGINAL_STORE_NAS -> {
-                val resource = originalStoreNas.resolve(directory)
-                if (!resource.exists()) {
-                    logger.info("Create directory, directory=$directory")
-                    resource.mkdir()
-                }
+        sambaOperation("create directory") {
+            val resource = store(nasType).resolve(directory)
+            if (!resource.exists()) {
+                logger.info("Create directory, directory=$directory")
+                resource.mkdir()
             }
         }
     }
+
+    /**
+     * Opens [file] on [store] only (no fallback to the other share) for reading, with a fresh share root per call.
+     * @throws me.pinfort.tsvideos.core.storage.NasStorageException when the share or the file cannot be reached or the login is rejected;
+     *   other failures propagate unchanged.
+     */
+    fun openForRead(
+        store: NasStore,
+        file: String,
+    ): SmbFileResource =
+        sambaOperation("open for reading") {
+            val resource = sambaClient.root(store).resolve(file.replace('\\', '/'))
+            SmbFileResource(resource, resource.length())
+        }
+
+    private fun store(type: NasStore): SmbResource =
+        when (type) {
+            NasStore.VIDEO_STORE_NAS -> videoStoreNas
+            NasStore.ORIGINAL_STORE_NAS -> originalStoreNas
+        }
 }

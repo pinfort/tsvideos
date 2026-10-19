@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.core.domain
 
-import me.pinfort.tsvideos.core.external.samba.SambaClient
+import me.pinfort.tsvideos.core.storage.NasStore
 
 /** Durable ownership evidence; paths are exact share-relative paths including baseDir. */
 data class UploadManifest(
@@ -8,7 +8,8 @@ data class UploadManifest(
     val jobId: Long,
     val artifactKey: String,
     val destinationKey: String,
-    val nasType: SambaClient.NasType,
+    /** Persisted as the [NasStore] constant name (column `nas_type`). */
+    val nasType: NasStore,
     val finalPath: String,
     val temporaryPath: String,
     val sourcePath: String,

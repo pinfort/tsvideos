@@ -1,7 +1,5 @@
 package me.pinfort.tsvideos.core.component
 
-import jcifs.SmbConstants
-import jcifs.SmbResource
 import me.pinfort.tsvideos.core.domain.DiagnosticCheck
 import me.pinfort.tsvideos.core.domain.DiagnosticStatus
 import me.pinfort.tsvideos.core.external.samba.DiagnosticNasClient
@@ -24,12 +22,8 @@ class NasDiagnosticProbe(
         val checks = mutableListOf<DiagnosticCheck>()
         try {
             client.open(url, username, password).use { connection ->
-                if (baseDir.isBlank()) {
-                    inspectDirectory(connection.root, id, checkWrite, checks)
-                } else {
-                    connection.root.resolve("${baseDir.trim('/')}/").use { directory ->
-                        inspectDirectory(directory, id, checkWrite, checks)
-                    }
+                connection.directory(baseDir).use { directory ->
+                    inspectDirectory(directory, id, checkWrite, checks)
                 }
             }
         } catch (error: Exception) {
@@ -63,43 +57,35 @@ class NasDiagnosticProbe(
     }
 
     private fun inspectDirectory(
-        directory: SmbResource,
+        directory: DiagnosticNasClient.Directory,
         id: String,
         checkWrite: Boolean,
         checks: MutableList<DiagnosticCheck>,
     ) {
-        if (!directory.exists() || !directory.isDirectory) {
+        if (!directory.isDirectory()) {
             checks += DiagnosticCheck("$id.read", DiagnosticStatus.FAIL, "Create or correct the configured NAS base directory")
             return
         }
-        // Opening the iterator (and fetching a first entry) checks directory listing without reading recordings.
-        directory.children().use { children ->
-            if (children.hasNext()) children.next().close()
-        }
+        // Opening the listing (and fetching a first entry) checks directory listing without reading recordings.
+        directory.listFirstEntry()
         checks += DiagnosticCheck("$id.read", DiagnosticStatus.PASS, "NAS base directory exists and can be listed")
         if (checkWrite) writeProbe(directory, id, checks)
     }
 
     private fun writeProbe(
-        directory: SmbResource,
+        directory: DiagnosticNasClient.Directory,
         id: String,
         checks: MutableList<DiagnosticCheck>,
     ) {
         val name = ".tsvideos-doctor-${UUID.randomUUID()}.tmp"
         var created = false
-        directory.resolve(name).use { probe ->
+        directory.file(name).use { probe ->
             try {
-                // jcifs createNewFile uses OPEN_IF on SMB2. Explicit O_EXCL is required for ownership.
-                probe
-                    .openOutputStream(
-                        true,
-                        SmbConstants.O_WRONLY or SmbConstants.O_CREAT or SmbConstants.O_EXCL,
-                        SmbConstants.FILE_WRITE_DATA,
-                        SmbConstants.FILE_NO_SHARE,
-                    ).use {
-                        created = true
-                        it.write(PROBE_CONTENT)
-                    }
+                // Exclusive creation is what proves the probe file is ours to delete.
+                probe.createExclusive().use {
+                    created = true
+                    it.write(PROBE_CONTENT)
+                }
                 probe.openInputStream().use { input ->
                     check(input.readNBytes(PROBE_CONTENT.size + 1).contentEquals(PROBE_CONTENT))
                 }

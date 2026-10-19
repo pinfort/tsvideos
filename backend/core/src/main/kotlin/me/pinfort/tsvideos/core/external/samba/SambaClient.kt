@@ -7,19 +7,23 @@ import jcifs.context.BaseContext
 import jcifs.smb.NtlmPasswordAuthenticator
 import jcifs.smb.SmbFile
 import me.pinfort.tsvideos.core.config.SambaConfigurationProperties
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.springframework.stereotype.Component
 import java.util.Properties
 
+/** Samba (jcifs) implementation of the NAS stores. Share roots stay internal; public operations are jcifs-free. */
 @Component
 class SambaClient(
     private val sambaConfigurationProperties: SambaConfigurationProperties,
 ) {
-    enum class NasType {
-        VIDEO_STORE_NAS,
-        ORIGINAL_STORE_NAS,
-    }
+    /** A new share root for [store]; the caller owns and closes it. */
+    internal fun root(store: NasStore): SmbResource =
+        when (store) {
+            NasStore.VIDEO_STORE_NAS -> videoStoreNas()
+            NasStore.ORIGINAL_STORE_NAS -> originalStoreNas()
+        }
 
-    fun videoStoreNas(): SmbResource {
+    internal fun videoStoreNas(): SmbResource {
         val context =
             cifsContext(
                 sambaConfigurationProperties.videoStoreNas.username,
@@ -28,7 +32,7 @@ class SambaClient(
         return connect(sambaConfigurationProperties.videoStoreNas.url, context)
     }
 
-    fun originalStoreNas(): SmbResource {
+    internal fun originalStoreNas(): SmbResource {
         val context =
             cifsContext(
                 sambaConfigurationProperties.originalStoreNas.username,
@@ -44,13 +48,13 @@ class SambaClient(
      * baseDir を含んでいる前提になる。
      */
     fun resolvePathUnderBaseDir(
-        nasType: NasType,
+        nasType: NasStore,
         relativePath: String,
     ): String {
         val baseDir =
             when (nasType) {
-                NasType.VIDEO_STORE_NAS -> sambaConfigurationProperties.videoStoreNas.baseDir
-                NasType.ORIGINAL_STORE_NAS -> sambaConfigurationProperties.originalStoreNas.baseDir
+                NasStore.VIDEO_STORE_NAS -> sambaConfigurationProperties.videoStoreNas.baseDir
+                NasStore.ORIGINAL_STORE_NAS -> sambaConfigurationProperties.originalStoreNas.baseDir
             }
         return if (baseDir.isBlank()) relativePath else "${baseDir.trim('/')}/$relativePath"
     }
