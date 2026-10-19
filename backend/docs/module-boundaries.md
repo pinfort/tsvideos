@@ -115,7 +115,8 @@ Spring の組み立て:
 | 現行クラス | 移動先 | 補足 |
 | --- | --- | --- |
 | [ProgramCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ProgramCommand.kt) | `catalog` (分割) | 読み取り、登録/状態更新、協調削除/移動を用途別の公開操作に分ける (§6.1)。検索のライブラリ絞り込みは §13 U1 |
-| [CreatedFileCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/CreatedFileCommand.kt) | `catalog` + `storage` + `manager:api` (分割) | 登録・削除・移動は catalog、NAS 操作は storage、HTTP の `Resource` 組み立ては manager:api (§6.2、§9) |
+| [CreatedFileCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/CreatedFileCommand.kt) | `catalog` | #131 で登録・配信を分離済み。残る協調削除・移動 (`delete` / `move` / `restoreMoved`) と読み取り (`selectBySplittedFileId`) は catalog、NAS 操作は storage (§6.2) |
+| [CreatedFileCatalog](../core/src/main/kotlin/me/pinfort/tsvideos/core/catalog/CreatedFileCatalog.kt) | `catalog` | #131 で追加。`created_file` の読み取り (`find`、配信できる動画の判定 `findStreamableVideo`)、登録 (`register`、`MANDATORY`)、未設定メタデータの補完 (`fillMimeIfMissing` / `fillResolutionIfMissing`、`MANDATORY`)。NAS と HTTP の型を持たない (§6.2、§7.6、§9) |
 | [ExecutedFileCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ExecutedFileCommand.kt) | `catalog` | `delete` はタグ/実施記録も消す |
 | [SplittedFileCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/SplittedFileCommand.kt) | `catalog` | |
 | [ExecutedFileTagCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ExecutedFileTagCommand.kt) | `catalog` | 検出タグ。手動タグ (library) とは別物 |
@@ -194,7 +195,7 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 | [NasComponent](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/NasComponent.kt) | jcifs | `storage` |
 | [VerifiedUploadNas](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/VerifiedUploadNas.kt) | jcifs | `storage` |
 | [NasFileVerifier](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/NasFileVerifier.kt) | jcifs | `storage` |
-| [SmbFileResource](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/SmbFileResource.kt) | jcifs + Spring `Resource` | 廃止。storage の読み出しハンドルを `manager:api` が `Resource` に包む (§9) |
+| [SambaReadHandle](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/SambaReadHandle.kt) (`internal`) | jcifs | `storage` (internal 実装)。#131 で `SmbFileResource` (jcifs + Spring `Resource`) を廃止し、storage の公開型 [NasReadHandle](../core/src/main/kotlin/me/pinfort/tsvideos/core/storage/NasReadHandle.kt) の実装として置き換えた。`Resource` への包装は `manager:api` (§9) |
 | [DiagnosticNasClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/DiagnosticNasClient.kt) | jcifs (短いタイムアウト付きの独立コンテキスト) | `storage` (Spring なしで使える接続口として公開) |
 | [ShellClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/shell/ShellClient.kt), [ShellComponent](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/shell/ShellComponent.kt), [ShellResult](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/shell/ShellResult.kt) | OS プロセス | `processing` |
 | [TsSplitterClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/tool/TsSplitterClient.kt), [AmatsukazeAddTaskClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/tool/AmatsukazeAddTaskClient.kt) | Windows 専用ツール | `processing` |
@@ -256,7 +257,7 @@ DDL は [db/migrations](../core/src/main/resources/db/migrations/) にあり、`
 | `ProgramMapper.selectAll` / `selectAllIds` / `selectAllOrderById` | `DuplicateProgramCommand`, `CleanupPlanCommand`, `LibraryVerificationCommand` (library) | program, executed_file | catalog の読み取り操作 |
 | `CreatedFileMapper.selectMovedByExecutedFileIds` / `selectAllWithExecutedFileId` | `DuplicateReviewCommand`, `LibraryVerificationCommand` (library) | created_file, splitted_file | catalog の読み取り操作 |
 | `BulkLibraryMapper` の読み取り (`allFiles`, `createdFilesOfPrograms`, `references`) と `ExecutedFileMapper`/`SplittedFileMapper`/`CreatedFileMapper` の直接使用 | `BulkLibraryCommand` (library) | catalog の全テーブル | catalog の一括スナップショット操作 (§11.1) |
-| `CreatedFileMapper.find` | `VerifiedUploadCommand` (processing) | created_file | catalog の読み取り操作 |
+| `CreatedFileMapper.find` | `VerifiedUploadCommand` (processing) | created_file | catalog の読み取り操作。#131 で `CreatedFileCatalog.find` に置き換え済み (`VerifiedUploadCommand` は `CreatedFileMapper` を参照しない) |
 
 読み取りの契約:
 
@@ -271,7 +272,7 @@ DDL は [db/migrations](../core/src/main/resources/db/migrations/) にあり、`
 | 経路 | 書き込み先 | 呼び出し元 |
 | --- | --- | --- |
 | `ExecutedFileCommand.insert` / `updateStatus` / `delete`、`ProgramCommand.insert` / `deleteByExecutedFileId` / `updateStatusByExecutedFileId` / `delete`、`SplittedFileCommand.insert` / `updateStatus` / `delete`、`ExecutedFileTagCommand.recordCheck` | catalog | processing (`FileProcessingPipeline`, `AfterEncodeRunner`, `ResetRunner`) |
-| `CreatedFileCommand.insert`、`CreatedFileMapper.updateMimeIfMissing` / `updateResolutionIfMissing` (Mapper の直接使用) | created_file | processing (`VerifiedUploadCommand.register`) |
+| `CreatedFileCatalog.register` / `fillMimeIfMissing` / `fillResolutionIfMissing` (#131 で `CreatedFileCommand.insert` と Mapper の直接使用から置き換え。すべて `MANDATORY`) | created_file | processing (`VerifiedUploadCommand.register`) |
 | `ProgramCommand.delete` / `moveCreatedFiles`、`CreatedFileCommand.delete` | catalog の全テーブル + NAS | library (`BulkLibraryCommand`)、manager:console (`Delete`, `Modify`) |
 | `BulkLibraryMapper.lock*` (`SELECT … FOR UPDATE`) | catalog の行ロック | library (`BulkLibraryCommand`) |
 | `LibraryOrganizationMapper.lockProgram` (`SELECT … FOR UPDATE`) | program の行ロック | library (`LibraryOrganizationCommand`) |
@@ -313,10 +314,10 @@ DDL は [db/migrations](../core/src/main/resources/db/migrations/) にあり、`
 | 操作 | トランザクション | 本番の呼び出し元と用途 | 移行後 (契約) |
 | --- | --- | --- | --- |
 | `selectBySplittedFileId(id)` | なし | ValidateCompletedComponent (完了判定の対象ファイル) | catalog の読み取り |
-| `insert(...)` | なし (呼び出し元のトランザクションに乗る) | `VerifiedUploadCommand.registerOnce` (`REQUIRES_NEW` の中でマニフェストの REGISTERED と一緒に確定) | catalog の登録操作。`MANDATORY` (§7.6) |
-| `updateStatus(...)` | なし | **本番の呼び出し元なし** (テストのみ) | #131 または #134 で扱いを決める |
-| `findMp4File(id)` | なし | 内部 (`streamCreatedFile`) のみ | catalog の「配信できる動画」の読み取り (§9) |
-| `streamCreatedFile(id)` | なし | [VideoFileController.stream](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/controller/VideoFileController.kt) (`GET /api/v1/video/{id}/stream`) | catalog の読み取り + storage の読み出し + manager:api の `Resource` に分割 (#131、§9) |
+| ~~`insert(...)`~~ | — | — | **#131 で削除。** `CreatedFileCatalog.register` (`MANDATORY`、§7.6) に置き換えた。本番の呼び出し元は dry-run を使っていなかったので、dry-run 引数と任意の `status` 引数は引き継いでいない (登録は常に `FILE_MOVED`) |
+| `updateStatus(...)` | なし | **本番の呼び出し元なし** (テストのみ) | #134 で扱いを決める (#131 では変更しない) |
+| ~~`findMp4File(id)`~~ | — | — | **#131 で削除。** `CreatedFileCatalog.findStreamableVideo(id)` (§9) |
+| ~~`streamCreatedFile(id)`~~ | — | — | **#131 で削除。** catalog の判定 + storage の読み出しハンドル + manager:api の `Resource` に分割 (§9) |
 | `delete(file, dryRun)` | `REQUIRED` | `ProgramCommand.delete`、Delete (`TS_FILES`、ファイルごとに独立したトランザクション) | catalog の協調削除 (storage の削除を呼ぶ) |
 | `move(file, newFile, dryRun)` | `REQUIRED` | `ProgramCommand.moveCreatedFiles` のみ | catalog の内部操作 |
 | `restoreMoved(moved)` | なし | `ProgramCommand.moveCreatedFiles` のみ (失敗時の巻き戻し) | catalog の内部操作 |
@@ -349,6 +350,8 @@ DDL は [db/migrations](../core/src/main/resources/db/migrations/) にあり、`
 | `BulkLibraryCommand` の `read` / `write` テンプレート | `read`: `readOnly` + `REPEATABLE_READ`。`write`: `REQUIRES_NEW` + `REPEATABLE_READ` | 対象ごとに独立したトランザクション (§7.3) |
 | `CleanupPlanCommand` の `read` テンプレート | `readOnly` + `REPEATABLE_READ` | 計画生成と dry-run |
 | `VerifiedUploadCommand` (クラス) | `NOT_SUPPORTED`。内部の `TransactionTemplate` は `REQUIRES_NEW` | NAS 操作中に DB トランザクションを持たない (§7.6) |
+| `CreatedFileCatalog.register` / `fillMimeIfMissing` / `fillResolutionIfMissing` | `MANDATORY` | 呼び出し元 (`VerifiedUploadCommand` の `REQUIRES_NEW`) のトランザクションに参加し、独自に commit しない。トランザクション外では `IllegalTransactionStateException` (§7.6、§7.7) |
+| `CreatedFileCatalog.find` / `findStreamableVideo` | なし (呼び出し元のトランザクションがあれば参加) | 読み取り |
 
 ### 7.3 BulkLibraryCommand
 
@@ -416,7 +419,7 @@ claim: `withClaim` が UUID のトークンで `manifests.claim` (未 claim の�
 5. 最終パスが存在しないことを再確認 → `FINALIZING` → 置き換えなしの rename (`renameTo(target, false)`) → 最終パスを検証 → `FINALIZED`。
 6. 割り込みで止まった場合の後始末 (`discardOwnedTemporary`) は、一時ファイルの所有が確定している状態 (`OWNED_TEMPORARY` = `TRANSFERRING` / `TEMP_VERIFIED`) だけを対象にし、所有している一時ファイルを削除して `NEW` に戻す。`CREATING` (一時ファイルを作れたか不明) と `FINALIZING` (rename が済んだか不明) は曖昧な状態としてそのまま保持し、次回の回復 (手順 3) や運用者の確認に委ねる。つまり割り込みで常に `NEW` に戻るわけではない。後始末自体が失敗した場合は、その例外を元の例外に suppressed として付けて証拠を残す。
 
-`register` は claim の下でリモートを再検証し、`REGISTERED` 済みなら既存の `created_file` 行が今回の登録と一致することを確認する (mime / 解像度が未設定なら埋める)。未登録なら **1 つの `REQUIRES_NEW` トランザクションの中で** `CreatedFileCommand.insert` と `manifests.register` (claim 下で `REGISTERED` と `created_file_id` を記録) を実行し、両方を同時に確定させる。`deleteLocal` は `REGISTERED`・行の一致・リモート検証・ローカルの SHA-256 再確認の後でだけローカルを消す。
+`register` は claim の下でリモートを再検証し、`REGISTERED` 済みなら既存の `created_file` 行が今回の登録と一致することを確認する (mime / 解像度が未設定なら埋める)。未登録なら **1 つの `REQUIRES_NEW` トランザクションの中で** `CreatedFileCatalog.register` (`MANDATORY`。#131 より前は `CreatedFileCommand.insert`) と `manifests.register` (claim 下で `REGISTERED` と `created_file_id` を記録) を実行し、両方を同時に確定させる。`manifests.register` が 1 件を更新できなければ例外で両方がロールバックされ、マニフェストは `FINALIZED` のまま再実行できる。既存行の読み取り (`find`) と mime / 解像度の補完 (`fillMimeIfMissing` / `fillResolutionIfMissing`、`MANDATORY`) も、それぞれ短い `REQUIRES_NEW` の中で catalog の操作を呼ぶ (#131 で `CreatedFileMapper` の直接使用を置き換えた)。`deleteLocal` は `REGISTERED`・行の一致・リモート検証・ローカルの SHA-256 再確認の後でだけローカルを消す。
 
 再試行: `upload` / `register` / `verifyRegistered` は `ProcessingRetry` で包まれ、未 claim かつ安全な状態のときだけ一時的な失敗を再試行する。
 
@@ -453,8 +456,8 @@ catalog が提供する、呼び出し元のトランザクションに参加す
 | `SambaClient.videoStoreNas()` / `originalStoreNas()` | `jcifs.SmbResource` | `internal` にし、ストアを指定する `internal fun root(NasStore)` を追加。core 外 (manager/processor) からは呼べない。`CreatedFileCommand` は使わなくなった |
 | `SambaClient.NasType` | Samba クライアントの入れ子 enum が業務の値型になっていた | 削除し、`core.storage.NasStore` に置き換え。**定数名と順序は同じ** (`VIDEO_STORE_NAS`, `ORIGINAL_STORE_NAS`)。`upload_manifest.nas_type` の保存値、設定キー、dry-run の戻り値は変わらない。適用済み migration 072 のコメントにある `SambaClient.NasType` は `NasStore` を指す |
 | `NasComponent.getResource()` | `jcifs.SmbResource` (本番の呼び出し元なし) | `internal` にした。削除するかは §13 U4 |
-| `SmbFileResource` | `jcifs.SmbResource` をコンストラクタに取る public クラス | コンストラクタを `internal` にし、`NasComponent.openForRead(store, file)` だけが作る。クラス自体の廃止は #131 |
-| `CreatedFileCommand.streamCreatedFile` | `jcifs.CIFSException` を catch していた | `NasComponent.openForRead(VIDEO_STORE_NAS, file)` が jcifs の例外を storage の例外 (`NasAccessException` / `NasAuthenticationException`) に変換し、`CreatedFileCommand` は基底の `NasStorageException` を catch して `null` (HTTP 404) を返す。従来どの `CIFSException` も 404 だったので、認証失敗も 404 のまま。それ以外の例外は従来どおり伝播する (500) |
+| `SmbFileResource` | `jcifs.SmbResource` をコンストラクタに取る public クラス | コンストラクタを `internal` にし、`NasComponent.openForRead(store, file)` だけが作る。**#131 でクラスを廃止**し、`openForRead` は storage の `NasReadHandle` を返す (§9) |
+| `CreatedFileCommand.streamCreatedFile` | `jcifs.CIFSException` を catch していた | `NasComponent.openForRead(VIDEO_STORE_NAS, file)` が jcifs の例外を storage の例外 (`NasAccessException` / `NasAuthenticationException`) に変換し、`CreatedFileCommand` は基底の `NasStorageException` を catch して `null` (HTTP 404) を返す。従来どの `CIFSException` も 404 だったので、認証失敗も 404 のまま。それ以外の例外は従来どおり伝播する (500)。**#131 で `streamCreatedFile` を削除し、この catch は `VideoFileController` に移した** (§9) |
 | `DiagnosticNasClient.Connection.root` | `jcifs.SmbResource` (`NasDiagnosticProbe` が直接 jcifs の API と `SmbConstants` を使っていた) | `Connection` / `Directory` / `FileHandle` の jcifs を含まない interface にし、診断に必要な操作 (`directory(baseDir)`、`isDirectory`、`listFirstEntry`、排他的作成の `createExclusive`、読み戻し、削除) だけを公開。SMB の実装 (O_EXCL のフラグ、ルートとベースディレクトリの close の所有) は `DiagnosticNasClient` の内部に移した。Spring なしで組み立てられる点は変わらない |
 | `ProcessingRetry` (`TransientProcessingFailure`) | `jcifs.smb.SmbAuthException` を直接判定していた | 原因の連鎖に storage の `NasAuthenticationException` があれば再試行しない。Samba 側の変換が、jcifs の例外の連鎖のどこかに `SmbAuthException` があるときにこの型にするので、認証失敗を再試行しない判定は従来と同じ |
 | NAS 操作の例外 (アップロード・rename・削除・移動・存在/サイズ確認・SHA-256 の読み出し・ディレクトリ作成・読み出しハンドルとストリーム・診断用の接続/ハンドル/ストリーム) | jcifs の例外 (`CIFSException`、反復中の `RuntimeCIFSException`) がそのまま呼び出し元へ出ていた | `core/external/samba` の `SambaFailures` / `sambaOperation` が、公開操作の境界で storage の例外に変換する。読み出し・書き込みのストリームも `SambaInputStream` / `SambaOutputStream` で包み、read/write/close の失敗を変換する |
@@ -473,7 +476,7 @@ storage の例外型 (`core.storage`、jcifs に依存しない):
 - `NasFileVerifier` は従来どおり例外を外へ出さず、結果 (`INACCESSIBLE` など) に変える。
 - 呼び出し元 (`CreatedFileCommand.delete` / `move`、`ProgramCommand`、`BulkLibraryCommand`、`VerifiedUploadCommand`) は例外を型で分岐しておらず (`Exception` として記録・ラップするだけ)、ロールバック・claim の解放・再試行の可否は変わらない。
 
-jcifs を import してよい本番ソースは `core/external/samba` だけで、`core/storage` は実装に依存しない宣言 (`NasStore` と例外型) だけを持つ。`NasStorageBoundaryTest` が、この import の制限と、storage の公開操作と呼び出し元 (`CreatedFileCommand`、`VerifiedUploadCommand`、`NasDestinationResolver`、`UploadManifest`、`NasDiagnosticProbe`、`ProcessingRetry` など) の public シグネチャに jcifs の型が出ないことを検査する。境界での変換は `SambaFailuresTest`、`VerifiedUploadNasFailureTest`、`NasComponentTest`、`NasDiagnosticProbeTest` が検査する。
+jcifs を import してよい本番ソースは `core/external/samba` だけで、`core/storage` は実装に依存しない宣言 (`NasStore`、例外型、#131 で追加した読み出しハンドル `NasReadHandle`) だけを持つ。`NasStorageBoundaryTest` が、この import の制限と、storage の公開操作と呼び出し元 (`CreatedFileCommand`、`CreatedFileCatalog`、`VerifiedUploadCommand`、`NasDestinationResolver`、`UploadManifest`、`NasDiagnosticProbe`、`ProcessingRetry` など) の public シグネチャに jcifs の型が出ないこと、catalog と storage の public シグネチャに Spring の `Resource` (`org.springframework.core.io`) と HTTP の型が出ないことを検査する。境界での変換は `SambaFailuresTest`、`VerifiedUploadNasFailureTest`、`NasComponentTest`、`NasDiagnosticProbeTest` が検査する。
 
 ### 8.2 公開値型と操作 (契約)
 
@@ -494,20 +497,20 @@ jcifs を import してよい本番ソースは `core/external/samba` だけで�
 
 ## 9. 動画の HTTP 配信
 
-### 9.1 現状
+### 9.1 現状 (#131 以降)
 
-`GET /api/v1/video/{id}/stream` ([VideoFileController](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/controller/VideoFileController.kt)) → `CreatedFileCommand.streamCreatedFile(id)`:
+`GET /api/v1/video/{id}/stream` ([VideoFileController](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/controller/VideoFileController.kt)):
 
-1. `findMp4File(id)`: `created_file` 行がない、または `mime` が `video/mp4` でなければ `null`。
-2. `NasComponent.openForRead(VIDEO_STORE_NAS, file)` が `sambaClient.root(...)` で新しいルートを作り、パスの `\` を `/` に置き換えて解決し、`length()` を読み、[SmbFileResource](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/SmbFileResource.kt) に包んで返す。**VIDEO_STORE_NAS だけを見る** (ORIGINAL へのフォールバックはない)。
-3. jcifs の例外 (NAS に到達できない、ファイルがない、認証失敗など) は `openForRead` が storage の例外 (`NasStorageException` のサブクラス) に変換し、`streamCreatedFile` はそれを `null` にする。
-4. controller は `null` なら **404**。`Content-Type` は常に `video/mp4`。
-5. Range: `headers.range.firstOrNull()` が `null` なら 200 で全体の `ResourceRegion`、あれば 206 で**最初の範囲だけ**の `ResourceRegion`。Range ヘッダの解析失敗や範囲外 (`IllegalArgumentException`) は **416** と `Content-Range: bytes */<length>`。成功時は `Accept-Ranges: bytes`。
-6. 本文は controller の戻り後に Spring の `ResourceRegionHttpMessageConverter` が書き出す。`SmbFileResource.getInputStream()` は呼ばれるたびに新しい SMB 入力ストリームを開き (開く・読む・閉じるときの jcifs の例外は storage の例外に変換される)、converter が書き出し後にそのストリームを閉じる。**解決した `SmbResource` と、呼び出しごとに作るルートの `SmbFile` は明示的に閉じていない。**
-7. ストリーム開始前の storage の例外以外 (jcifs 以外の失敗) は Spring の既定処理 (500) になる。書き出し中の例外は応答が確定した後なので、接続の中断として現れる。
-8. `contentLength` は解決時に読んだ長さで固定され、配信中のファイル変更は検出しない。
+1. catalog: [CreatedFileCatalog.findStreamableVideo(id)](../core/src/main/kotlin/me/pinfort/tsvideos/core/catalog/CreatedFileCatalog.kt) が、`created_file` 行がない、または `mime` が `video/mp4` でなければ `null` (**404**、NAS には触れない)。あれば `StreamableVideo(createdFileId, VIDEO_STORE_NAS, 記録済みパス)` を返す。**VIDEO_STORE_NAS だけを見る** (ORIGINAL へのフォールバックはない)。パスは記録値のまま渡し、区切り文字の正規化は storage が行う。
+2. storage: controller は `ResponseResources.of(request).adopt { NasComponent.openForRead(store, path) }` で読み出しハンドルを開き、要求の寿命に登録する。`openForRead` は呼び出しごとに新しいルートを作り、パスの `\` を `/` に置き換えて解決し、`length()` を読み、[NasReadHandle](../core/src/main/kotlin/me/pinfort/tsvideos/core/storage/NasReadHandle.kt) (実装は internal の [SambaReadHandle](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/SambaReadHandle.kt)) を返す。開く途中で失敗したら、解決したファイルとルートをここで閉じてから例外を投げる (close の失敗は元の例外に suppressed)。
+3. jcifs の例外 (NAS に到達できない、ファイルがない、認証失敗など) は `openForRead` が storage の例外 (`NasStorageException` のサブクラス) に変換し、controller はそれを **404** にする (認証失敗も従来どおり 404)。それ以外の例外は Spring の既定処理 (500)。
+4. manager:api: ハンドルを [NasVideoResource](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/stream/NasVideoResource.kt) (`AbstractResource`) に包む。`Content-Type` は常に `video/mp4`。
+5. Range: `headers.range.firstOrNull()` が `null` なら 200 で全体の `ResourceRegion`、あれば 206 で**最初の範囲だけ**の `ResourceRegion`。Range ヘッダの解析失敗や範囲外 (`IllegalArgumentException`) は **416** と `Content-Range: bytes */<length>` (本文ストリームは開かない)。成功時は `Accept-Ranges: bytes`。
+6. 本文は controller の戻り後に Spring の `ResourceRegionHttpMessageConverter` が書き出す。`NasVideoResource.getInputStream()` は呼ばれるたびに `NasReadHandle.open()` で新しい SMB 入力ストリームを開き (開く・読む・閉じるときの jcifs の例外は storage の例外に変換される)、converter が書き出し後にそのストリームを閉じる。ハンドル自体 (解決した `SmbResource`、ルートの `SmbFile`、まだ開いているストリーム) は、[ResponseResourcesFilter](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/stream/ResponseResources.kt) が要求の処理を終えた時点で 1 回閉じる。
+7. ストリームを開くときの失敗 (`open` の storage の例外) は応答の本文を書き始める前でも Spring の既定処理になる (従来と同じ。404 には変えない)。書き出し中の例外は応答が確定した後なので、接続の中断として現れる。どちらの場合もハンドルはフィルタが閉じる。
+8. `contentLength` はハンドルを開いたときに読んだ長さで固定され、配信中のファイル変更は検出しない。
 
-### 9.2 契約 (#131 で実施)
+### 9.2 契約 (#131 で実施済み)
 
 | 責務 | 所有 |
 | --- | --- |
@@ -524,6 +527,13 @@ jcifs を import してよい本番ソースは `core/external/samba` だけで�
   - 次のすべての経路でハンドル・ルート・ストリームを確実に解放する: 正常に書き出し終えた場合 / 416 や 404 など本文ストリームを開かずに応答する場合 / `getInputStream` (storage の `open`) が失敗した場合 / 本文の書き出し中に失敗した場合 / クライアントの切断やリクエストのキャンセル。ハンドルを開いた後に controller 内で例外になった場合も同様。
 - 例外の変換は manager:api に置く。storage の「見つからない」「到達できない」は 404 に、それ以外は既定処理に任せる。
 - #131 の検証には、上の各経路 (正常終了、416 などストリームを開かない応答、`open` 失敗、書き出し失敗、クライアント切断/キャンセル) でハンドルの `close()` が呼ばれ内部資源が解放されること、`close()` の二重呼び出しが安全なこと、1 つのハンドルから複数回 `open` できることを含める。
+
+実装 (#131):
+
+- 寿命の所有は manager:api の `ResponseResources` (要求属性) と `ResponseResourcesFilter` (`@Component` の `OncePerRequestFilter`。Spring Boot がサーブレットフィルタとして自動登録する)。controller は `adopt` で開いたハンドルを登録し、フィルタはフィルタチェーンが戻るか例外で抜けた後 (= 本文の変換・書き出しの後) に、登録済みの資源を新しいものから順に閉じる。1 つの close が失敗しても残りを閉じ、失敗はログに残す。要求の完了後の `adopt` は開かずに拒否する。フィルタが入っていなければ `ResponseResources.of` が NAS を開く前に失敗する。
+- この配信は同期処理で、クライアントの切断や要求のキャンセルは書き出しの例外としてフィルタチェーンから抜けるので、正常終了と同じ `finally` で閉じる。将来ハンドラが非同期処理を始めた場合は、フィルタは閉じるのを `AsyncListener` の完了・エラー・タイムアウトまで遅らせる。
+- storage の `SambaReadHandle.close()` は、まだ開いているストリーム → 解決したファイル → ルートの順に、途中の失敗に関係なくすべて閉じ、最初の失敗を storage の例外として投げる (残りは suppressed)。2 回目以降は何もしない。閉じた後の `open` は `IllegalStateException`。利用者が閉じたストリームを後でハンドルが閉じ直すことはない。
+- 検証: [VideoFileControllerTest](../manager/api/src/test/kotlin/me/pinfort/tsvideos/manager/api/controller/VideoFileControllerTest.kt) (実フィルタ・controller・converter を通す MockMvc。正常 200/206、複数 Range、繰り返しの要求、416 (範囲外と解析失敗)、404、`open` 失敗、controller 内の失敗、書き出し中の切断)、[ResponseResourcesTest](../manager/api/src/test/kotlin/me/pinfort/tsvideos/manager/api/stream/ResponseResourcesTest.kt) (close の順序・冪等性・失敗の継続、チェーン失敗、非同期)、[NasComponentTest](../core/src/test/kotlin/me/pinfort/tsvideos/core/external/samba/NasComponentTest.kt) (開く失敗時の後始末、複数回の `open`、`close` の冪等性と部分失敗)、`ApiApplicationTest` (フィルタの Bean が本番の組み立てに含まれること)。
 
 ## 10. NAS と DB の失敗時の責任
 
@@ -587,7 +597,7 @@ migration ファイル、テスト DDL の生成タスク、DB テスト用の�
 | Issue | この文書から引き継ぐ内容 |
 | --- | --- |
 | #130 NAS の公開型から Samba 実装を除く | §8.1 の漏出をすべて解消し、`NasStore` (定数名は不変) と storage の例外型を導入する。公開 NAS 操作 (アップロード・移動・削除・読み出し・診断のハンドルとストリーム) の jcifs の例外を storage の例外に変換し (§8.1)、`CIFSException` の catch は storage 側の例外に置き換え、配信の 404 と再試行の分類を保つ。モジュールの抽出はまだしないので、この Issue を妨げる未決事項はない |
-| #131 作成ファイルの登録・NAS 操作・HTTP 配信を分離 | §6.2 と §9.2。`streamCreatedFile` を catalog の判定 + storage の読み出しハンドル + manager:api の `Resource` に分ける。`SmbFileResource` を廃止し、ハンドルの寿命を明示する。`VerifiedUploadCommand` の `CreatedFileMapper` 直接使用を catalog の操作 (`MANDATORY` 登録を含む) に置き換える準備をする |
+| #131 作成ファイルの登録・NAS 操作・HTTP 配信を分離 (実施済み) | §6.2 と §9.2。`streamCreatedFile` を catalog の判定 + storage の読み出しハンドル + manager:api の `Resource` に分ける。`SmbFileResource` を廃止し、ハンドルの寿命を明示する。`VerifiedUploadCommand` の `CreatedFileMapper` 直接使用を catalog の操作 (`MANDATORY` 登録を含む) に置き換える準備をする |
 | #132 storage を抽出 | §4.5、§8。`NasComponent`・`VerifiedUploadNas`・`NasFileVerifier`・`SambaClient`・`DiagnosticNasClient`・`SambaConfigurationProperties`・`Sha256` と、#130 で作った `core.storage` パッケージ (`NasStore`、`NasStorageException`/`NasAccessException`/`NasAuthenticationException`) と Samba 側の変換 (`SambaFailures`) を移す。`NasStorageBoundaryTest` の検査は storage の境界チェックに引き継ぐ。storage は業務モジュールに依存しない。NAS 操作・移動・削除の既存テストを移す |
 | #133 migration と DB テスト資源を分離 | §11.6。`generateTestDdl`、`02_insert_data.sql`、`docker-compose.test.yml` のマウントを database-schema に合わせる |
 | #134 catalog の公開操作を整理 | §6、§11.1。§13 U1 (検索の library 絞り込み) を決着させる。`selectByName` / `CreatedFileCommand.updateStatus` の扱いを決める。library 向けの用途別読み取りとロック操作を用意する |

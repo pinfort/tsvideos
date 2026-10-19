@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.core.external.samba
 
 import jcifs.SmbConstants
 import jcifs.SmbResource
+import me.pinfort.tsvideos.core.storage.NasReadHandle
 import me.pinfort.tsvideos.core.storage.NasStore
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
@@ -257,17 +258,40 @@ class NasComponent(
 
     /**
      * Opens [file] on [store] only (no fallback to the other share) for reading, with a fresh share root per call.
+     * The caller owns the returned handle and must close it; if opening fails, the root and file are released here.
      * @throws me.pinfort.tsvideos.core.storage.NasStorageException when the share or the file cannot be reached or the login is rejected;
      *   other failures propagate unchanged.
      */
     fun openForRead(
         store: NasStore,
         file: String,
-    ): SmbFileResource =
+    ): NasReadHandle =
         sambaOperation("open for reading") {
-            val resource = sambaClient.root(store).resolve(file.replace('\\', '/'))
-            SmbFileResource(resource, resource.length())
+            val root = sambaClient.root(store)
+            try {
+                val resource = root.resolve(file.replace('\\', '/'))
+                try {
+                    SambaReadHandle(root, resource, resource.length())
+                } catch (e: Exception) {
+                    closeAfterFailure(resource, e)
+                    throw e
+                }
+            } catch (e: Exception) {
+                closeAfterFailure(root, e)
+                throw e
+            }
         }
+
+    private fun closeAfterFailure(
+        closeable: AutoCloseable,
+        failure: Exception,
+    ) {
+        try {
+            closeable.close()
+        } catch (e: Exception) {
+            failure.addSuppressed(e)
+        }
+    }
 
     private fun store(type: NasStore): SmbResource =
         when (type) {

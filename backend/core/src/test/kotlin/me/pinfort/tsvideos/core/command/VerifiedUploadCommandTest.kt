@@ -11,6 +11,7 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
 import me.pinfort.tsvideos.core.component.ProcessingRetry
 import me.pinfort.tsvideos.core.component.ProcessingRetryRuntime
 import me.pinfort.tsvideos.core.component.RetryRefusedException
@@ -55,6 +56,8 @@ class VerifiedUploadCommandTest : ExpectSpec() {
     @Autowired private lateinit var manifests: UploadManifestMapper
 
     @Autowired private lateinit var files: CreatedFileMapper
+
+    @Autowired private lateinit var catalog: CreatedFileCatalog
 
     @Autowired private lateinit var transactions: PlatformTransactionManager
 
@@ -103,7 +106,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 remote.remove(secondArg())
                 Unit
             }
-            val created = CreatedFileCommand(files, mockk(), mockk(relaxed = true))
+            val created = catalog
             val source = Files.createTempFile("verified-upload-", ".mp4").toFile().apply { writeText("complete video") }
             val job = UUID.randomUUID().mostSignificantBits.and(Long.MAX_VALUE)
             return Fixture(
@@ -114,7 +117,6 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                         mapper,
                         nas,
                         created,
-                        files,
                         transactions,
                         checksum,
                         ProcessingRetry(
@@ -675,15 +677,10 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             try {
                 val receipt = f.upload()
                 val failing =
-                    CreatedFileCommand(
-                        mockk {
-                            every { insert(any(), any(), any(), any(), any(), any(), any()) } throws
-                                IllegalStateException("db")
-                        },
-                        mockk(),
-                        mockk(relaxed = true),
-                    )
-                val command = VerifiedUploadCommand(manifests, f.nas, failing, files, transactions)
+                    mockk<CreatedFileCatalog> {
+                        every { register(any(), any(), any(), any(), any(), any()) } throws IllegalStateException("db")
+                    }
+                val command = VerifiedUploadCommand(manifests, f.nas, failing, transactions)
                 shouldThrow<IllegalStateException> { command.register(receipt, 1, "video/mp4", null) }
                 f.manifest().state shouldBe State.FINALIZED
                 shouldThrow<IllegalStateException> { command.deleteLocal(receipt) }
@@ -793,8 +790,8 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                     manifests.transition(firstArg(), secondArg(), thirdArg(), arg(3))
                 }
                 every { failing.release(any(), any()) } throws IllegalStateException("db blip")
-                val created = CreatedFileCommand(files, mockk(), mockk(relaxed = true))
-                val command = VerifiedUploadCommand(failing, f.nas, created, files, transactions, true)
+                val created = catalog
+                val command = VerifiedUploadCommand(failing, f.nas, created, transactions, true)
                 shouldThrow<IllegalStateException> {
                     command.upload(f.job, "output", f.source, NasStore.VIDEO_STORE_NAS, f.target)
                 }.message shouldBe "db blip"
@@ -872,8 +869,8 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 every { failing.claim(any(), any()) } answers { manifests.claim(firstArg(), secondArg()) }
                 every { failing.get(any()) } answers { manifests.get(firstArg()) }
                 every { failing.release(any(), any()) } throws IllegalStateException("release failed")
-                val created = CreatedFileCommand(files, mockk(), mockk(relaxed = true))
-                val command = VerifiedUploadCommand(failing, f.nas, created, files, transactions)
+                val created = catalog
+                val command = VerifiedUploadCommand(failing, f.nas, created, transactions)
                 val error = shouldThrow<IllegalStateException> { command.deleteLocal(receipt) }
                 error.message shouldBe "Remote artifact has not been registered"
                 error.suppressed.map { it.message } shouldBe
@@ -1003,8 +1000,8 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 every { failing.get(any()) } answers { manifests.get(firstArg()) }
                 every { failing.release(any(), any()) } answers { manifests.release(firstArg(), secondArg()) }
                 every { failing.register(any(), any(), any()) } returns 0
-                val created = CreatedFileCommand(files, mockk(), mockk(relaxed = true))
-                val command = VerifiedUploadCommand(failing, f.nas, created, files, transactions)
+                val created = catalog
+                val command = VerifiedUploadCommand(failing, f.nas, created, transactions)
                 val splitId = f.job
                 shouldThrow<IllegalStateException> { command.register(receipt, splitId, "video/mp4", null) }
                 files.selectBySplittedFileId(splitId).size shouldBe 0
@@ -1049,18 +1046,21 @@ class VerifiedUploadSpringConfiguration {
     @org.springframework.context.annotation.Bean
     fun uploadNas(): VerifiedUploadNas = mockk()
 
+    // A bean, so the catalog's MANDATORY registration is enforced by the transaction proxy as in production.
+    @org.springframework.context.annotation.Bean
+    fun createdFileCatalog(files: CreatedFileMapper): CreatedFileCatalog = CreatedFileCatalog(files, mockk(relaxed = true))
+
     @org.springframework.context.annotation.Bean
     fun uploadCommand(
         manifests: UploadManifestMapper,
         nas: VerifiedUploadNas,
-        files: CreatedFileMapper,
+        catalog: CreatedFileCatalog,
         transactions: PlatformTransactionManager,
     ): VerifiedUploadCommand =
         VerifiedUploadCommand(
             manifests,
             nas,
-            CreatedFileCommand(files, mockk(), mockk(relaxed = true)),
-            files,
+            catalog,
             transactions,
             true,
         )

@@ -1,6 +1,11 @@
 package me.pinfort.tsvideos.manager.api.controller
 
-import me.pinfort.tsvideos.core.command.CreatedFileCommand
+import jakarta.servlet.http.HttpServletRequest
+import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
+import me.pinfort.tsvideos.core.external.samba.NasComponent
+import me.pinfort.tsvideos.core.storage.NasStorageException
+import me.pinfort.tsvideos.manager.api.stream.NasVideoResource
+import me.pinfort.tsvideos.manager.api.stream.ResponseResources
 import org.springframework.core.io.support.ResourceRegion
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
@@ -14,24 +19,36 @@ import org.springframework.web.bind.annotation.RestController
 
 @RestController
 class VideoFileController(
-    private val createdFileCommand: CreatedFileCommand,
+    private val createdFileCatalog: CreatedFileCatalog,
+    private val nasComponent: NasComponent,
 ) {
     @GetMapping("/api/v1/video/{id}/stream")
     fun stream(
         @PathVariable(name = "id") id: Long,
         @RequestHeader headers: HttpHeaders,
+        request: HttpServletRequest,
     ): ResponseEntity<ResourceRegion> {
-        val video = createdFileCommand.streamCreatedFile(id) ?: return ResponseEntity.notFound().build()
+        val video = createdFileCatalog.findStreamableVideo(id) ?: return ResponseEntity.notFound().build()
+        // The body is written after this method returns, so the handle is closed when the request completes.
+        val resources = ResponseResources.of(request)
+        val handle =
+            try {
+                resources.adopt { nasComponent.openForRead(video.store, video.path) }
+            } catch (e: NasStorageException) {
+                // Any NAS failure (unreachable share, missing file, rejected login) is a 404.
+                return ResponseEntity.notFound().build()
+            }
+        val resource = NasVideoResource(handle)
         val contentType = MediaType.asMediaType(MimeType.valueOf("video/mp4"))
-        val contentLength = video.contentLength()
+        val contentLength = resource.contentLength()
 
         val (status, region) =
             try {
                 val range = headers.range.firstOrNull()
                 if (range == null) {
-                    HttpStatus.OK to ResourceRegion(video, 0, contentLength)
+                    HttpStatus.OK to ResourceRegion(resource, 0, contentLength)
                 } else {
-                    HttpStatus.PARTIAL_CONTENT to range.toResourceRegion(video)
+                    HttpStatus.PARTIAL_CONTENT to range.toResourceRegion(resource)
                 }
             } catch (e: IllegalArgumentException) {
                 return ResponseEntity

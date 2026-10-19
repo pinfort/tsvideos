@@ -5,6 +5,8 @@ import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
+import me.pinfort.tsvideos.core.catalog.StreamableVideo
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
@@ -16,7 +18,6 @@ import me.pinfort.tsvideos.core.external.samba.DiagnosticNasClient
 import me.pinfort.tsvideos.core.external.samba.NasComponent
 import me.pinfort.tsvideos.core.external.samba.NasFileVerifier
 import me.pinfort.tsvideos.core.external.samba.SambaClient
-import me.pinfort.tsvideos.core.external.samba.SmbFileResource
 import me.pinfort.tsvideos.core.external.samba.VerifiedUploadNas
 import java.io.File
 import java.io.IOException
@@ -70,7 +71,7 @@ class NasStorageBoundaryTest :
                     VerifiedUploadNas::class,
                     NasFileVerifier::class,
                     NasFileVerifier.Session::class,
-                    SmbFileResource::class,
+                    NasReadHandle::class,
                     DiagnosticNasClient::class,
                     DiagnosticNasClient.Connection::class,
                     DiagnosticNasClient.Directory::class,
@@ -78,28 +79,39 @@ class NasStorageBoundaryTest :
                     NasDiagnosticProbe::class,
                     NasDestinationResolver::class,
                     CreatedFileCommand::class,
+                    CreatedFileCatalog::class,
+                    StreamableVideo::class,
                     VerifiedUploadCommand::class,
                     UploadManifest::class,
                     ProcessingRetry::class,
                     TransientProcessingFailure::class,
                 )
 
-            expect("no public member or constructor mentions a jcifs type") {
-                fun signatures(type: KClass<*>): List<String> {
-                    val members = type.members.filter { it.visibility == KVisibility.PUBLIC }
-                    val constructors = type.constructors.filter { it.visibility == KVisibility.PUBLIC }
-                    val memberSignatures =
-                        members.flatMap { member ->
-                            (member.parameters.map { it.type } + member.returnType).map { "${type.simpleName}.${member.name}: $it" }
-                        }
-                    val constructorSignatures =
-                        constructors.flatMap { constructor ->
-                            constructor.parameters.map { "${type.simpleName}(): ${it.type}" }
-                        }
-                    return memberSignatures + constructorSignatures
-                }
+            fun signatures(type: KClass<*>): List<String> {
+                val members = type.members.filter { it.visibility == KVisibility.PUBLIC }
+                val constructors = type.constructors.filter { it.visibility == KVisibility.PUBLIC }
+                val memberSignatures =
+                    members.flatMap { member ->
+                        (member.parameters.map { it.type } + member.returnType).map { "${type.simpleName}.${member.name}: $it" }
+                    }
+                val constructorSignatures =
+                    constructors.flatMap { constructor ->
+                        constructor.parameters.map { "${type.simpleName}(): ${it.type}" }
+                    }
+                return memberSignatures + constructorSignatures
+            }
 
+            expect("no public member or constructor mentions a jcifs type") {
                 val leaks = contracts.flatMap { signatures(it) }.filter { "jcifs." in it }
+                leaks.shouldBeEmpty()
+            }
+
+            // HTTP assembly (Resource, ResourceRegion) belongs to manager:api; catalog and storage stay free of it.
+            expect("catalog, storage and CreatedFileCommand expose no Spring Resource or web type") {
+                val leaks =
+                    contracts
+                        .flatMap { signatures(it) }
+                        .filter { "org.springframework.core.io." in it || "org.springframework.http." in it }
                 leaks.shouldBeEmpty()
             }
 

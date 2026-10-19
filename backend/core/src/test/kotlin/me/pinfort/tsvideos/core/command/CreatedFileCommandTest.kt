@@ -3,7 +3,6 @@ package me.pinfort.tsvideos.core.command
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.Runs
 import io.mockk.clearAllMocks
 import io.mockk.every
@@ -11,20 +10,12 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifySequence
-import jcifs.SmbResource
-import jcifs.smb.SmbException
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
-import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
 import me.pinfort.tsvideos.core.external.samba.NasComponent
-import me.pinfort.tsvideos.core.external.samba.SmbFileResource
-import me.pinfort.tsvideos.core.storage.NasAccessException
-import me.pinfort.tsvideos.core.storage.NasAuthenticationException
 import me.pinfort.tsvideos.core.storage.NasStore
 import org.slf4j.Logger
-import java.io.BufferedInputStream
-import java.io.InputStream
 
 class CreatedFileCommandTest :
     ExpectSpec({
@@ -43,7 +34,6 @@ class CreatedFileCommandTest :
                 encoding = "encoding",
                 status = CreatedFileDto.Status.ENCODE_SUCCESS,
             )
-        val mp4CreatedFileDto = createdFileDto.copy(mime = "video/mp4")
         val createdFile =
             CreatedFile(
                 id = 1,
@@ -75,70 +65,6 @@ class CreatedFileCommandTest :
             }
         }
 
-        context("insert") {
-            expect("success") {
-                every {
-                    createdFileMapper.insert(any(), any(), any(), any(), any(), any(), any())
-                } answers {
-                    (it.invocation.args[6] as GeneratedKeyHolder).id = 1
-                    1
-                }
-                every { logger.info(any()) } just Runs
-
-                val actual = createdFileCommand.insert(2, "file", 3, "mime", "encoding")
-
-                actual shouldBe
-                    CreatedFile(
-                        id = 1,
-                        splittedFileId = 2,
-                        file = "file",
-                        size = 3,
-                        mime = "mime",
-                        encoding = "encoding",
-                        status = CreatedFile.Status.FILE_MOVED,
-                    )
-                verify {
-                    createdFileMapper.insert(2, "file", 3, "mime", "encoding", "FILE_MOVED", any())
-                }
-            }
-
-            expect("explicit status") {
-                every {
-                    createdFileMapper.insert(any(), any(), any(), any(), any(), any(), any())
-                } answers {
-                    (it.invocation.args[6] as GeneratedKeyHolder).id = 1
-                    1
-                }
-                every { logger.info(any()) } just Runs
-
-                val actual =
-                    createdFileCommand.insert(2, "file", 3, "mime", "encoding", CreatedFile.Status.ENCODE_SUCCESS)
-
-                actual.status shouldBe CreatedFile.Status.ENCODE_SUCCESS
-                verify {
-                    createdFileMapper.insert(2, "file", 3, "mime", "encoding", "ENCODE_SUCCESS", any())
-                }
-            }
-
-            expect("dryRun") {
-                every { logger.info(any()) } just Runs
-
-                val actual = createdFileCommand.insert(2, "file", 3, "mime", "encoding", dryRun = true)
-
-                actual shouldBe
-                    CreatedFile(
-                        id = 0,
-                        splittedFileId = 2,
-                        file = "file",
-                        size = 3,
-                        mime = "mime",
-                        encoding = "encoding",
-                        status = CreatedFile.Status.FILE_MOVED,
-                    )
-                verify(exactly = 0) { createdFileMapper.insert(any(), any(), any(), any(), any(), any(), any()) }
-            }
-        }
-
         context("updateStatus") {
             expect("success") {
                 every { createdFileMapper.updateStatus(any(), any()) } returns 1
@@ -157,102 +83,6 @@ class CreatedFileCommandTest :
 
                 actual shouldBe createdFile.copy(status = CreatedFile.Status.FILE_MOVED)
                 verify(exactly = 0) { createdFileMapper.updateStatus(any(), any()) }
-            }
-        }
-
-        context("findMp4File") {
-            expect("success") {
-                every { createdFileMapper.find(any()) } returns mp4CreatedFileDto
-
-                createdFileCommand.findMp4File(1) shouldBe createdFile.copy(mime = "video/mp4")
-
-                verifySequence {
-                    createdFileMapper.find(1)
-                }
-            }
-
-            expect("notVideo") {
-                every { createdFileMapper.find(any()) } returns createdFileDto
-
-                createdFileCommand.findMp4File(1) shouldBe null
-
-                verifySequence {
-                    createdFileMapper.find(1)
-                }
-            }
-
-            expect("noHit") {
-                every { createdFileMapper.find(any()) } returns null
-
-                createdFileCommand.findMp4File(1) shouldBe null
-
-                verifySequence {
-                    createdFileMapper.find(1)
-                }
-            }
-        }
-
-        context("streamCreatedFile") {
-            expect("success") {
-                val testStream = InputStream.nullInputStream()
-                val smbResource = mockk<SmbResource>()
-                every { createdFileMapper.find(any()) } returns mp4CreatedFileDto
-                every { smbResource.openInputStream() } returns testStream
-                every { nasComponent.openForRead(any(), any()) } returns SmbFileResource(smbResource, 12345L)
-
-                val result = createdFileCommand.streamCreatedFile(1)
-
-                result.shouldBeInstanceOf<SmbFileResource>()
-                result?.contentLength() shouldBe 12345L
-                result?.inputStream.shouldBeInstanceOf<BufferedInputStream>()
-
-                verifySequence {
-                    createdFileMapper.find(1)
-                    nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "file")
-                    smbResource.openInputStream()
-                }
-            }
-
-            expect("passes the recorded path unchanged; the storage normalizes separators") {
-                val smbResource = mockk<SmbResource>()
-                every { createdFileMapper.find(any()) } returns mp4CreatedFileDto.copy(file = "test\\")
-                every { nasComponent.openForRead(any(), any()) } returns SmbFileResource(smbResource, 12345L)
-
-                createdFileCommand.streamCreatedFile(1).shouldBeInstanceOf<SmbFileResource>()
-
-                verify { nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "test\\") }
-            }
-
-            expect("noFile: an unreachable or missing NAS file is null (HTTP 404)") {
-                every { createdFileMapper.find(any()) } returns mp4CreatedFileDto
-                every { nasComponent.openForRead(any(), any()) } throws
-                    NasAccessException("NAS file could not be opened for reading", SmbException("err"))
-
-                createdFileCommand.streamCreatedFile(1) shouldBe null
-            }
-
-            expect("noFile: a rejected NAS login is also null (HTTP 404), as any Samba failure was before") {
-                every { createdFileMapper.find(any()) } returns mp4CreatedFileDto
-                every { nasComponent.openForRead(any(), any()) } throws
-                    NasAuthenticationException("NAS open for reading failed: credentials rejected", SmbException("err"))
-
-                createdFileCommand.streamCreatedFile(1) shouldBe null
-            }
-
-            expect("other failures propagate") {
-                every { createdFileMapper.find(any()) } returns mp4CreatedFileDto
-                every { nasComponent.openForRead(any(), any()) } throws IllegalStateException("boom")
-
-                shouldThrow<IllegalStateException> { createdFileCommand.streamCreatedFile(1) }
-            }
-            expect("noHit") {
-                every { createdFileMapper.find(any()) } returns null
-
-                createdFileCommand.streamCreatedFile(1) shouldBe null
-
-                verifySequence {
-                    createdFileMapper.find(1)
-                }
             }
         }
 
