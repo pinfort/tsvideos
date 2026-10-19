@@ -13,10 +13,30 @@ export function SearchForm({
 }) {
   const v = (key: string, fallback = "") =>
     typeof values[key] === "string" ? (values[key] as string) : fallback;
+  const detailDefaults: Record<string, string> = {
+    channel: "",
+    collectionId: "",
+    libraryTagId: "",
+    status: "",
+    recordedFrom: "",
+    recordedTo: "",
+    fileType: "",
+    minDrops: "",
+    maxDrops: "",
+    sort: "RECORDED_AT",
+    direction: "DESC",
+    limit: "10",
+  };
+  const detailCount = Object.entries(detailDefaults).filter(([key, fallback]) => {
+    const value = v(key);
+    return value !== "" && value !== fallback;
+  }).length;
   return (
     <form
       action="/"
       method="get"
+      // Validate on the server so invalid controls inside closed details cannot block submission.
+      noValidate
       className="flex flex-col gap-4"
       aria-label="録画検索"
     >
@@ -31,7 +51,7 @@ export function SearchForm({
       </label>
       <details>
         <summary className="cursor-pointer rounded-sm text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-          詳細検索
+          詳細検索{detailCount > 0 && `（${detailCount}件指定中）`}
         </summary>
         <div className="mt-3 flex flex-col gap-3">
           <Link href="/collections" className="text-link underline">

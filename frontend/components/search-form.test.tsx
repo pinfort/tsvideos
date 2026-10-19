@@ -27,7 +27,7 @@ describe("SearchForm", () => {
     expect(screen.getByLabelText("チャンネルID")).not.toBeVisible();
     expect(screen.getByRole("button", { name: "検索" })).toBeVisible();
     expect(screen.getByRole("link", { name: "条件をクリア" })).toBeVisible();
-    fireEvent.click(screen.getByText("詳細検索"));
+    fireEvent.click(screen.getByText(/^詳細検索/));
     expect(screen.getByLabelText("チャンネルID")).toBeVisible();
     expect(screen.getByLabelText("処理状態")).toHaveValue("ERROR");
     expect(screen.getByLabelText("利用可能な形式")).toHaveValue("TS");
@@ -42,20 +42,21 @@ describe("SearchForm", () => {
     fireEvent.change(screen.getByLabelText("番組名"), {
       target: { value: "new" },
     });
-    fireEvent.click(screen.getByText("詳細検索"));
+    fireEvent.click(screen.getByText(/^詳細検索/));
     fireEvent.change(screen.getByLabelText("チャンネルID"), {
       target: { value: "BS1" },
     });
     fireEvent.change(screen.getByLabelText("並び順"), {
       target: { value: "DURATION" },
     });
-    fireEvent.click(screen.getByText("詳細検索"));
+    fireEvent.click(screen.getByText(/^詳細検索/));
     expect(screen.getByLabelText("チャンネルID")).not.toBeVisible();
     const form = screen.getByRole("form", {
       name: "録画検索",
     }) as HTMLFormElement;
     expect(form).toHaveAttribute("action", "/");
     expect(form).toHaveAttribute("method", "get");
+    expect(form).toHaveAttribute("novalidate");
     const data = new FormData(form);
     expect(data.get("offset")).toBe("0");
     expect(data.get("limit")).toBe("50");
@@ -75,7 +76,7 @@ it("preserves manual organization filters including a deleted ID and resets only
       }}
     />,
   );
-  fireEvent.click(screen.getByText("詳細検索"));
+  fireEvent.click(screen.getByText(/^詳細検索/));
   expect(screen.getByLabelText("コレクション")).toHaveValue("3");
   expect(screen.getByLabelText("手動タグ")).toHaveValue("99");
   expect(
@@ -87,4 +88,17 @@ it("preserves manual organization filters including a deleted ID and resets only
   expect(data.get("collectionId")).toBe("3");
   expect(data.get("libraryTagId")).toBe("99");
   expect(data.get("offset")).toBe("0");
+});
+
+it("shows the number of specified detail fields while remaining collapsed", () => {
+  render(<SearchForm values={{ name: "anime", offset: "20", channel: "BS1", minDrops: "0", collectionId: "3", sort: "RECORDED_AT", direction: "DESC", limit: "10" }} />);
+  expect(screen.getByText("詳細検索（3件指定中）")).toBeVisible();
+  expect(screen.getByLabelText("チャンネルID")).not.toBeVisible();
+});
+
+it("does not count default or empty values, but counts custom sorting and page size", () => {
+  const { rerender } = render(<SearchForm values={{ name: "anime", offset: "20", channel: "", sort: "RECORDED_AT", direction: "DESC", limit: "10" }} />);
+  expect(screen.getByText("詳細検索", { exact: true })).toBeVisible();
+  rerender(<SearchForm values={{ sort: "SIZE", direction: "ASC", limit: "50" }} />);
+  expect(screen.getByText("詳細検索（3件指定中）")).toBeVisible();
 });

@@ -107,6 +107,15 @@ describe("HomePage", () => {
     expect(getPrograms).not.toHaveBeenCalled();
   });
 
+  it.each([{ limit: "501" }, { minDrops: "-1" }])(
+    "shows server validation errors for numeric constraints: %o",
+    async (params) => {
+      render(await HomePage({ searchParams: Promise.resolve(params) }));
+      expect(screen.getByRole("alert")).toHaveTextContent("整数で指定してください");
+      expect(getPrograms).not.toHaveBeenCalled();
+    },
+  );
+
   it("rejects repeated query params instead of silently picking one", async () => {
     render(
       await HomePage({
