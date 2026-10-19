@@ -27,6 +27,7 @@ class MimeTypeComponent {
                 "m2ts" to "video/vnd.dlna.mpeg-tts",
                 "ts" to "video/vnd.dlna.mpeg-tts",
                 // Amatsukaze が動画と一緒に出力する字幕・補助ファイル。video/ 以外なので統計・検索では動画として数えられない。
+                // 追加・変更したら backend/docs/verified-uploads.md の埋め戻し SQL も合わせて更新する。
                 "ass" to "text/x-ssa",
                 "srt" to "application/x-subrip",
                 "txt" to "text/plain",
