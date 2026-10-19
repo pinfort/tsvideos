@@ -226,3 +226,38 @@ it("moves focus to the results when every target succeeded and preview is disabl
     screen.getByRole("button", { name: "対象をプレビュー" }),
   ).toBeDisabled();
 });
+
+it("reports a failed preview without opening the confirmation", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  previewBulk.mockRejectedValue(new Error("offline"));
+  render(<BulkPrograms programs={programs} />);
+  await user.click(screen.getByLabelText("録画 1 を選択"));
+  await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "プレビューを取得できません",
+  );
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+});
+
+it("keeps Tab inside the confirmation and returns focus to preview after a failed apply", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  applyBulk.mockRejectedValue(new Error("offline"));
+  render(<BulkPrograms programs={programs} />);
+  await user.click(screen.getByLabelText("録画 1 を選択"));
+  const preview = screen.getByRole("button", { name: "対象をプレビュー" });
+  await user.click(preview);
+  const cancel = await screen.findByRole("button", { name: "キャンセル" });
+  const confirm = screen.getByRole("button", { name: "確認して削除を実行" });
+  expect(cancel).toHaveFocus();
+  await user.tab();
+  expect(confirm).toHaveFocus();
+  await user.tab();
+  expect(cancel).toHaveFocus();
+  await user.click(confirm);
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "一部処理済みの可能性",
+  );
+  await waitFor(() => expect(preview).toHaveFocus());
+});
