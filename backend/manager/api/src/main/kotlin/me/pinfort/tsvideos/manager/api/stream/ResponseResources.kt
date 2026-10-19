@@ -24,8 +24,14 @@ class ResponseResources {
         val resource = open()
         val kept = synchronized(this) { !closed && adopted.add(resource) }
         if (!kept) {
-            resource.close()
-            throw IllegalStateException("Request already completed")
+            // The request completed while opening; the close failure must not hide why the resource was refused.
+            val completed = IllegalStateException("Request already completed")
+            try {
+                resource.close()
+            } catch (e: Exception) {
+                completed.addSuppressed(e)
+            }
+            throw completed
         }
         return resource
     }
@@ -68,6 +74,10 @@ class ResponseResources {
  * failed or the client disconnected. If a handler started async processing, the resources stay installed for the
  * async dispatches and are released when the async request completes. A timeout or error is not the end: the
  * container still dispatches error handling and then always completes the request, so only completion releases.
+ *
+ * It applies to every request rather than only the streaming endpoints: it is just a lightweight owner of the
+ * request lifetime that does no NAS work until a handler adopts something, and owning every request the same way
+ * keeps release consistent for synchronous and async handling without keeping an endpoint list in sync.
  */
 @Component
 class ResponseResourcesFilter : OncePerRequestFilter() {

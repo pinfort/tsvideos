@@ -59,6 +59,43 @@ class ResponseResourcesTest :
                 }
                 opened shouldBe false
             }
+
+            expect("a resource opened while the request completes is closed once and refused") {
+                val log = mutableListOf<String>()
+                val resources = ResponseResources()
+
+                val thrown =
+                    shouldThrow<IllegalStateException> {
+                        resources.adopt {
+                            resources.close()
+                            Recorder("raced", log)
+                        }
+                    }
+                resources.close()
+
+                thrown.message shouldBe "Request already completed"
+                thrown.suppressed.toList() shouldBe emptyList()
+                log shouldBe listOf("raced")
+            }
+
+            expect("a failing close of a raced resource is kept as suppressed, not as the failure") {
+                val log = mutableListOf<String>()
+                val resources = ResponseResources()
+                val closeFailure = IOException("close failed")
+
+                val thrown =
+                    shouldThrow<IllegalStateException> {
+                        resources.adopt {
+                            resources.close()
+                            Recorder("raced", log, closeFailure)
+                        }
+                    }
+                resources.close()
+
+                thrown.message shouldBe "Request already completed"
+                thrown.suppressed.toList() shouldBe listOf(closeFailure)
+                log shouldBe listOf("raced")
+            }
         }
 
         context("ResponseResourcesFilter") {
