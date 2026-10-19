@@ -13,6 +13,7 @@ export function SearchForm({
 }) {
   const v = (key: string, fallback = "") =>
     typeof values[key] === "string" ? (values[key] as string) : fallback;
+  // Keep these defaults in sync with parseProgramQuery and the controls below.
   const detailDefaults: Record<string, string> = {
     channel: "",
     collectionId: "",
@@ -170,7 +171,6 @@ export function SearchForm({
                 step="1"
                 name="limit"
                 defaultValue={v("limit", "10")}
-                required
               />
             </label>
           </div>

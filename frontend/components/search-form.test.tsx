@@ -91,14 +91,40 @@ it("preserves manual organization filters including a deleted ID and resets only
 });
 
 it("shows the number of specified detail fields while remaining collapsed", () => {
-  render(<SearchForm values={{ name: "anime", offset: "20", channel: "BS1", minDrops: "0", collectionId: "3", sort: "RECORDED_AT", direction: "DESC", limit: "10" }} />);
+  render(
+    <SearchForm
+      values={{
+        name: "anime",
+        offset: "20",
+        channel: "BS1",
+        minDrops: "0",
+        collectionId: "3",
+        sort: "RECORDED_AT",
+        direction: "DESC",
+        limit: "10",
+      }}
+    />,
+  );
   expect(screen.getByText("詳細検索（3件指定中）")).toBeVisible();
   expect(screen.getByLabelText("チャンネルID")).not.toBeVisible();
 });
 
 it("does not count default or empty values, but counts custom sorting and page size", () => {
-  const { rerender } = render(<SearchForm values={{ name: "anime", offset: "20", channel: "", sort: "RECORDED_AT", direction: "DESC", limit: "10" }} />);
+  const { rerender } = render(
+    <SearchForm
+      values={{
+        name: "anime",
+        offset: "20",
+        channel: "",
+        sort: "RECORDED_AT",
+        direction: "DESC",
+        limit: "10",
+      }}
+    />,
+  );
   expect(screen.getByText("詳細検索", { exact: true })).toBeVisible();
-  rerender(<SearchForm values={{ sort: "SIZE", direction: "ASC", limit: "50" }} />);
+  rerender(
+    <SearchForm values={{ sort: "SIZE", direction: "ASC", limit: "50" }} />,
+  );
   expect(screen.getByText("詳細検索（3件指定中）")).toBeVisible();
 });
