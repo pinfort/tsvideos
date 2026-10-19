@@ -92,7 +92,8 @@ export function BulkPrograms({
   }
 
   async function apply() {
-    if (!plan) return;
+    // The closing dialog still renders its buttons during the exit animation.
+    if (!plan || !confirming) return;
     setPending(true);
     setError("");
     try {
@@ -255,7 +256,11 @@ export function BulkPrograms({
                 variant={
                   plan.request.action === "DELETE" ? "destructive" : "default"
                 }
-                disabled={pending || !plan.targets.some((t) => t.eligible)}
+                disabled={
+                  pending ||
+                  !confirming ||
+                  !plan.targets.some((t) => t.eligible)
+                }
                 onClick={apply}
               >
                 確認して{plan.request.action === "DELETE" ? "削除" : "移動"}
