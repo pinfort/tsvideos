@@ -41,9 +41,20 @@ NAS のターゲットは、事前にエンコードされた URL ではなく�
 
 ## 既存の `created_file.mime` の埋め戻し (任意)
 
-字幕・補助ファイル (`ass`/`srt`/`txt`/`log`/`json`/`xml`/`aac`/`m4a`/`wav`) に mime が割り当てられる前に登録された行は NULL のまま残り、自動では埋め戻されない。埋める場合は、行をバックアップしてから次の SQL を一度だけ実行する (末尾の `.gz` は除いて拡張子を判定する。該当しない拡張子は NULL のまま)。
+字幕・補助ファイル (`ass`/`srt`/`txt`/`log`/`json`/`xml`/`aac`/`m4a`/`wav`) に mime が割り当てられる前に登録された行は NULL のまま残り、自動では埋め戻されない。埋める場合は、行をバックアップしてから次の SQL を一度だけ実行する (末尾の `.gz` は除いて拡張子を判定する。該当しない拡張子や拡張子のないファイルは NULL のまま)。先に件数を確認できる。
 
 ```sql
+-- Dry run: how many rows each mime would fill.
+SELECT m, COUNT(*) FROM (
+  SELECT CASE LOWER(SUBSTRING_INDEX(IF(LOWER(file) LIKE '%.gz', LEFT(file, LENGTH(file) - 3), file), '.', -1))
+      WHEN 'ass' THEN 'text/x-ssa' WHEN 'srt' THEN 'application/x-subrip'
+      WHEN 'txt' THEN 'text/plain' WHEN 'log' THEN 'text/plain'
+      WHEN 'json' THEN 'application/json' WHEN 'xml' THEN 'application/xml'
+      WHEN 'aac' THEN 'audio/aac' WHEN 'm4a' THEN 'audio/mp4' WHEN 'wav' THEN 'audio/wav'
+    END AS m
+  FROM created_file WHERE mime IS NULL
+) t WHERE m IS NOT NULL GROUP BY m;
+
 UPDATE created_file
 SET mime = CASE LOWER(SUBSTRING_INDEX(IF(LOWER(file) LIKE '%.gz', LEFT(file, LENGTH(file) - 3), file), '.', -1))
     WHEN 'ass' THEN 'text/x-ssa' WHEN 'srt' THEN 'application/x-subrip'
