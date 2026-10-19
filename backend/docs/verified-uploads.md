@@ -37,3 +37,30 @@ UPDATE upload_manifest SET state = 'NEW', updated_at = UTC_TIMESTAMP(6) WHERE id
 NAS のターゲットは、事前にエンコードされた URL ではなく、共有からの相対パスそのものである。呼び出し側は宛先のパスを URL エンコードしてはならない。jcifs はそれらをそのまま解決する (パーセントデコードやフラグメントの解析はない) ため、`#` や `%` のようなタイトルの文字はそのまま保存される。先頭の `/`、バックスラッシュ、空/`.`/`..` のセグメント、`:` (NTFS の代替データストリーム)、`?` (ワイルドカード)、制御文字は、所有権を確保する前に、説明付きの `IllegalArgumentException` で拒否される。`destination_key` は宛先の文字列そのものをハッシュするが、SMB サーバーは通常、名前を大文字小文字を区別せずに比較し、末尾のドットや空白を取り除くことがあるため、2 つのキーが 1 つのファイルを指す場合がある。これで何かが上書きされることはない (最終パスの存在チェックと、置き換えなしのリネームの両方が既存のファイルを見て、"Unowned final destination exists" で失敗する) が、そのような衝突は、重複した宛先として検出されるのではなく、整合が必要になる。
 
 `reset <original-recording-path>` が program/executed の行を削除した*後*に失敗した場合 (例: マニフェストの廃止中に NAS にアクセスできなくなった)、NAS/DB へのアクセスを復旧し、通常の確認付きで**同じ reset コマンドをもう一度**実行する。正規化された入力パスから、永続的な RESETTING のジョブが見つかる。復旧の経路では、executed/program/split の行が存在しないこと、コールバックのクレームがないこと、関連する created_file の行がすべて存在しないこと、最終的な NAS のターゲットがすべて存在しないことが確認されている必要がある。そのうえで、所有が証明された一時成果物だけをクリーンアップし、マニフェストとジョブを廃止する。`--dry-run` は、この保留中の復旧を変更なしで報告する。いずれかのチェックが失敗した場合は、証拠が残り、パスは推測されない。分割パスのメタデータが失われている場合、残っているローカルの分割ファイルは、警告とともに手動での確認のために保持される。元の録画は常に保持される。program の削除自体が NAS で部分的に失敗した場合は、その DB レコードが残っていることがある。DB のロールバックがリモートのバイト列を復元したと仮定せず、まずその正確なターゲットを復元/整合させること。
+- REGISTERED の再登録で、保存済みの `created_file.mime` が NULL の場合 (拡張子に mime が割り当てられる前に登録された字幕・補助ファイルなど) は、競合とせずに今回推定した mime で埋める。保存済みの非 NULL の mime は上書きせず、異なる場合は競合として失敗する。
+
+## 既存の `created_file.mime` の埋め戻し (任意)
+
+字幕・補助ファイル (`ass`/`srt`/`txt`/`log`/`json`/`xml`/`aac`/`m4a`/`wav`) に mime が割り当てられる前に登録された行は NULL のまま残り、自動では埋め戻されない。埋める場合は、行をバックアップしてから次の SQL を一度だけ実行する (末尾の `.gz` は除いて拡張子を判定する。該当しない拡張子や拡張子のないファイルは NULL のまま)。先に件数を確認できる。
+
+```sql
+-- Dry run: how many rows each mime would fill.
+SELECT m, COUNT(*) FROM (
+  SELECT CASE LOWER(SUBSTRING_INDEX(IF(LOWER(file) LIKE '%.gz', LEFT(file, LENGTH(file) - 3), file), '.', -1))
+      WHEN 'ass' THEN 'text/x-ssa' WHEN 'srt' THEN 'application/x-subrip'
+      WHEN 'txt' THEN 'text/plain' WHEN 'log' THEN 'text/plain'
+      WHEN 'json' THEN 'application/json' WHEN 'xml' THEN 'application/xml'
+      WHEN 'aac' THEN 'audio/aac' WHEN 'm4a' THEN 'audio/mp4' WHEN 'wav' THEN 'audio/wav'
+    END AS m
+  FROM created_file WHERE mime IS NULL
+) t WHERE m IS NOT NULL GROUP BY m;
+
+UPDATE created_file
+SET mime = CASE LOWER(SUBSTRING_INDEX(IF(LOWER(file) LIKE '%.gz', LEFT(file, LENGTH(file) - 3), file), '.', -1))
+    WHEN 'ass' THEN 'text/x-ssa' WHEN 'srt' THEN 'application/x-subrip'
+    WHEN 'txt' THEN 'text/plain' WHEN 'log' THEN 'text/plain'
+    WHEN 'json' THEN 'application/json' WHEN 'xml' THEN 'application/xml'
+    WHEN 'aac' THEN 'audio/aac' WHEN 'm4a' THEN 'audio/mp4' WHEN 'wav' THEN 'audio/wav'
+  END
+WHERE mime IS NULL;
+```

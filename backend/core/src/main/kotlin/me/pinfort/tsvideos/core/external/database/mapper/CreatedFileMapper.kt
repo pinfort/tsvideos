@@ -185,6 +185,22 @@ interface CreatedFileMapper {
             UPDATE
                 created_file
             SET
+                mime = #{mime}
+            WHERE
+                id = #{id}
+                AND mime IS NULL
+        """,
+    )
+    fun updateMimeIfMissing(
+        id: Long,
+        mime: String,
+    ): Int
+
+    @Update(
+        """
+            UPDATE
+                created_file
+            SET
                 status = #{status}
             WHERE
                 id = #{id}

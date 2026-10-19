@@ -273,17 +273,30 @@ class VerifiedUploadCommand(
                     file.splittedFileId == splittedFileId &&
                         file.file == manifest.finalPath &&
                         file.size == manifest.sourceSize &&
-                        file.mime == mime &&
+                        (file.mime == mime || file.mime == null) &&
                         file.encoding == encoding &&
                         file.status == CreatedFile.Status.FILE_MOVED,
                 ) { "Registered artifact record does not match this registration" }
+                // A record registered before its extension had a known mime stores NULL; a re-run fills it in rather than
+                // treating the newly guessed mime as a conflict. A stored mime is never overwritten, so if another writer
+                // filled it first the stored value must still match this registration.
+                val withMime =
+                    if (mime != null && file.mime == null) {
+                        if (transaction.execute { createdMapper.updateMimeIfMissing(file.id, mime) } == 0) {
+                            val stored = transaction.execute { createdMapper.find(file.id) }?.toDomain()?.mime
+                            check(stored == mime) { "Registered artifact record does not match this registration" }
+                        }
+                        file.copy(mime = mime)
+                    } else {
+                        file
+                    }
                 // The resolution is best-effort metadata, so it is not part of this identity check: a re-run that probes
                 // null keeps the stored value, and one that probes a value fills in a resolution the first run missed.
-                if (resolution != null && file.width == null && file.height == null) {
+                if (resolution != null && withMime.width == null && withMime.height == null) {
                     transaction.execute { createdMapper.updateResolutionIfMissing(file.id, resolution.width, resolution.height) }
-                    file.copy(width = resolution.width, height = resolution.height)
+                    withMime.copy(width = resolution.width, height = resolution.height)
                 } else {
-                    file
+                    withMime
                 }
             } else {
                 checkNotNull(
