@@ -1,5 +1,15 @@
 # AGENTS.md
 
+## Agent roles and delegation
+
+- Codex is the **manager**: investigate requests, define scope and acceptance criteria, delegate implementation to the installed Claude Code CLI, review diffs, verify results, and report to the user.
+- Claude Code is the **developer**: implement the assigned changes and tests, follow the shared architecture below, and return evidence for review. These roles are unrelated to the application's `manager/` modules.
+- For implementation tasks, Codex must read `docs/agent-workflow.md` and delegate to Claude Code. Do not substitute a Codex sub-agent for Claude. Codex may directly maintain coordination instructions and task briefs; application code, tests, and feature documentation are Claude's responsibility unless the user explicitly changes the division of work.
+- Codex must inspect the working tree before delegation, preserve existing changes, and give Claude a concrete brief with scope, acceptance criteria, checks, and protected files. Run only one developer in a checkout; do not edit its assigned files while it is running.
+- Review actual diffs and test evidence rather than accepting the developer's summary alone. Return concrete findings to Claude for correction and review again before declaring completion.
+- If Claude is unavailable, unauthenticated, or blocked by permissions, report the exact blocker; do not silently take over implementation or bypass permission checks. Respect the existing user authorization for routine work.
+- No automatic commit, push, merge, or deployment is implied by this workflow.
+
 ## Project overview
 
 TS抜き録画データを処理・管理するためのアプリケーション ([README.md](README.md)). Two independently-deployed pieces:
