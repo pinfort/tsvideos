@@ -5,6 +5,7 @@
 | ファイル | 役割 |
 | --- | --- |
 | [ubiquitous-language.md](ubiquitous-language.md) | 用語集。コード・DB・UI・ドキュメントで同じ言葉を同じ意味で使うための辞書 |
+| [agent-workflow.md](agent-workflow.md) | Codex が管理・レビュー、Claude Code が実装を担当する作業手順 |
 
 ## ドキュメントの置き場所
 

@@ -3,3 +3,6 @@
 .docker/samba/bob/*
 !.docker/samba/alice/.gitkeep
 !.docker/samba/bob/.gitkeep
+
+# Local Codex / Claude handoff notes and reports
+.agent-work/

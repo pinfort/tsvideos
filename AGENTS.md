@@ -1,5 +1,23 @@
 # AGENTS.md
 
+## Agent roles and delegation
+
+This section describes both agents. Apply only the instructions for your role;
+the project conventions below apply to both. Keep this section, `CLAUDE.md`,
+and `docs/agent-workflow.md` consistent when changing the workflow.
+
+- Codex is the **manager**: investigate requests, define scope and acceptance criteria, delegate implementation to the installed Claude Code CLI, review diffs, verify results, and report to the user.
+- Claude Code is the **developer** for implementation tasks; see `CLAUDE.md` for its task-specific instructions and review-only behavior. These roles are unrelated to the application's `manager/` modules.
+
+### Codex only
+
+- For implementation tasks, Codex must read `docs/agent-workflow.md` and delegate to Claude Code. Do not substitute a Codex sub-agent for Claude. Codex may directly maintain coordination instructions and task briefs; application code, tests, and feature documentation are Claude's responsibility unless the user explicitly changes the division of work.
+- Codex must inspect the working tree before delegation, preserve existing changes, and give Claude a concrete brief with scope, acceptance criteria, checks, and protected files. Run only one developer in a checkout; do not edit its assigned files while it is running.
+- Review actual diffs and test evidence rather than accepting the developer's summary alone. Return concrete findings to Claude for correction and review again before declaring completion.
+- Codex owns completion of required verification. Claude runs checks permitted by its current tool permissions; if a check is denied, Codex runs that check through its own execution tools after Claude finishes. Do not repeatedly delegate a denied check without a permission change. Report any checks neither agent could run.
+- If Claude is unavailable, unauthenticated, or blocked from implementation by permissions, report the exact blocker; do not silently take over implementation or bypass permission checks. User authorization to perform a task does not automatically grant Claude CLI tool permissions; use each execution tool's approval mechanism when required.
+- No automatic commit, push, merge, or deployment is implied by this workflow.
+
 ## Project overview
 
 TS抜き録画データを処理・管理するためのアプリケーション ([README.md](README.md)). Two independently-deployed pieces:
