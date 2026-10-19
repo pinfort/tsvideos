@@ -24,6 +24,11 @@ describe("SearchForm", () => {
     expect(screen.getByRole("textbox", { name: "番組名" })).toHaveValue(
       "anime",
     );
+    expect(screen.getByLabelText("チャンネルID")).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "検索" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "条件をクリア" })).toBeVisible();
+    fireEvent.click(screen.getByText("詳細検索"));
+    expect(screen.getByLabelText("チャンネルID")).toBeVisible();
     expect(screen.getByLabelText("処理状態")).toHaveValue("ERROR");
     expect(screen.getByLabelText("利用可能な形式")).toHaveValue("TS");
     expect(screen.getByLabelText("並び順")).toHaveValue("SIZE");
@@ -37,12 +42,15 @@ describe("SearchForm", () => {
     fireEvent.change(screen.getByLabelText("番組名"), {
       target: { value: "new" },
     });
+    fireEvent.click(screen.getByText("詳細検索"));
     fireEvent.change(screen.getByLabelText("チャンネルID"), {
       target: { value: "BS1" },
     });
     fireEvent.change(screen.getByLabelText("並び順"), {
       target: { value: "DURATION" },
     });
+    fireEvent.click(screen.getByText("詳細検索"));
+    expect(screen.getByLabelText("チャンネルID")).not.toBeVisible();
     const form = screen.getByRole("form", {
       name: "録画検索",
     }) as HTMLFormElement;
@@ -67,6 +75,7 @@ it("preserves manual organization filters including a deleted ID and resets only
       }}
     />,
   );
+  fireEvent.click(screen.getByText("詳細検索"));
   expect(screen.getByLabelText("コレクション")).toHaveValue("3");
   expect(screen.getByLabelText("手動タグ")).toHaveValue("99");
   expect(
