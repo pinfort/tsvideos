@@ -105,7 +105,9 @@ it("shows the number of specified detail fields while remaining collapsed", () =
       }}
     />,
   );
-  expect(screen.getByText("詳細検索（3件指定中）")).toBeVisible();
+  const summary = screen.getByText("詳細検索（3件指定中）");
+  expect(summary).toBeVisible();
+  expect(summary.closest("details")).not.toHaveAttribute("open");
   expect(screen.getByLabelText("チャンネルID")).not.toBeVisible();
 });
 
@@ -127,4 +129,6 @@ it("does not count default or empty values, but counts custom sorting and page s
     <SearchForm values={{ sort: "SIZE", direction: "ASC", limit: "50" }} />,
   );
   expect(screen.getByText("詳細検索（3件指定中）")).toBeVisible();
+  rerender(<SearchForm values={{ libraryTagId: "99" }} />);
+  expect(screen.getByText("詳細検索（1件指定中）")).toBeVisible();
 });

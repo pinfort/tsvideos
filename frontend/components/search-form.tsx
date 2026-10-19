@@ -2,7 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import Link from "next/link";
-import { MAX_INT, type ProgramQueryParams } from "@/lib/program-query";
+import {
+  MAX_INT,
+  PROGRAM_QUERY_DEFAULTS,
+  type ProgramQueryParams,
+} from "@/lib/program-query";
 
 export function SearchForm({
   values = {},
@@ -13,7 +17,6 @@ export function SearchForm({
 }) {
   const v = (key: string, fallback = "") =>
     typeof values[key] === "string" ? (values[key] as string) : fallback;
-  // Keep these defaults in sync with parseProgramQuery and the controls below.
   const detailDefaults: Record<string, string> = {
     channel: "",
     collectionId: "",
@@ -24,9 +27,9 @@ export function SearchForm({
     fileType: "",
     minDrops: "",
     maxDrops: "",
-    sort: "RECORDED_AT",
-    direction: "DESC",
-    limit: "10",
+    sort: PROGRAM_QUERY_DEFAULTS.sort,
+    direction: PROGRAM_QUERY_DEFAULTS.direction,
+    limit: String(PROGRAM_QUERY_DEFAULTS.limit),
   };
   const detailCount = Object.entries(detailDefaults).filter(([key, fallback]) => {
     const value = v(key);
@@ -37,6 +40,7 @@ export function SearchForm({
       action="/"
       method="get"
       // Validate on the server so invalid controls inside closed details cannot block submission.
+      // Keep numeric bounds for stepper controls and assistive technology.
       noValidate
       className="flex flex-col gap-4"
       aria-label="録画検索"
@@ -149,7 +153,10 @@ export function SearchForm({
             </label>
             <label className="flex flex-col gap-1 text-sm">
               並び順
-              <NativeSelect name="sort" defaultValue={v("sort", "RECORDED_AT")}>
+              <NativeSelect
+                name="sort"
+                defaultValue={v("sort", detailDefaults.sort)}
+              >
                 <option value="RECORDED_AT">録画日時</option>
                 <option value="DURATION">長さ</option>
                 <option value="SIZE">サイズ</option>
@@ -157,7 +164,10 @@ export function SearchForm({
             </label>
             <label className="flex flex-col gap-1 text-sm">
               順序
-              <NativeSelect name="direction" defaultValue={v("direction", "DESC")}>
+              <NativeSelect
+                name="direction"
+                defaultValue={v("direction", detailDefaults.direction)}
+              >
                 <option value="DESC">降順</option>
                 <option value="ASC">昇順</option>
               </NativeSelect>
@@ -170,7 +180,7 @@ export function SearchForm({
                 max="500"
                 step="1"
                 name="limit"
-                defaultValue={v("limit", "10")}
+                defaultValue={v("limit", detailDefaults.limit)}
               />
             </label>
           </div>

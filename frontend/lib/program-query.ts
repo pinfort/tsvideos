@@ -3,6 +3,12 @@ import type { ProgramSearchQuery } from "./api/types";
 /** Largest value the backend accepts for int-typed params (Java Integer.MAX_VALUE). */
 export const MAX_INT = 2_147_483_647;
 
+export const PROGRAM_QUERY_DEFAULTS = {
+  sort: "RECORDED_AT",
+  direction: "DESC",
+  limit: 10,
+} as const satisfies ProgramSearchQuery;
+
 export type ProgramQueryParams = Record<string, string | string[] | undefined>;
 export type ParsedProgramQuery = ProgramSearchQuery & {
   limit: number;
@@ -106,10 +112,14 @@ export function parseProgramQuery(
     sort: option(
       "sort",
       ["RECORDED_AT", "DURATION", "SIZE"] as const,
-      "RECORDED_AT",
+      PROGRAM_QUERY_DEFAULTS.sort,
     ),
-    direction: option("direction", ["ASC", "DESC"] as const, "DESC"),
-    limit: integer("limit", 1, 500, 10)!,
+    direction: option(
+      "direction",
+      ["ASC", "DESC"] as const,
+      PROGRAM_QUERY_DEFAULTS.direction,
+    ),
+    limit: integer("limit", 1, 500, PROGRAM_QUERY_DEFAULTS.limit)!,
     offset: integer("offset", 0, MAX_INT, 0)!,
   };
   // Compare local time at nanosecond precision without server/browser timezone conversion.
