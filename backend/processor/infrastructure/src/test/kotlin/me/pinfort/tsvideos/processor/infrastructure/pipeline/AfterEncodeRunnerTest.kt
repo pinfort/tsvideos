@@ -197,7 +197,7 @@ class AfterEncodeRunnerTest :
                 verify(exactly = 1) { f.resolutionProbe.probe(f.output) }
                 verify(exactly = 0) { f.resolutionProbe.probe(subtitle) }
                 verify { f.uploads.register(f.receipt, 20, "video/mp4", null, VideoResolution(1920, 1080)) }
-                verify { f.uploads.register(f.receipt, 20, null, null, null) }
+                verify { f.uploads.register(f.receipt, 20, "text/x-ssa", null, null) }
             } finally {
                 f.cleanup()
             }

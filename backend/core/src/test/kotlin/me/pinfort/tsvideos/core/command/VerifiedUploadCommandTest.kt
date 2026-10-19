@@ -530,6 +530,23 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.source.delete()
             }
         }
+        expect("a re-run fills in a mime registered as NULL before it was known, but never overwrites or drops one") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                val first = f.command.register(receipt, 876543, null, null)
+                first.mime shouldBe null
+                val rerun = f.command.register(receipt, 876543, "text/x-ssa", null)
+                rerun.id shouldBe first.id
+                rerun.mime shouldBe "text/x-ssa"
+                files.find(first.id)?.toDomain()?.mime shouldBe "text/x-ssa"
+                shouldThrow<IllegalStateException> { f.command.register(receipt, 876543, "text/plain", null) }
+                shouldThrow<IllegalStateException> { f.command.register(receipt, 876543, null, null) }
+                files.find(first.id)?.toDomain()?.mime shouldBe "text/x-ssa"
+            } finally {
+                f.source.delete()
+            }
+        }
         expect("successful upload is registered exactly once and repeated callback survives local deletion") {
             val f = fixture()
             try {

@@ -123,6 +123,27 @@ class CreatedFileMapperTest : ExpectSpec() {
             }
         }
 
+        context("updateMimeIfMissing") {
+            expect("sets a missing mime and leaves a stored one alone") {
+                val connection = dataSource.connection
+                connection.prepareStatement("DELETE FROM created_file").execute()
+                connection
+                    .prepareStatement(
+                        "INSERT INTO created_file(id,splitted_file_id,file,size,mime,encoding,status,width,height) " +
+                            "VALUES(1,2,'a.ass',3,NULL,NULL,'FILE_MOVED',NULL,NULL),(2,2,'b.ass',3,'text/plain',NULL,'FILE_MOVED',NULL,NULL)",
+                    ).execute()
+                connection.commit()
+
+                createdFileMapper.updateMimeIfMissing(1, "text/x-ssa") shouldBe 1
+                createdFileMapper.updateMimeIfMissing(2, "text/x-ssa") shouldBe 0
+                connection.commit()
+
+                createdFileMapper.find(1)?.mime shouldBe "text/x-ssa"
+                createdFileMapper.find(2)?.mime shouldBe "text/plain"
+                connection.close()
+            }
+        }
+
         context("find") {
             expect("single") {
                 val connection = dataSource.connection
