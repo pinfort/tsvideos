@@ -1,17 +1,17 @@
 package me.pinfort.tsvideos.core.command
 
 import me.pinfort.tsvideos.core.domain.CreatedFile
-import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
-import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
 import me.pinfort.tsvideos.core.external.samba.NasComponent
-import me.pinfort.tsvideos.core.storage.NasStorageException
 import me.pinfort.tsvideos.core.storage.NasStore
 import org.slf4j.Logger
-import org.springframework.core.io.Resource
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 
+/**
+ * Coordinated delete/move of `created_file` rows together with their NAS copies. Registration, metadata updates and
+ * playback lookups are [me.pinfort.tsvideos.core.catalog.CreatedFileCatalog]; manager:api opens the NAS for playback.
+ */
 @Component
 class CreatedFileCommand(
     private val createdFileMapper: CreatedFileMapper,
@@ -20,50 +20,6 @@ class CreatedFileCommand(
 ) {
     fun selectBySplittedFileId(splittedFileId: Long): List<CreatedFile> =
         createdFileMapper.selectBySplittedFileId(splittedFileId).map { it.toDomain() }
-
-    fun insert(
-        splittedFileId: Long,
-        file: String,
-        size: Long,
-        mime: String?,
-        encoding: String?,
-        status: CreatedFile.Status = CreatedFile.Status.FILE_MOVED,
-        dryRun: Boolean = false,
-        resolution: VideoResolution? = null,
-    ): CreatedFile {
-        val id =
-            if (!dryRun) {
-                val keyHolder = GeneratedKeyHolder()
-                createdFileMapper.insert(
-                    splittedFileId,
-                    file,
-                    size,
-                    mime,
-                    encoding,
-                    status.name,
-                    keyHolder,
-                    resolution?.width,
-                    resolution?.height,
-                )
-                keyHolder.id
-            } else {
-                0L
-            }
-        val createdFile =
-            CreatedFile(
-                id = id,
-                splittedFileId = splittedFileId,
-                file = file,
-                size = size,
-                mime = mime,
-                encoding = encoding,
-                status = status,
-                width = resolution?.width,
-                height = resolution?.height,
-            )
-        logger.info("Insert created file, id=$id, createdFile=$createdFile")
-        return createdFile
-    }
 
     fun updateStatus(
         createdFile: CreatedFile,
@@ -76,23 +32,6 @@ class CreatedFileCommand(
         val updated = createdFile.copy(status = status)
         logger.info("Update created file status, id=${createdFile.id}, status=$status")
         return updated
-    }
-
-    fun findMp4File(id: Long): CreatedFile? {
-        val createdFile: CreatedFile = createdFileMapper.find(id)?.toDomain() ?: return null
-        // 動画ファイルでない場合はファイルが存在しない扱いをする
-        if (!createdFile.isMp4) return null
-        return createdFile
-    }
-
-    fun streamCreatedFile(id: Long): Resource? {
-        val createdFile: CreatedFile = findMp4File(id) ?: return null
-        // Playback reads VIDEO_STORE_NAS only; any NAS failure (unreachable share, missing file, rejected login) is a 404.
-        return try {
-            nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, createdFile.file)
-        } catch (e: NasStorageException) {
-            null
-        }
     }
 
     @Transactional

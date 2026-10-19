@@ -381,18 +381,6 @@ class FileProcessingPipelineTest :
                 } answers { "nas-base-dir/${secondArg<String>()}" }
 
                 every { nasComponent.uploadResource(any(), any(), any(), any()) } returns true
-                every {
-                    createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any())
-                } returns
-                    CreatedFile(
-                        id = 300,
-                        splittedFileId = 200,
-                        file = "target",
-                        size = 1,
-                        mime = "video/vnd.dlna.mpeg-tts",
-                        encoding = "gzip",
-                        status = CreatedFile.Status.FILE_MOVED,
-                    )
 
                 every { executedFileCommand.find(executedFile.id) } returns executedFile
                 every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } returns 0
@@ -478,18 +466,6 @@ class FileProcessingPipelineTest :
                 } answers { "nas-base-dir/${secondArg<String>()}" }
 
                 every { nasComponent.uploadResource(any(), any(), any(), any()) } returns true
-                every {
-                    createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any())
-                } returns
-                    CreatedFile(
-                        id = 300,
-                        splittedFileId = 200,
-                        file = "target",
-                        size = 1,
-                        mime = "video/vnd.dlna.mpeg-tts",
-                        encoding = "gzip",
-                        status = CreatedFile.Status.FILE_MOVED,
-                    )
 
                 every { executedFileCommand.find(executedFile.id) } returns executedFile
                 every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } returns 0
@@ -941,18 +917,6 @@ class FileProcessingPipelineTest :
                     every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
 
                     every { nasComponent.uploadResource(any(), any(), any(), any()) } returns true
-                    every {
-                        createdFileCommand.insert(any(), any(), any(), any(), any(), any(), any())
-                    } returns
-                        CreatedFile(
-                            id = 300,
-                            splittedFileId = 200,
-                            file = "target",
-                            size = 1,
-                            mime = "video/vnd.dlna.mpeg-tts",
-                            encoding = "gzip",
-                            status = CreatedFile.Status.FILE_MOVED,
-                        )
 
                     every { executedFileCommand.find(executedFile.id) } returns executedFile
                     every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } throws failure

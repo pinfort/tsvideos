@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.component.ProcessingRetry
 import me.pinfort.tsvideos.core.component.RetryOperation
@@ -11,7 +12,6 @@ import me.pinfort.tsvideos.core.domain.UploadManifest.State
 import me.pinfort.tsvideos.core.domain.VerifiedUploadReceipt
 import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.domain.sha256Hex
-import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
 import me.pinfort.tsvideos.core.external.samba.VerifiedUploadNas
 import me.pinfort.tsvideos.core.storage.NasStore
@@ -32,8 +32,7 @@ import java.util.UUID
 class VerifiedUploadCommand(
     private val manifests: UploadManifestMapper,
     private val nas: VerifiedUploadNas,
-    private val createdFiles: CreatedFileCommand,
-    private val createdMapper: CreatedFileMapper,
+    private val createdFiles: CreatedFileCatalog,
     transactionManager: PlatformTransactionManager,
     @Value("\${processor.upload.verify-sha256:false}") private val checksumRequired: Boolean = false,
     private val retry: ProcessingRetry = ProcessingRetry(),
@@ -267,7 +266,7 @@ class VerifiedUploadCommand(
             verifyRemote(manifest, manifest.finalPath)
             if (manifest.state == State.REGISTERED) {
                 val file =
-                    transaction.execute { createdMapper.find(checkNotNull(manifest.createdFileId)) }?.toDomain()
+                    transaction.execute { createdFiles.find(checkNotNull(manifest.createdFileId)) }
                         ?: error("Registered artifact record missing")
                 check(
                     file.splittedFileId == splittedFileId &&
@@ -282,8 +281,8 @@ class VerifiedUploadCommand(
                 // filled it first the stored value must still match this registration.
                 val withMime =
                     if (mime != null && file.mime == null) {
-                        if (transaction.execute { createdMapper.updateMimeIfMissing(file.id, mime) } == 0) {
-                            val stored = transaction.execute { createdMapper.find(file.id) }?.toDomain()?.mime
+                        if (transaction.execute { createdFiles.fillMimeIfMissing(file.id, mime) } != true) {
+                            val stored = transaction.execute { createdFiles.find(file.id) }?.mime
                             check(stored == mime) { "Registered artifact record does not match this registration" }
                         }
                         file.copy(mime = mime)
@@ -293,7 +292,7 @@ class VerifiedUploadCommand(
                 // The resolution is best-effort metadata, so it is not part of this identity check: a re-run that probes
                 // null keeps the stored value, and one that probes a value fills in a resolution the first run missed.
                 if (resolution != null && withMime.width == null && withMime.height == null) {
-                    transaction.execute { createdMapper.updateResolutionIfMissing(file.id, resolution.width, resolution.height) }
+                    transaction.execute { createdFiles.fillResolutionIfMissing(file.id, resolution) }
                     withMime.copy(width = resolution.width, height = resolution.height)
                 } else {
                     withMime
@@ -301,14 +300,15 @@ class VerifiedUploadCommand(
             } else {
                 checkNotNull(
                     transaction.execute {
+                        // The catalog insert is MANDATORY: it joins this transaction and commits only with the manifest.
                         val file =
-                            createdFiles.insert(
+                            createdFiles.register(
                                 splittedFileId,
                                 manifest.finalPath,
                                 manifest.sourceSize,
                                 mime,
                                 encoding,
-                                resolution = resolution,
+                                resolution,
                             )
                         check(manifests.register(manifest.id, token, file.id) == 1) { "Upload registration lost ownership" }
                         file
@@ -350,7 +350,7 @@ class VerifiedUploadCommand(
     private fun requireRegistered(manifest: UploadManifest) {
         check(manifest.state == State.REGISTERED) { "Remote artifact has not been registered" }
         val file =
-            transaction.execute { createdMapper.find(checkNotNull(manifest.createdFileId)) }?.toDomain()
+            transaction.execute { createdFiles.find(checkNotNull(manifest.createdFileId)) }
                 ?: error("Registered artifact record missing")
         check(file.file == manifest.finalPath && file.size == manifest.sourceSize && file.status == CreatedFile.Status.FILE_MOVED) {
             "Registered artifact record does not match the upload manifest"
@@ -408,7 +408,7 @@ class VerifiedUploadCommand(
         checkNotNull(transaction.execute { manifests.forJob(jobId) }).forEach { entry ->
             withClaim(entry.id, releaseAfterSuccess = false) { current, token ->
                 check(current.state !in State.AMBIGUOUS) { "Ambiguous upload must be reconciled before reset" }
-                check(current.createdFileId == null || transaction.execute { createdMapper.find(current.createdFileId) } == null) {
+                check(current.createdFileId == null || transaction.execute { createdFiles.find(current.createdFileId) } == null) {
                     "Registered file row remains; preserve upload ownership"
                 }
                 check(!nas.exists(current.nasType, current.finalPath)) { "Final artifact remains; preserve upload ownership" }

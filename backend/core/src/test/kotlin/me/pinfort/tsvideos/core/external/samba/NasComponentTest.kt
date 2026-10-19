@@ -134,6 +134,31 @@ class NasComponentTest :
         }
 
         context("openForRead") {
+            /** An SMB stream that records whether it was closed and how many times. */
+            class TrackedSmbStream(
+                bytes: ByteArray,
+            ) : ByteArrayInputStream(bytes) {
+                var closes = 0
+
+                override fun close() {
+                    closes++
+                    super.close()
+                }
+            }
+
+            fun openable(content: ByteArray = "abc".toByteArray()): Triple<SmbFile, SmbResource, MutableList<TrackedSmbStream>> {
+                val freshRoot = mockk<SmbFile>()
+                val resource = mockk<SmbResource>()
+                val streams = mutableListOf<TrackedSmbStream>()
+                every { sambaClient.root(NasStore.VIDEO_STORE_NAS) } returns freshRoot
+                every { freshRoot.resolve(any()) } returns resource
+                every { resource.length() } returns content.size.toLong()
+                every { resource.openInputStream() } answers { TrackedSmbStream(content).also { streams += it } }
+                every { resource.close() } just Runs
+                every { freshRoot.close() } just Runs
+                return Triple(freshRoot, resource, streams)
+            }
+
             expect("opens the file on a fresh root of the requested store only") {
                 val freshRoot = mockk<SmbFile>()
                 val resource = mockk<SmbResource>()
@@ -143,36 +168,131 @@ class NasComponentTest :
 
                 val opened = nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "a\\bucket\\file.mp4")
 
-                opened.contentLength() shouldBe 1024L
+                opened.length shouldBe 1024L
                 verify(exactly = 0) { sambaClient.root(NasStore.ORIGINAL_STORE_NAS) }
                 verify(exactly = 0) { videoStoreNas.resolve(any()) }
                 verify(exactly = 0) { originalStoreNas.resolve(any()) }
+                // Opening alone holds the root and the file for the caller; nothing is released yet.
+                verify(exactly = 0) { resource.close() }
+                verify(exactly = 0) { freshRoot.close() }
             }
 
-            expect("translates a Samba failure into NasAccessException without the server URL") {
+            expect("translates a Samba failure into NasAccessException without the server URL and releases the file and root") {
                 val freshRoot = mockk<SmbFile>()
                 val resource = mockk<SmbResource>()
                 val failure = SmbException("smb://user:secret@nas/share/a/bucket/file.mp4 not found")
                 every { sambaClient.root(NasStore.VIDEO_STORE_NAS) } returns freshRoot
                 every { freshRoot.resolve(any()) } returns resource
                 every { resource.length() } throws failure
+                every { resource.close() } just Runs
+                every { freshRoot.close() } just Runs
 
                 val thrown = shouldThrow<NasAccessException> { nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "a/bucket/file.mp4") }
 
                 thrown.cause shouldBe failure
                 thrown.message shouldNotContain "smb://"
                 thrown.message shouldNotContain "secret"
+                verify(exactly = 1) { resource.close() }
+                verify(exactly = 1) { freshRoot.close() }
             }
 
-            expect("does not translate failures that are not Samba failures") {
+            expect("a release failure after an open failure is suppressed, not thrown in its place") {
+                val freshRoot = mockk<SmbFile>()
+                val resource = mockk<SmbResource>()
+                val failure = SmbException("not found")
+                val releaseFailure = IllegalStateException("close failed")
+                every { sambaClient.root(NasStore.VIDEO_STORE_NAS) } returns freshRoot
+                every { freshRoot.resolve(any()) } returns resource
+                every { resource.length() } throws failure
+                every { resource.close() } throws releaseFailure
+                every { freshRoot.close() } just Runs
+
+                val thrown = shouldThrow<NasAccessException> { nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "a/bucket/file.mp4") }
+
+                thrown.cause shouldBe failure
+                failure.suppressed.toList() shouldBe listOf(releaseFailure)
+                verify(exactly = 1) { freshRoot.close() }
+            }
+
+            expect("does not translate failures that are not Samba failures, and releases the root") {
                 val freshRoot = mockk<SmbFile>()
                 every { sambaClient.root(NasStore.VIDEO_STORE_NAS) } returns freshRoot
                 every { freshRoot.resolve(any()) } throws IllegalStateException("boom")
+                every { freshRoot.close() } just Runs
 
                 shouldThrow<IllegalStateException> { nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "a/bucket/file.mp4") }
+                verify(exactly = 1) { freshRoot.close() }
             }
 
-            expect("the returned resource opens and reads with storage exceptions, not jcifs ones") {
+            expect("the handle opens a new stream from the start each time; closing a stream keeps the handle usable") {
+                val (freshRoot, resource, streams) = openable()
+                val handle = nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "a/bucket/file.mp4")
+
+                handle.open().use { it.readBytes() } shouldBe "abc".toByteArray()
+                handle.open().use { it.readBytes() } shouldBe "abc".toByteArray()
+
+                streams.size shouldBe 2
+                streams.map { it.closes } shouldBe listOf(1, 1)
+                verify(exactly = 0) { resource.close() }
+                verify(exactly = 0) { freshRoot.close() }
+                handle.close()
+            }
+
+            expect("close releases streams still open, then the file and the root; a stream closed by its reader is closed once") {
+                val (freshRoot, resource, streams) = openable()
+                val handle = nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "a/bucket/file.mp4")
+                val abandoned = handle.open()
+                handle.open().close()
+
+                handle.close()
+
+                streams.map { it.closes } shouldBe listOf(1, 1)
+                verify(exactly = 1) { resource.close() }
+                verify(exactly = 1) { freshRoot.close() }
+                // The reader closing its stream after the handle released it does not close the SMB stream again.
+                abandoned.close()
+                streams.map { it.closes } shouldBe listOf(1, 1)
+            }
+
+            expect("close is idempotent and the handle cannot be opened after it") {
+                val (freshRoot, resource, _) = openable()
+                val handle = nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "a/bucket/file.mp4")
+
+                handle.close()
+                handle.close()
+
+                verify(exactly = 1) { resource.close() }
+                verify(exactly = 1) { freshRoot.close() }
+                shouldThrow<IllegalStateException> { handle.open() }
+                verify(exactly = 0) { resource.openInputStream() }
+            }
+
+            expect("close releases everything even when one release fails, then throws the first failure as a storage exception") {
+                val (freshRoot, resource, _) = openable()
+                val streamFailure = SmbException("stream close failed")
+                every { resource.openInputStream() } returns
+                    object : InputStream() {
+                        override fun read(): Int = -1
+
+                        override fun close(): Unit = throw streamFailure
+                    }
+                val fileFailure = SmbException("file close failed")
+                every { resource.close() } throws fileFailure
+                val handle = nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "a/bucket/file.mp4")
+                handle.open()
+
+                val thrown = shouldThrow<NasAccessException> { handle.close() }
+
+                thrown.cause shouldBe streamFailure
+                thrown.suppressed.map { it.cause } shouldBe listOf(fileFailure)
+                verify(exactly = 1) { resource.close() }
+                verify(exactly = 1) { freshRoot.close() }
+                // Already closed: a retry does nothing.
+                handle.close()
+                verify(exactly = 1) { freshRoot.close() }
+            }
+
+            expect("the returned handle opens and reads with storage exceptions, not jcifs ones") {
                 val freshRoot = mockk<SmbFile>()
                 val resource = mockk<SmbResource>()
                 val readFailure = SmbException("smb://nas/share read failed")
@@ -191,10 +311,17 @@ class NasComponentTest :
                     }
                 val opened = nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "a/bucket/file.mp4")
 
-                shouldThrow<NasAccessException> { opened.inputStream.use { it.read() } }.cause shouldBe readFailure
+                shouldThrow<NasAccessException> { opened.open().use { it.read() } }.cause shouldBe readFailure
 
                 every { resource.openInputStream() } throws mockk<SmbAuthException>(relaxed = true) { every { cause } returns null }
-                shouldThrow<NasAuthenticationException> { opened.inputStream }
+                shouldThrow<NasAuthenticationException> { opened.open() }
+
+                // A failed open leaves nothing behind: the handle still releases only the file and the root.
+                every { resource.close() } just Runs
+                every { freshRoot.close() } just Runs
+                opened.close()
+                verify(exactly = 1) { resource.close() }
+                verify(exactly = 1) { freshRoot.close() }
             }
         }
 
