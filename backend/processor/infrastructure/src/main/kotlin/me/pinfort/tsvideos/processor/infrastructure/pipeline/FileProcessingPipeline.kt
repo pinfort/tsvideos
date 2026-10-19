@@ -28,10 +28,10 @@ import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.QualityAction
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
-import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient
 import me.pinfort.tsvideos.core.external.tool.TsSplitterClient
+import me.pinfort.tsvideos.core.storage.NasStore
 import me.pinfort.tsvideos.processor.infrastructure.external.ts.EmergencyBroadcastDetector
 import me.pinfort.tsvideos.processor.infrastructure.external.tsselect.TsSelectClient
 import org.slf4j.Logger
@@ -445,7 +445,7 @@ class FileProcessingPipeline(
             nasDestinationResolver.resolve(
                 File(splittedFile.file).parentFile.parentFile.toPath(),
                 compressedFile.name,
-                SambaClient.NasType.ORIGINAL_STORE_NAS,
+                NasStore.ORIGINAL_STORE_NAS,
             )
 
         val job = checkNotNull(processingJobCommand.findByExecutedFile(splittedFile.executedFileId))
@@ -460,7 +460,7 @@ class FileProcessingPipeline(
                         job.id,
                         "original",
                         compressedFile,
-                        SambaClient.NasType.ORIGINAL_STORE_NAS,
+                        NasStore.ORIGINAL_STORE_NAS,
                         targetFile,
                         onUploadProgress,
                     )

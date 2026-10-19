@@ -45,6 +45,7 @@ import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient
 import me.pinfort.tsvideos.core.external.tool.TsSplitterClient
+import me.pinfort.tsvideos.core.storage.NasStore
 import me.pinfort.tsvideos.processor.infrastructure.external.ts.EmergencyBroadcastDetector
 import me.pinfort.tsvideos.processor.infrastructure.external.tsselect.TsSelectClient
 import org.slf4j.Logger
@@ -376,7 +377,7 @@ class FileProcessingPipelineTest :
                 every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
 
                 every {
-                    sambaClient.resolvePathUnderBaseDir(SambaClient.NasType.ORIGINAL_STORE_NAS, any())
+                    sambaClient.resolvePathUnderBaseDir(NasStore.ORIGINAL_STORE_NAS, any())
                 } answers { "nas-base-dir/${secondArg<String>()}" }
 
                 every { nasComponent.uploadResource(any(), any(), any(), any()) } returns true
@@ -425,7 +426,7 @@ class FileProcessingPipelineTest :
                         1,
                         "original",
                         any(),
-                        SambaClient.NasType.ORIGINAL_STORE_NAS,
+                        NasStore.ORIGINAL_STORE_NAS,
                         match { it.startsWith("nas-base-dir/") },
                         any(),
                     )
@@ -473,7 +474,7 @@ class FileProcessingPipelineTest :
                 every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
 
                 every {
-                    sambaClient.resolvePathUnderBaseDir(SambaClient.NasType.ORIGINAL_STORE_NAS, any())
+                    sambaClient.resolvePathUnderBaseDir(NasStore.ORIGINAL_STORE_NAS, any())
                 } answers { "nas-base-dir/${secondArg<String>()}" }
 
                 every { nasComponent.uploadResource(any(), any(), any(), any()) } returns true
@@ -516,7 +517,7 @@ class FileProcessingPipelineTest :
                         1,
                         "original",
                         any(),
-                        SambaClient.NasType.ORIGINAL_STORE_NAS,
+                        NasStore.ORIGINAL_STORE_NAS,
                         match { it.startsWith("nas-base-dir/") },
                         any(),
                     )
@@ -718,7 +719,7 @@ class FileProcessingPipelineTest :
                 every { splittedFileCommand.delete(any(), any()) } just Runs
                 every { executedFileCommand.updateStatus(any(), any(), any()) } returns executedFile
                 every {
-                    sambaClient.resolvePathUnderBaseDir(SambaClient.NasType.ORIGINAL_STORE_NAS, any())
+                    sambaClient.resolvePathUnderBaseDir(NasStore.ORIGINAL_STORE_NAS, any())
                 } answers { "nas-base-dir/${secondArg<String>()}" }
                 return File(outDir, "${splitFile.name}.gz")
             }
@@ -968,7 +969,7 @@ class FileProcessingPipelineTest :
                                 status = CreatedFile.Status.FILE_MOVED,
                             ),
                         )
-                    every { createdFileCommand.delete(any(), any()) } returns SambaClient.NasType.ORIGINAL_STORE_NAS
+                    every { createdFileCommand.delete(any(), any()) } returns NasStore.ORIGINAL_STORE_NAS
                     every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
                     every { executedFileCommand.findByFile(original.absolutePath) } returns null
                     every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs

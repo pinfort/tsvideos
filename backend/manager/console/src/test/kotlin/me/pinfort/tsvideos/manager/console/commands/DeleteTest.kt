@@ -14,7 +14,7 @@ import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
-import me.pinfort.tsvideos.core.external.samba.SambaClient
+import me.pinfort.tsvideos.core.storage.NasStore
 import java.time.LocalDateTime
 
 class DeleteTest :
@@ -108,7 +108,7 @@ class DeleteTest :
                 expect("success") {
                     every { userQuestionComponent.askDefaultFalse(any()) } returns true
                     every { programCommand.findDetail(any()) } returns dummyProgramDetail
-                    every { createdFileCommand.delete(any()) } returns SambaClient.NasType.VIDEO_STORE_NAS
+                    every { createdFileCommand.delete(any()) } returns NasStore.VIDEO_STORE_NAS
 
                     delete.main(arrayOf("ts_files", "1"))
 

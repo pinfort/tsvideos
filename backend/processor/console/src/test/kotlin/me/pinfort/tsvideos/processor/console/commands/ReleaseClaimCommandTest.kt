@@ -13,7 +13,7 @@ import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.UploadManifest
-import me.pinfort.tsvideos.core.external.samba.SambaClient
+import me.pinfort.tsvideos.core.storage.NasStore
 import java.io.File
 
 class ReleaseClaimCommandTest :
@@ -30,7 +30,7 @@ class ReleaseClaimCommandTest :
                 7,
                 "artifact",
                 "destination",
-                SambaClient.NasType.ORIGINAL_STORE_NAS,
+                NasStore.ORIGINAL_STORE_NAS,
                 "base/r/rec/rec_1.m2ts.gz",
                 "base/r/rec/rec_1.m2ts.gz.upload-x",
                 "/rec/tssplitter/rec_1.m2ts.gz",

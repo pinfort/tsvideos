@@ -13,8 +13,8 @@ import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.domain.sha256Hex
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
-import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.samba.VerifiedUploadNas
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.stereotype.Component
@@ -60,7 +60,7 @@ class VerifiedUploadCommand(
         jobId: Long,
         artifact: String,
         source: File,
-        type: SambaClient.NasType,
+        type: NasStore,
         target: String,
         progress: (Long, Long) -> Unit = { _, _ -> },
     ): VerifiedUploadReceipt =
@@ -77,7 +77,7 @@ class VerifiedUploadCommand(
         jobId: Long,
         artifact: String,
         source: File,
-        type: SambaClient.NasType,
+        type: NasStore,
         target: String,
         progress: (Long, Long) -> Unit,
     ): VerifiedUploadReceipt {
@@ -134,7 +134,7 @@ class VerifiedUploadCommand(
         jobId: Long,
         key: String,
         source: File,
-        type: SambaClient.NasType,
+        type: NasStore,
         target: String,
     ): UploadManifest {
         transaction.execute { manifests.find(jobId, key) }?.let { return it }

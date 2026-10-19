@@ -18,8 +18,10 @@ import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
 import me.pinfort.tsvideos.core.external.samba.NasComponent
-import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.samba.SmbFileResource
+import me.pinfort.tsvideos.core.storage.NasAccessException
+import me.pinfort.tsvideos.core.storage.NasAuthenticationException
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.slf4j.Logger
 import java.io.BufferedInputStream
 import java.io.InputStream
@@ -27,7 +29,6 @@ import java.io.InputStream
 class CreatedFileCommandTest :
     ExpectSpec({
         lateinit var createdFileMapper: CreatedFileMapper
-        lateinit var sambaClient: SambaClient
         lateinit var nasComponent: NasComponent
         lateinit var logger: Logger
         lateinit var createdFileCommand: CreatedFileCommand
@@ -57,10 +58,9 @@ class CreatedFileCommandTest :
         beforeTest {
             clearAllMocks()
             createdFileMapper = mockk()
-            sambaClient = mockk()
             nasComponent = mockk()
             logger = mockk()
-            createdFileCommand = CreatedFileCommand(createdFileMapper, sambaClient, nasComponent, logger)
+            createdFileCommand = CreatedFileCommand(createdFileMapper, nasComponent, logger)
         }
 
         context("selectBySplittedFileId") {
@@ -197,9 +197,8 @@ class CreatedFileCommandTest :
                 val testStream = InputStream.nullInputStream()
                 val smbResource = mockk<SmbResource>()
                 every { createdFileMapper.find(any()) } returns mp4CreatedFileDto
-                every { sambaClient.videoStoreNas().resolve(any()) } returns smbResource
-                every { smbResource.length() } returns 12345L
                 every { smbResource.openInputStream() } returns testStream
+                every { nasComponent.openForRead(any(), any()) } returns SmbFileResource(smbResource, 12345L)
 
                 val result = createdFileCommand.streamCreatedFile(1)
 
@@ -209,41 +208,42 @@ class CreatedFileCommandTest :
 
                 verifySequence {
                     createdFileMapper.find(1)
-                    sambaClient.videoStoreNas().resolve("file")
-                    smbResource.length()
+                    nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "file")
                     smbResource.openInputStream()
                 }
             }
 
-            expect("successBackSlash") {
-                val testStream = InputStream.nullInputStream()
+            expect("passes the recorded path unchanged; the storage normalizes separators") {
                 val smbResource = mockk<SmbResource>()
                 every { createdFileMapper.find(any()) } returns mp4CreatedFileDto.copy(file = "test\\")
-                every { sambaClient.videoStoreNas().resolve(any()) } returns smbResource
-                every { smbResource.length() } returns 12345L
-                every { smbResource.openInputStream() } returns testStream
+                every { nasComponent.openForRead(any(), any()) } returns SmbFileResource(smbResource, 12345L)
 
-                val result = createdFileCommand.streamCreatedFile(1)
+                createdFileCommand.streamCreatedFile(1).shouldBeInstanceOf<SmbFileResource>()
 
-                result.shouldBeInstanceOf<SmbFileResource>()
-                result?.contentLength() shouldBe 12345L
-                result?.inputStream.shouldBeInstanceOf<BufferedInputStream>()
-
-                verifySequence {
-                    createdFileMapper.find(1)
-                    sambaClient.videoStoreNas().resolve("test/")
-                    smbResource.length()
-                    smbResource.openInputStream()
-                }
+                verify { nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, "test\\") }
             }
 
-            expect("noFile") {
-                val smbResource = mockk<SmbResource>()
+            expect("noFile: an unreachable or missing NAS file is null (HTTP 404)") {
                 every { createdFileMapper.find(any()) } returns mp4CreatedFileDto
-                every { sambaClient.videoStoreNas().resolve(any()) } returns smbResource
-                every { smbResource.length() } throws SmbException("err")
+                every { nasComponent.openForRead(any(), any()) } throws
+                    NasAccessException("NAS file could not be opened for reading", SmbException("err"))
 
                 createdFileCommand.streamCreatedFile(1) shouldBe null
+            }
+
+            expect("noFile: a rejected NAS login is also null (HTTP 404), as any Samba failure was before") {
+                every { createdFileMapper.find(any()) } returns mp4CreatedFileDto
+                every { nasComponent.openForRead(any(), any()) } throws
+                    NasAuthenticationException("NAS open for reading failed: credentials rejected", SmbException("err"))
+
+                createdFileCommand.streamCreatedFile(1) shouldBe null
+            }
+
+            expect("other failures propagate") {
+                every { createdFileMapper.find(any()) } returns mp4CreatedFileDto
+                every { nasComponent.openForRead(any(), any()) } throws IllegalStateException("boom")
+
+                shouldThrow<IllegalStateException> { createdFileCommand.streamCreatedFile(1) }
             }
             expect("noHit") {
                 every { createdFileMapper.find(any()) } returns null
@@ -259,10 +259,10 @@ class CreatedFileCommandTest :
         context("delete") {
             expect("success") {
                 every { createdFileMapper.delete(any()) } just Runs
-                every { nasComponent.deleteResource(createdFile.file) } returns SambaClient.NasType.ORIGINAL_STORE_NAS
+                every { nasComponent.deleteResource(createdFile.file) } returns NasStore.ORIGINAL_STORE_NAS
                 every { logger.info(any()) } just Runs
 
-                createdFileCommand.delete(createdFile) shouldBe SambaClient.NasType.ORIGINAL_STORE_NAS
+                createdFileCommand.delete(createdFile) shouldBe NasStore.ORIGINAL_STORE_NAS
 
                 verifySequence {
                     createdFileMapper.delete(1)
@@ -290,7 +290,7 @@ class CreatedFileCommandTest :
             expect("dryRun") {
                 every { logger.info(any()) } just Runs
 
-                createdFileCommand.delete(createdFile, true) shouldBe SambaClient.NasType.VIDEO_STORE_NAS
+                createdFileCommand.delete(createdFile, true) shouldBe NasStore.VIDEO_STORE_NAS
 
                 verifySequence {
                     logger.info(any())
@@ -305,7 +305,7 @@ class CreatedFileCommandTest :
         context("restoreMoved") {
             expect("moves files back newest first and keeps going after a failure") {
                 every { nasComponent.moveResource("new2", "old2") } throws IllegalStateException("busy")
-                every { nasComponent.moveResource("new1", "old1") } returns SambaClient.NasType.VIDEO_STORE_NAS
+                every { nasComponent.moveResource("new1", "old1") } returns NasStore.VIDEO_STORE_NAS
                 every { logger.info(any()) } just Runs
                 every { logger.error(any(), any<Exception>()) } just Runs
 
@@ -323,10 +323,10 @@ class CreatedFileCommandTest :
         context("move") {
             expect("success") {
                 every { createdFileMapper.updateFile(any(), any()) } returns 1
-                every { nasComponent.moveResource(createdFile.file, "newFile") } returns SambaClient.NasType.ORIGINAL_STORE_NAS
+                every { nasComponent.moveResource(createdFile.file, "newFile") } returns NasStore.ORIGINAL_STORE_NAS
                 every { logger.info(any()) } just Runs
 
-                createdFileCommand.move(createdFile, "newFile") shouldBe SambaClient.NasType.ORIGINAL_STORE_NAS
+                createdFileCommand.move(createdFile, "newFile") shouldBe NasStore.ORIGINAL_STORE_NAS
 
                 verifySequence {
                     createdFileMapper.updateFile(1, "newFile")
@@ -357,7 +357,7 @@ class CreatedFileCommandTest :
             expect("dryRun") {
                 every { logger.info(any()) } just Runs
 
-                createdFileCommand.move(createdFile, "newFile", true) shouldBe SambaClient.NasType.VIDEO_STORE_NAS
+                createdFileCommand.move(createdFile, "newFile", true) shouldBe NasStore.VIDEO_STORE_NAS
 
                 verifySequence {
                     logger.info(any())

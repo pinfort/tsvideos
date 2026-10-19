@@ -28,7 +28,7 @@ import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.domain.CleanupCriteria
 import me.pinfort.tsvideos.core.domain.CleanupMode
 import me.pinfort.tsvideos.core.external.samba.NasComponent
-import me.pinfort.tsvideos.core.external.samba.SambaClient
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -100,7 +100,7 @@ class CleanupPlanMapperTest : ExpectSpec() {
                 programMapper,
                 createdMapper,
                 ExecutedFileCommand(executedMapper, tags, logger),
-                CreatedFileCommand(createdMapper, mockk(), nas, logger),
+                CreatedFileCommand(createdMapper, nas, logger),
                 splitMapper,
                 logger,
                 SplittedFileCommand(splitMapper, logger),
@@ -130,7 +130,7 @@ class CleanupPlanMapperTest : ExpectSpec() {
 
     private fun nas(): NasComponent =
         mockk<NasComponent>().also {
-            every { it.deleteResource(any()) } returns SambaClient.NasType.VIDEO_STORE_NAS
+            every { it.deleteResource(any()) } returns NasStore.VIDEO_STORE_NAS
         }
 
     init {
@@ -263,7 +263,7 @@ class CleanupPlanMapperTest : ExpectSpec() {
             every { nas.deleteResource("base/a/p1/file.mp4") } answers {
                 entered.countDown()
                 check(release.await(10, TimeUnit.SECONDS))
-                SambaClient.NasType.VIDEO_STORE_NAS
+                NasStore.VIDEO_STORE_NAS
             }
             val (command, bulk) = commands(nas)
             val cleanup = command.plan(CleanupCriteria(CleanupMode.DUPLICATES))

@@ -19,7 +19,7 @@ import me.pinfort.tsvideos.core.domain.BulkApplyRequest
 import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
 import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.external.samba.NasComponent
-import me.pinfort.tsvideos.core.external.samba.SambaClient
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -87,7 +87,7 @@ class BulkLibraryMapperTest : ExpectSpec() {
                         "VALUES(3,'$path',0,18,'2026-01-01','1','title','channel',1,'SPLITTED')",
                 )
                 val nas = mockk<NasComponent>()
-                every { nas.deleteResource(any()) } returns SambaClient.NasType.VIDEO_STORE_NAS
+                every { nas.deleteResource(any()) } returns NasStore.VIDEO_STORE_NAS
                 val logger = mockk<org.slf4j.Logger>(relaxed = true)
                 val directories = DirectoryNameComponent(NormalizeComponent())
                 val tags = mockk<ExecutedFileTagCommand>(relaxed = true)
@@ -96,7 +96,7 @@ class BulkLibraryMapperTest : ExpectSpec() {
                         programMapper,
                         createdMapper,
                         ExecutedFileCommand(executedMapper, tags, logger),
-                        CreatedFileCommand(createdMapper, mockk(), nas, logger),
+                        CreatedFileCommand(createdMapper, nas, logger),
                         splitMapper,
                         logger,
                         SplittedFileCommand(splitMapper, logger),
@@ -137,7 +137,7 @@ class BulkLibraryMapperTest : ExpectSpec() {
                 mapper.allFiles().size shouldBe 2
                 programMapper.find(4)?.id shouldBe 4
                 original.readText() shouldBe "original recording"
-                every { nas.deleteResource(any()) } returns SambaClient.NasType.VIDEO_STORE_NAS
+                every { nas.deleteResource(any()) } returns NasStore.VIDEO_STORE_NAS
                 command
                     .apply(
                         BulkApplyRequest(request, plan.targets.associate { it.id to it.fingerprint }),

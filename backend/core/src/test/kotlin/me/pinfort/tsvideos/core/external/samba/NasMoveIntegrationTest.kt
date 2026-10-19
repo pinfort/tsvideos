@@ -4,6 +4,7 @@ import io.kotest.assertions.throwables.shouldThrowAny
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import me.pinfort.tsvideos.core.config.SambaConfigurationProperties
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.slf4j.LoggerFactory
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
@@ -61,7 +62,7 @@ class NasMoveIntegrationTest :
                             it.openInputStream().use { input -> input.readBytes().toList() shouldBe listOf<Byte>(9, 8) }
                             it.delete()
                         }
-                        nas.moveResource(old, destination) shouldBe SambaClient.NasType.VIDEO_STORE_NAS
+                        nas.moveResource(old, destination) shouldBe NasStore.VIDEO_STORE_NAS
                         root.resolve(old).use { it.exists() shouldBe false }
                         root.resolve(destination).use {
                             it.openInputStream().use { input ->

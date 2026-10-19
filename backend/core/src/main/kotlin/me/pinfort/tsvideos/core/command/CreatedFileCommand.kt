@@ -1,13 +1,12 @@
 package me.pinfort.tsvideos.core.command
 
-import jcifs.CIFSException
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
 import me.pinfort.tsvideos.core.external.samba.NasComponent
-import me.pinfort.tsvideos.core.external.samba.SambaClient
-import me.pinfort.tsvideos.core.external.samba.SmbFileResource
+import me.pinfort.tsvideos.core.storage.NasStorageException
+import me.pinfort.tsvideos.core.storage.NasStore
 import org.slf4j.Logger
 import org.springframework.core.io.Resource
 import org.springframework.stereotype.Component
@@ -16,7 +15,6 @@ import org.springframework.transaction.annotation.Transactional
 @Component
 class CreatedFileCommand(
     private val createdFileMapper: CreatedFileMapper,
-    private val sambaClient: SambaClient,
     private val nasComponent: NasComponent,
     private val logger: Logger,
 ) {
@@ -89,13 +87,10 @@ class CreatedFileCommand(
 
     fun streamCreatedFile(id: Long): Resource? {
         val createdFile: CreatedFile = findMp4File(id) ?: return null
+        // Playback reads VIDEO_STORE_NAS only; any NAS failure (unreachable share, missing file, rejected login) is a 404.
         return try {
-            val resource =
-                sambaClient
-                    .videoStoreNas()
-                    .resolve(createdFile.file.replace('\\', '/'))
-            SmbFileResource(resource, resource.length())
-        } catch (e: CIFSException) {
+            nasComponent.openForRead(NasStore.VIDEO_STORE_NAS, createdFile.file)
+        } catch (e: NasStorageException) {
             null
         }
     }
@@ -104,14 +99,14 @@ class CreatedFileCommand(
     fun delete(
         createdFile: CreatedFile,
         dryRun: Boolean = false,
-    ): SambaClient.NasType =
+    ): NasStore =
         try {
             val removedFrom =
                 if (!dryRun) {
                     createdFileMapper.delete(createdFile.id)
                     nasComponent.deleteResource(createdFile.file)
                 } else {
-                    SambaClient.NasType.VIDEO_STORE_NAS
+                    NasStore.VIDEO_STORE_NAS
                 }
             logger.info("Delete created file, id=${createdFile.id}, createdFile=$createdFile, removedFrom=$removedFrom")
             removedFrom
@@ -142,14 +137,14 @@ class CreatedFileCommand(
         createdFile: CreatedFile,
         newFile: String,
         dryRun: Boolean = false,
-    ): SambaClient.NasType =
+    ): NasStore =
         try {
             val movedFrom =
                 if (!dryRun) {
                     createdFileMapper.updateFile(createdFile.id, newFile)
                     nasComponent.moveResource(createdFile.file, newFile)
                 } else {
-                    SambaClient.NasType.VIDEO_STORE_NAS
+                    NasStore.VIDEO_STORE_NAS
                 }
             logger.info("Move created file, id=${createdFile.id}, newFile=$newFile, createdFile=$createdFile, movedFrom=$movedFrom")
             movedFrom
