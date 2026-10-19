@@ -77,4 +77,9 @@
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
   }
+  /* Native popups must pair their background with the theme's text color. */
+  option,
+  optgroup {
+    @apply bg-background text-foreground;
+  }
 }
