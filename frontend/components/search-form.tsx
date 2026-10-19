@@ -21,7 +21,10 @@ export function SearchForm({
       aria-label="録画検索"
     >
       <h1 className="text-2xl font-semibold">録画を検索</h1>
-      <Link href="/collections" className="text-blue-600 underline dark:text-blue-400">
+      <Link
+        href="/collections"
+        className="text-blue-600 underline dark:text-blue-400"
+      >
         コレクション・手動タグを管理
       </Link>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -145,12 +148,11 @@ export function SearchForm({
             step="1"
             name="limit"
             defaultValue={v("limit", "10")}
-
             required
           />
         </label>
       </div>
-      <Input type="hidden" name="offset" value="0" />
+      <input type="hidden" name="offset" value="0" />
       <p className="text-xs text-muted-foreground">
         日時は録画環境の現地時刻です。ドロップ数の指定時は未確認の録画を除きます。形式は登録済みファイルの情報で判定します。
       </p>

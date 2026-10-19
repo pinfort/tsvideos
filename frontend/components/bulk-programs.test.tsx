@@ -166,3 +166,44 @@ it("does not dismiss confirmation with Escape during apply", async () => {
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
   );
 });
+
+it("disables confirmation when no target in the plan is eligible", async () => {
+  const user = userEvent.setup();
+  previewBulk.mockResolvedValue({
+    ...plan,
+    targets: plan.targets.map((t) => ({
+      ...t,
+      eligible: false,
+      reason: "未完了",
+    })),
+  });
+  render(<BulkPrograms programs={programs} />);
+  await user.click(screen.getByLabelText("録画 1 を選択"));
+  await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
+  expect(
+    await screen.findByRole("button", { name: "確認して削除を実行" }),
+  ).toBeDisabled();
+  expect(screen.getAllByText("実行不可: 未完了")).toHaveLength(2);
+});
+
+it("words the confirmation for a move and shows each destination", async () => {
+  const user = userEvent.setup();
+  previewBulk.mockResolvedValue({
+    ...plan,
+    request: { ids: [1], action: "MOVE", directory: "番組" },
+    targets: [{ ...plan.targets[0], destinations: { 1: "番組/1.mp4" } }],
+  });
+  render(<BulkPrograms programs={programs} />);
+  await user.click(screen.getByLabelText("録画 1 を選択"));
+  await user.selectOptions(screen.getByLabelText("操作"), "MOVE");
+  await user.type(screen.getByLabelText("移動先の番組フォルダー名"), "番組");
+  await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
+  expect(await screen.findByRole("alertdialog")).toHaveAccessibleName(
+    "移動の確認（1件）",
+  );
+  expect(screen.getByText(/移動対象の登録サイズ合計/)).toBeInTheDocument();
+  expect(screen.getByText(/→ 番組\/1\.mp4/)).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "確認して移動を実行" }),
+  ).toBeEnabled();
+});

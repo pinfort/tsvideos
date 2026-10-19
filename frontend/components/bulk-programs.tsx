@@ -2,7 +2,7 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ProgramsTable } from "./programs-table";
+import { MAX_SELECTION, ProgramsTable } from "./programs-table";
 import {
   applyBulk,
   previewBulk,
@@ -22,8 +22,6 @@ import {
   AlertDialogCancel,
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
-
-const MAX_SELECTION = 100;
 
 const outcomeLabels = {
   SUCCESS: "成功",
@@ -58,7 +56,9 @@ export function BulkPrograms({
   // deleteOnly callers hide the picker; derive the action so MOVE can never be sent from them.
   const action = deleteOnly ? "DELETE" : selectedAction;
   const [directory, setDirectory] = useState("");
+  // The plan outlives the dialog so its content stays rendered during the close animation.
   const [plan, setPlan] = useState<BulkPlan | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [outcomes, setOutcomes] = useState<BulkOutcome[]>([]);
@@ -78,6 +78,7 @@ export function BulkPrograms({
           ...(action === "MOVE" ? { directory } : {}),
         }),
       );
+      setConfirming(true);
     } catch (cause) {
       console.error("Bulk preview failed", cause);
       setError(
@@ -110,7 +111,7 @@ export function BulkPrograms({
         "実行結果を取得できません。一部処理済みの可能性があります。再プレビューで状態を確認してください。",
       );
     } finally {
-      setPlan(null);
+      setConfirming(false);
       router.refresh();
       setPending(false);
     }
@@ -130,10 +131,7 @@ export function BulkPrograms({
         選択はこのページ内のみ（最大{MAX_SELECTION}
         件）。検索条件・ページを変更すると解除されます。完了済みの録画のみ操作できます。
       </p>
-      <fieldset
-        disabled={pending || plan !== null}
-        className="min-w-0 space-y-3"
-      >
+      <fieldset disabled={pending || confirming} className="min-w-0 space-y-3">
         {renderPrograms ? (
           renderPrograms(currentSelected, select)
         ) : (
@@ -177,15 +175,15 @@ export function BulkPrograms({
           対象をプレビュー
         </Button>
       </fieldset>
-      {pending && <p role="status">処理中…</p>}
+      {pending && !confirming && <p role="status">処理中…</p>}
       {error && <p role="alert">{error}</p>}
-      {plan && (
-        <AlertDialog
-          open={plan !== null}
-          onOpenChange={(open) => {
-            if (!open && !pending) setPlan(null);
-          }}
-        >
+      <AlertDialog
+        open={confirming}
+        onOpenChange={(open) => {
+          if (!open && !pending) setConfirming(false);
+        }}
+      >
+        {plan && (
           <AlertDialogContent
             onEscapeKeyDown={(event) => {
               if (pending) event.preventDefault();
@@ -243,11 +241,7 @@ export function BulkPrograms({
               </div>
             ))}
             <AlertDialogFooter>
-              <AlertDialogCancel
-                type="button"
-                disabled={pending}
-                onClick={() => setPlan(null)}
-              >
+              <AlertDialogCancel type="button" disabled={pending}>
                 キャンセル
               </AlertDialogCancel>
               <Button
@@ -264,8 +258,8 @@ export function BulkPrograms({
             </AlertDialogFooter>
             {pending && <p role="status">処理中…</p>}
           </AlertDialogContent>
-        </AlertDialog>
-      )}
+        )}
+      </AlertDialog>
       {outcomes.length > 0 && (
         <section aria-label="処理結果">
           <h2>処理結果</h2>

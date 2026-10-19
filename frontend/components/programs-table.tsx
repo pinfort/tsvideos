@@ -9,7 +9,19 @@ import {
 } from "@/components/ui/table";
 import Link from "next/link";
 import { programStatusToJapanese } from "@/lib/api/status-labels";
-import type { Program } from "@/lib/api/types";
+import type { Program, ProgramStatus } from "@/lib/api/types";
+
+/** Upper bound on in-page bulk selection, shared with `BulkPrograms`. */
+export const MAX_SELECTION = 100;
+
+const statusBadgeVariant: Record<
+  ProgramStatus,
+  "default" | "secondary" | "destructive"
+> = {
+  REGISTERED: "secondary",
+  COMPLETED: "default",
+  ERROR: "destructive",
+};
 
 export function ProgramsTable({
   programs,
@@ -24,22 +36,12 @@ export function ProgramsTable({
     <Table className="min-w-[640px]" aria-label="録画一覧">
       <TableHeader>
         <TableRow>
-          {onSelect && <TableHead className="px-4 py-2">選択</TableHead>}
-          <TableHead className="px-4 py-2 text-left font-medium">
-            番号
-          </TableHead>
-          <TableHead className="px-4 py-2 text-left font-medium">
-            ファイル名
-          </TableHead>
-          <TableHead className="px-4 py-2 text-left font-medium">
-            executedFileId
-          </TableHead>
-          <TableHead className="px-4 py-2 text-left font-medium">
-            状態
-          </TableHead>
-          <TableHead className="px-4 py-2 text-left font-medium">
-            ドロップ数
-          </TableHead>
+          {onSelect && <TableHead>選択</TableHead>}
+          <TableHead>番号</TableHead>
+          <TableHead>ファイル名</TableHead>
+          <TableHead>executedFileId</TableHead>
+          <TableHead>状態</TableHead>
+          <TableHead>ドロップ数</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -56,14 +58,14 @@ export function ProgramsTable({
                   checked={selected?.includes(program.id) ?? false}
                   disabled={
                     !selected?.includes(program.id) &&
-                    (selected?.length ?? 0) >= 100
+                    (selected?.length ?? 0) >= MAX_SELECTION
                   }
                   onChange={(e) => onSelect(program.id, e.target.checked)}
                 />
               </TableCell>
             )}
-            <TableCell className="px-4 py-2">{program.id}</TableCell>
-            <TableCell className="px-4 py-2">
+            <TableCell>{program.id}</TableCell>
+            <TableCell>
               <Link
                 href={`/programs/${program.id}`}
                 className="text-blue-600 hover:underline dark:text-blue-400"
@@ -71,23 +73,15 @@ export function ProgramsTable({
                 {program.name}
               </Link>
             </TableCell>
-            <TableCell className="px-4 py-2">
-              {program.executedFileId}
-            </TableCell>
-            <TableCell className="px-4 py-2">
+            <TableCell>{program.executedFileId}</TableCell>
+            <TableCell>
               <Badge
-                variant={
-                  program.status === "ERROR"
-                    ? "destructive"
-                    : program.status === "COMPLETED"
-                      ? "default"
-                      : "secondary"
-                }
+                variant={statusBadgeVariant[program.status] ?? "secondary"}
               >
                 {programStatusToJapanese(program.status)}
               </Badge>
             </TableCell>
-            <TableCell className="px-4 py-2">{program.drops}</TableCell>
+            <TableCell>{program.drops}</TableCell>
           </TableRow>
         ))}
       </TableBody>
