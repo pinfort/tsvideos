@@ -247,10 +247,12 @@ export function BulkPrograms({
                 )}
               </div>
             ))}
-            <AlertDialogFooter>
+            {/* Sticky so the decision stays visible beside a long target list. */}
+            <AlertDialogFooter className="sticky bottom-0 bg-background py-2">
               <AlertDialogCancel type="button" disabled={pending}>
                 キャンセル
               </AlertDialogCancel>
+              {/* Not AlertDialogAction: it closes on click, but the dialog must stay open while applying. */}
               <Button
                 type="button"
                 variant={
