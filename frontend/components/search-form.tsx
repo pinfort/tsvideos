@@ -8,29 +8,32 @@ import {
   type ProgramQueryParams,
 } from "@/lib/program-query";
 
+const detailDefaults: Record<string, string> = {
+  channel: "",
+  collectionId: "",
+  libraryTagId: "",
+  status: "",
+  recordedFrom: "",
+  recordedTo: "",
+  fileType: "",
+  minDrops: "",
+  maxDrops: "",
+  sort: PROGRAM_QUERY_DEFAULTS.sort,
+  direction: PROGRAM_QUERY_DEFAULTS.direction,
+  limit: String(PROGRAM_QUERY_DEFAULTS.limit),
+};
+
 export function SearchForm({
   values = {},
   organization = { collections: [], tags: [] },
+  hasValidationError = false,
 }: {
   values?: ProgramQueryParams;
   organization?: import("@/lib/api/organization-types").Organization;
+  hasValidationError?: boolean;
 }) {
   const v = (key: string, fallback = "") =>
     typeof values[key] === "string" ? (values[key] as string) : fallback;
-  const detailDefaults: Record<string, string> = {
-    channel: "",
-    collectionId: "",
-    libraryTagId: "",
-    status: "",
-    recordedFrom: "",
-    recordedTo: "",
-    fileType: "",
-    minDrops: "",
-    maxDrops: "",
-    sort: PROGRAM_QUERY_DEFAULTS.sort,
-    direction: PROGRAM_QUERY_DEFAULTS.direction,
-    limit: String(PROGRAM_QUERY_DEFAULTS.limit),
-  };
   const detailCount = Object.entries(detailDefaults).filter(([key, fallback]) => {
     const value = v(key);
     return value !== "" && value !== fallback;
@@ -54,7 +57,7 @@ export function SearchForm({
           placeholder="番組名で検索"
         />
       </label>
-      <details>
+      <details open={hasValidationError}>
         <summary className="cursor-pointer rounded-sm text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
           詳細検索{detailCount > 0 && `（${detailCount}件指定中）`}
         </summary>

@@ -56,6 +56,7 @@ export default async function HomePage({
           key={JSON.stringify(values)}
           values={values}
           organization={organization}
+          hasValidationError={Boolean(validationError)}
         />
         {!organization && (
           <p role="status">

@@ -112,9 +112,35 @@ describe("HomePage", () => {
     async (params) => {
       render(await HomePage({ searchParams: Promise.resolve(params) }));
       expect(screen.getByRole("alert")).toHaveTextContent("整数で指定してください");
+      expect(screen.getByText(/^詳細検索/).closest("details")).toHaveAttribute("open");
+      expect(screen.getByLabelText("1ページの件数")).toBeVisible();
       expect(getPrograms).not.toHaveBeenCalled();
     },
   );
+
+  it("opens invalid date range inputs for correction without calling the API", async () => {
+    render(
+      await HomePage({
+        searchParams: Promise.resolve({
+          recordedFrom: "2026-10-02T12:00",
+          recordedTo: "2026-10-01T12:00",
+        }),
+      }),
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "録画開始日時は終了日時より前にしてください。",
+    );
+    expect(screen.getByText(/^詳細検索/).closest("details")).toHaveAttribute("open");
+    expect(screen.getByLabelText("録画開始（この日時以降）")).toBeVisible();
+    expect(screen.getByLabelText("録画開始（この日時以降）")).toHaveValue(
+      "2026-10-02T12:00",
+    );
+    expect(screen.getByLabelText("録画終了（この日時を含まない）")).toHaveValue(
+      "2026-10-01T12:00",
+    );
+    expect(getPrograms).not.toHaveBeenCalled();
+  });
 
   it("rejects repeated query params instead of silently picking one", async () => {
     render(
