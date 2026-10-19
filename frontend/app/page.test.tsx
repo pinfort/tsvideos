@@ -59,6 +59,18 @@ describe("HomePage", () => {
     ).toBeInTheDocument();
   });
 
+  it("uses the default page size when limit is submitted empty", async () => {
+    getPrograms.mockResolvedValue({ programs: [], total: 0, limit: 10, offset: 0 });
+
+    render(await HomePage({ searchParams: Promise.resolve({ limit: "" }) }));
+
+    expect(getPrograms).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 10 }),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("詳細検索").closest("details")).not.toHaveAttribute("open");
+  });
+
   it("links to the storage overview", async () => {
     getPrograms.mockResolvedValue({ programs: [], total: 0, limit: 10, offset: 0 });
 

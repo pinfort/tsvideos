@@ -2,13 +2,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import Link from "next/link";
+import type { ProgramSearchQuery } from "@/lib/api/types";
 import {
   MAX_INT,
   PROGRAM_QUERY_DEFAULTS,
   type ProgramQueryParams,
 } from "@/lib/program-query";
 
-const detailDefaults: Record<string, string> = {
+const detailDefaults = {
   channel: "",
   collectionId: "",
   libraryTagId: "",
@@ -21,7 +22,7 @@ const detailDefaults: Record<string, string> = {
   sort: PROGRAM_QUERY_DEFAULTS.sort,
   direction: PROGRAM_QUERY_DEFAULTS.direction,
   limit: String(PROGRAM_QUERY_DEFAULTS.limit),
-};
+} as const satisfies Record<Exclude<keyof ProgramSearchQuery, "name" | "offset">, string>;
 
 export function SearchForm({
   values = {},
