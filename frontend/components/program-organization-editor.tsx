@@ -37,7 +37,7 @@ export function ProgramOrganizationEditor({
   return (
     <section aria-label="コレクションと手動タグ" className="space-y-4">
       <h2 className="text-xl">コレクションと手動タグ</h2>
-      <Link href="/collections" className="text-blue-600 underline">
+      <Link href="/collections" className="text-link underline">
         コレクション・手動タグを管理
       </Link>
       {error && <p role="alert">{error}</p>}
@@ -51,7 +51,7 @@ export function ProgramOrganizationEditor({
               <li key={label.id} className="my-2">
                 <Link
                   href={`/?${kind === "collections" ? "collectionId" : "libraryTagId"}=${label.id}&sort=RECORDED_AT&direction=ASC`}
-                  className="text-blue-600 underline"
+                  className="text-link underline"
                 >
                   {label.name}
                 </Link>

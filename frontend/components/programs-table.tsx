@@ -1,39 +1,92 @@
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 import Link from "next/link";
 import { programStatusToJapanese } from "@/lib/api/status-labels";
-import type { Program } from "@/lib/api/types";
+import type { Program, ProgramStatus } from "@/lib/api/types";
 
-export function ProgramsTable({ programs, selected, onSelect }: { programs: Program[]; selected?: number[]; onSelect?: (id: number, checked: boolean) => void }) {
+/** Upper bound on in-page bulk selection, shared with `BulkPrograms`. */
+export const MAX_SELECTION = 100;
+
+const statusBadgeVariant: Record<
+  ProgramStatus,
+  "default" | "secondary" | "destructive"
+> = {
+  REGISTERED: "secondary",
+  COMPLETED: "default",
+  ERROR: "destructive",
+};
+
+export function ProgramsTable({
+  programs,
+  selected,
+  onSelect,
+}: {
+  programs: Program[];
+  selected?: number[];
+  onSelect?: (id: number, checked: boolean) => void;
+}) {
   return (
-    <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
-      <thead>
-        <tr>
-          {onSelect && <th className="px-4 py-2">選択</th>}
-          <th className="px-4 py-2 text-left font-medium">番号</th>
-          <th className="px-4 py-2 text-left font-medium">ファイル名</th>
-          <th className="px-4 py-2 text-left font-medium">executedFileId</th>
-          <th className="px-4 py-2 text-left font-medium">状態</th>
-          <th className="px-4 py-2 text-left font-medium">ドロップ数</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+    <Table className="min-w-[640px]" aria-label="録画一覧">
+      <TableHeader>
+        <TableRow>
+          {onSelect && <TableHead>選択</TableHead>}
+          <TableHead>番号</TableHead>
+          <TableHead>ファイル名</TableHead>
+          <TableHead>executedFileId</TableHead>
+          <TableHead>状態</TableHead>
+          <TableHead>ドロップ数</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {programs.map((program) => (
-          <tr key={program.id}>
-            {onSelect && <td><input type="checkbox" aria-label={`録画 ${program.id} を選択`} checked={selected?.includes(program.id) ?? false} disabled={!selected?.includes(program.id) && (selected?.length ?? 0) >= 100} onChange={e => onSelect(program.id, e.target.checked)} /></td>}
-            <td className="px-4 py-2">{program.id}</td>
-            <td className="px-4 py-2">
+          <TableRow
+            key={program.id}
+            data-state={selected?.includes(program.id) ? "selected" : undefined}
+          >
+            {onSelect && (
+              <TableCell>
+                <input
+                  type="checkbox"
+                  className="size-4 accent-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  aria-label={`録画 ${program.id} を選択`}
+                  checked={selected?.includes(program.id) ?? false}
+                  disabled={
+                    !selected?.includes(program.id) &&
+                    (selected?.length ?? 0) >= MAX_SELECTION
+                  }
+                  onChange={(e) => onSelect(program.id, e.target.checked)}
+                />
+              </TableCell>
+            )}
+            <TableCell>{program.id}</TableCell>
+            <TableCell>
               <Link
                 href={`/programs/${program.id}`}
-                className="text-blue-600 hover:underline dark:text-blue-400"
+                className="text-link hover:underline"
               >
                 {program.name}
               </Link>
-            </td>
-            <td className="px-4 py-2">{program.executedFileId}</td>
-            <td className="px-4 py-2">{programStatusToJapanese(program.status)}</td>
-            <td className="px-4 py-2">{program.drops}</td>
-          </tr>
+            </TableCell>
+            <TableCell>{program.executedFileId}</TableCell>
+            <TableCell>
+              <Badge
+                // The API may add statuses before this map does; status-labels falls back to 異常 too.
+                variant={statusBadgeVariant[program.status] ?? "secondary"}
+              >
+                {programStatusToJapanese(program.status)}
+              </Badge>
+            </TableCell>
+            <TableCell>{program.drops}</TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }

@@ -20,7 +20,7 @@ export default async function CollectionsPage() {
   return (
     <main className="mx-auto w-full max-w-5xl space-y-6 p-8">
       <h1 className="text-2xl">コレクション・手動タグ</h1>
-      <Link href="/" className="text-blue-600 underline">
+      <Link href="/" className="text-link underline">
         録画一覧へ
       </Link>
       <OrganizationManager options={options} />
