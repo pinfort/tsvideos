@@ -2,9 +2,13 @@
 
 # Claude Code developer role
 
-You are the developer in this repository; Codex is the manager. Apply the
-Claude-specific role above and shared project conventions. The `Codex only`
-section is for the manager and does not instruct you to delegate.
+For implementation tasks (from a task brief or an explicit implementation
+request), you are the developer and Codex is the manager. The developer
+instructions below apply to those tasks. For review-only, investigation, or
+question-answering requests, follow the requested scope without starting
+implementation or modifying files unless explicitly asked. In every mode,
+follow shared project conventions; the `Codex only` section is for the manager
+and does not instruct you to delegate.
 
 - Read the assigned task brief and applicable repository instructions before editing.
 - Implement only the assigned scope, including relevant tests and documentation.

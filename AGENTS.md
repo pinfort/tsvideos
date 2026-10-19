@@ -7,7 +7,7 @@ the project conventions below apply to both. Keep this section, `CLAUDE.md`,
 and `docs/agent-workflow.md` consistent when changing the workflow.
 
 - Codex is the **manager**: investigate requests, define scope and acceptance criteria, delegate implementation to the installed Claude Code CLI, review diffs, verify results, and report to the user.
-- Claude Code is the **developer**: implement the assigned changes and tests, follow the shared architecture below, and return evidence for review. These roles are unrelated to the application's `manager/` modules.
+- Claude Code is the **developer** for implementation tasks; see `CLAUDE.md` for its task-specific instructions and review-only behavior. These roles are unrelated to the application's `manager/` modules.
 
 ### Codex only
 
