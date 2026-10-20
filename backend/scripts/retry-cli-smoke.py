@@ -39,7 +39,7 @@ try:
             break
         except (subprocess.CalledProcessError, OSError): time.sleep(1)
     else: raise RuntimeError('Fixtures not ready')
-    sql((root / 'core/src/test/resources/ddl/01_create_database.sql').read_text())
+    sql('\n'.join(p.read_text() for p in sorted((root / 'database-schema/src/main/resources/db/migrations').glob('*.sql'))))
     nas_port = port(nas, 445)
     with tempfile.TemporaryDirectory(prefix=prefix) as directory:
         work = Path(directory) / 'Series'

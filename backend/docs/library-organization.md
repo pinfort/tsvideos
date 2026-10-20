@@ -1,6 +1,6 @@
 # 手動コレクションとタグ
 
-このブランチをデプロイする前に、既存のアプリケーションデータベースへ `core/src/main/resources/db/migrations/053_library_organization.sql` を適用する (例: `mariadb <database> < 053_library_organization.sql`)。事前にデータベースのバックアップを取ること。既存の `program` テーブルは InnoDB で、符号付き BIGINT の `id` を持つ必要がある (提供しているアプリケーションスキーマは該当する)。このマイグレーションが追加するのは `library_collection`、`library_collection_program`、`library_tag`、`library_tag_program` のみ。Testcontainers のスキーマと `docker-compose.test.yml` は、同じマイグレーションファイルから生成される/をマウントする。
+このブランチをデプロイする前に、既存のアプリケーションデータベースへ `database-schema/src/main/resources/db/migrations/053_library_organization.sql` を適用する (例: `mariadb <database> < 053_library_organization.sql`)。事前にデータベースのバックアップを取ること。既存の `program` テーブルは InnoDB で、符号付き BIGINT の `id` を持つ必要がある (提供しているアプリケーションスキーマは該当する)。このマイグレーションが追加するのは `library_collection`、`library_collection_program`、`library_tag`、`library_tag_program` のみ。Testcontainers のスキーマと `docker-compose.test.yml` は、同じマイグレーションファイルから生成される/をマウントする。
 
 **手動タグは検出タグではない。** `library_tag` はオペレーターが管理する名前を保持する。既存の `executed_file_tag` テーブル (`ExecutedFileTag`、例: `ews`、`superimpose`) は、検出器が録画に自動で付与するタグを `executed_file_id` をキーに保持し、`GET /api/v1/programs/{id}` の `tags` として公開される。この 2 つは行・ID・名前を共有しない。手動タグに `ews` という名前を付けても検出には影響せず、手動タグやその関連を削除しても `executed_file_tag`/`executed_file_check` には触れない。API 上で区別するため、手動タグは `libraryTagId` (検索) と `/library-tags` (名前によるタグ付け) を使い、UI では「手動タグ」と呼ぶ。
 

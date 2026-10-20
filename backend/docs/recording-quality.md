@@ -1,6 +1,6 @@
 # Recording quality rules
 
-Quality checks are opt-in. With no thresholds configured there is no new stream probe or quality report, and processing retains its existing behavior. Apply `core/src/main/resources/db/migrations/071_recording_quality.sql` after migrations 064 and 067 (it only depends on `processing_job` and `processing_attempt`, not on 072) before enabling this feature on an existing database. Migrations apply in filename order, so a fresh database runs 071 before 072. The Testcontainers schema is generated from the same migrations.
+Quality checks are opt-in. With no thresholds configured there is no new stream probe or quality report, and processing retains its existing behavior. Apply `database-schema/src/main/resources/db/migrations/071_recording_quality.sql` after migrations 064 and 067 (it only depends on `processing_job` and `processing_attempt`, not on 072) before enabling this feature on an existing database. Migrations apply in filename order, so a fresh database runs 071 before 072. The Testcontainers schema is generated from the same migrations.
 
 Spring configuration example (external application YAML):
 

@@ -91,7 +91,8 @@ Gradle モジュール ([settings.gradle.kts](../settings.gradle.kts)) とコン
 | モジュール | 依存 | 備考 |
 | --- | --- | --- |
 | `storage` | jcifs-ng (プロジェクト依存なし) | #132 で抽出。境界チェック `checkStorageBoundaries` ([build.gradle.kts](../storage/build.gradle.kts)、§11.7) |
-| `core` | `storage`, mybatis-spring-boot, MariaDB driver (runtime) | `generateVersionProperties` と `generateTestDdl` タスクもここにある ([build.gradle.kts](../core/build.gradle.kts)) |
+| `database-schema` | なし (プロジェクト依存なし、Kotlin/Java の main ソースなし) | #133 で抽出。migration、`generateTestDdl`、DB テスト用のテストフィクスチャ。境界チェック `checkDatabaseSchemaBoundaries` ([build.gradle.kts](../database-schema/build.gradle.kts)、§11.6、§11.7) |
+| `core` | `storage`, mybatis-spring-boot, MariaDB driver (runtime)。テストだけ `database-schema` のテストフィクスチャ | `generateVersionProperties` タスクもここにある ([build.gradle.kts](../core/build.gradle.kts)) |
 | `console-common` | なし | |
 | `manager:infrastructure` | `core` | Kotlin ソースなし |
 | `manager:api` | `storage`, `core`, `manager:infrastructure` | [build.gradle.kts](../manager/api/build.gradle.kts) |
@@ -223,8 +224,8 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 | `core/exception`: `TsVideosException`, `InvalidFileNameException`, `InvalidEnvironmentException`, `ShellCommandTimeoutException`, `QualityReleaseRefusedException` | `processing` (利用者がすべて processing 側) |
 | [ApplicationVersion](../core/src/main/kotlin/me/pinfort/tsvideos/core/version/ApplicationVersion.kt) と `generateVersionProperties` | 両 CLI 用。置き場所は §13 U3 |
 | `pi/pipeline/*` (`FileProcessingPipeline`, `AfterEncodeRunner`, `PathProcessingRunner`, `ResetRunner`, `RollbackRunner`) | `processing` |
-| [db/migrations](../core/src/main/resources/db/migrations/), `generateTestDdl`, `core/src/test/resources/ddl/02_insert_data.sql` | `database-schema` |
-| [db/maintenance/processing_history_cleanup.sql](../core/src/main/resources/db/maintenance/processing_history_cleanup.sql) | 配布は `database-schema`、対象テーブルの所有は `processing` |
+| [db/migrations](../database-schema/src/main/resources/db/migrations/), `generateTestDdl`, `ddl/02_insert_data.sql` (旧 `core/src/test/resources`) | `database-schema` (#133 で移動済み。§11.6) |
+| [db/maintenance/processing_history_cleanup.sql](../database-schema/src/main/resources/db/maintenance/processing_history_cleanup.sql) | 配布は `database-schema` (#133 で移動済み)、対象テーブルの所有は `processing` |
 
 `manager:api`、`manager:console`、`processor:console` の Kotlin ソース (controller・response・CLI コマンド・Bootstrap・表示部品) は実行アプリに残る。
 
@@ -232,18 +233,18 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 
 ### 5.1 テーブルの所有者 (契約)
 
-DDL は [db/migrations](../core/src/main/resources/db/migrations/) にあり、`database-schema` が配布する。データの読み書き API は所有モジュールだけが提供する。
+DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) にあり、`database-schema` が配布する。データの読み書き API は所有モジュールだけが提供する。
 
 | テーブル | migration | 所有 |
 | --- | --- | --- |
-| `executed_file`, `splitted_file`, `created_file`, `program` | [001](../core/src/main/resources/db/migrations/001_base_schema.sql), [073](../core/src/main/resources/db/migrations/073_created_file_resolution.sql) | `catalog` |
-| `executed_file_tag`, `executed_file_check` | [002](../core/src/main/resources/db/migrations/002_executed_file_tag.sql) | `catalog` |
-| `health_verification_run`, `health_verification_finding` | [051](../core/src/main/resources/db/migrations/051_library_health.sql) | `library` |
-| `library_collection`, `library_tag`, `library_collection_program`, `library_tag_program` | [053](../core/src/main/resources/db/migrations/053_library_organization.sql) | `library` |
-| `processing_job` | [064](../core/src/main/resources/db/migrations/064_processing_job.sql) | `processing` |
-| `processing_history_identity`, `processing_attempt`, `processing_stage_event` | [067](../core/src/main/resources/db/migrations/067_processing_history.sql) | `processing` |
-| `processing_quality_report` | [071](../core/src/main/resources/db/migrations/071_recording_quality.sql) | `processing` |
-| `upload_manifest` | [072](../core/src/main/resources/db/migrations/072_upload_manifest.sql) | `processing` |
+| `executed_file`, `splitted_file`, `created_file`, `program` | [001](../database-schema/src/main/resources/db/migrations/001_base_schema.sql), [073](../database-schema/src/main/resources/db/migrations/073_created_file_resolution.sql) | `catalog` |
+| `executed_file_tag`, `executed_file_check` | [002](../database-schema/src/main/resources/db/migrations/002_executed_file_tag.sql) | `catalog` |
+| `health_verification_run`, `health_verification_finding` | [051](../database-schema/src/main/resources/db/migrations/051_library_health.sql) | `library` |
+| `library_collection`, `library_tag`, `library_collection_program`, `library_tag_program` | [053](../database-schema/src/main/resources/db/migrations/053_library_organization.sql) | `library` |
+| `processing_job` | [064](../database-schema/src/main/resources/db/migrations/064_processing_job.sql) | `processing` |
+| `processing_history_identity`, `processing_attempt`, `processing_stage_event` | [067](../database-schema/src/main/resources/db/migrations/067_processing_history.sql) | `processing` |
+| `processing_quality_report` | [071](../database-schema/src/main/resources/db/migrations/071_recording_quality.sql) | `processing` |
+| `upload_manifest` | [072](../database-schema/src/main/resources/db/migrations/072_upload_manifest.sql) | `processing` |
 
 ### 5.2 モジュールをまたぐ読み取り
 
@@ -483,7 +484,7 @@ storage の例外型 (#132 以降は `storage.api`、jcifs に依存しない):
 
 ### 8.2 公開値型と操作 (契約)
 
-- ストアの種類は storage の公開 enum (以下 `NasStore`) にする。**定数名 `VIDEO_STORE_NAS` と `ORIGINAL_STORE_NAS` は変えない**。`upload_manifest.nas_type` に enum 名がそのまま保存されている ([072](../core/src/main/resources/db/migrations/072_upload_manifest.sql) のコメント) ため、改名にはデータ移行が必要になる。適用済み migration のコメントは書き換えず、この文書で `SambaClient.NasType` → `NasStore` の対応を記録する。
+- ストアの種類は storage の公開 enum (以下 `NasStore`) にする。**定数名 `VIDEO_STORE_NAS` と `ORIGINAL_STORE_NAS` は変えない**。`upload_manifest.nas_type` に enum 名がそのまま保存されている ([072](../database-schema/src/main/resources/db/migrations/072_upload_manifest.sql) のコメント) ため、改名にはデータ移行が必要になる。適用済み migration のコメントは書き換えず、この文書で `SambaClient.NasType` → `NasStore` の対応を記録する。
 - 公開操作は、ストアを明示して共有ルートからの相対パス (baseDir を含む) を受け取る。jcifs の型、`CIFSContext`、URL・資格情報を公開シグネチャに出さない。
 - 現状の操作の意味を保つ。
   - 存在確認・サイズ・SHA-256・排他的作成と転送 (所有を得た時点のコールバックと進捗)・置き換えなしの rename・削除 (`VerifiedUploadNas` 相当、ストア明示、フォールバックなし)
@@ -597,6 +598,13 @@ storage の例外型 (#132 以降は `storage.api`、jcifs に依存しない):
 
 migration ファイル、テスト DDL の生成タスク、DB テスト用の共通資源 (Testcontainers の初期化スクリプト、シードデータ)。データ操作 API は持たない。migration の順序と内容、生成 DDL、`docker-compose.test.yml` のマウント先を一致させる (#133)。
 
+#133 で抽出した構成 ([database-schema/README.md](../database-schema/README.md)):
+
+- `src/main/resources/db/migrations/` (番号付き migration、単一の情報源) と `db/maintenance/processing_history_cleanup.sql`。内容・ファイル名・順序は core にあったときと同じ。
+- `src/testFixtures/resources/ddl/02_insert_data.sql` (シードデータ) と、`generateTestDdl` が migration をファイル名順に `"\n"` で連結して生成する `ddl/01_create_database.sql`。生成 DDL は `testFixtures` のリソースとしてだけ配布する (タスクの出力をソースセットに登録しているので、クリーンビルドでもフィクスチャの jar より先に生成される)。
+- 利用側は DB テストで `testImplementation(testFixtures(project(":database-schema")))` を明示する (testImplementation は推移しないため、モジュールごとに宣言する)。現在の利用者は `core` (Mapper・Command の DB テスト、保守用 SQL のテスト) と `manager:api` (`ApiApplicationTest`。CI が `DATABASE_CONNECTION` に `TC_INITSCRIPT=ddl/01_create_database.sql` を渡す)。本番の依存設定からは参照しないので、実行アプリと `core` の jar に migration とテスト資源は入らない (#133 より前は core の jar に migration が含まれていたが、実行時に読む箇所はなかった)。
+- `backend/scripts/*-smoke.py` は migration をファイル名順に連結して適用する (生成 DDL と同じ内容)。`docker-compose.test.yml` は migration を同じファイル名でマウントし、最後にシードデータを `999_insert_data.sql` としてマウントする。
+
 ### 11.7 境界の自動チェック
 
 抽出の PR ごとに次を追加する。
@@ -610,6 +618,12 @@ storage (#132) の検査:
 - [checkStorageBoundaries](../storage/build.gradle.kts) (Gradle タスク。`check` に含まれるので `./gradlew build` / `check` で実行される): storage がどの設定にもプロジェクト依存を持たないこと、storage のソース (テストを含む) が `me.pinfort.tsvideos.storage` 以外のパッケージを参照しないこと、storage 以外のソースが公開パッケージ `me.pinfort.tsvideos.storage.api` 以外の storage パッケージ (Samba 実装 `me.pinfort.tsvideos.storage.samba` と今後の内部パッケージ) と jcifs を参照しないこと (コメント行は除く。コンポーネントスキャン用のパッケージ名 `me.pinfort.tsvideos.storage` そのものは許可)、storage 以外のビルドスクリプトが jcifs (`libs.samba`) を宣言しないこと。判定は `StorageBoundaryRules` にまとめ、先に実行される `checkStorageBoundaryRules` が違反を含むフィクスチャ (逆方向のプロジェクト依存とソース参照、外部からの内部パッケージと jcifs の参照、jcifs の宣言) をすべて検出し、許可される参照を検出しないことを確かめる。
 - [StorageContractTest](../storage/src/test/kotlin/me/pinfort/tsvideos/storage/api/StorageContractTest.kt): 公開型の public シグネチャに jcifs・Samba 実装・Spring `Resource`・HTTP の型が出ないこと、jcifs を import するのが Samba 実装だけであること、Samba 実装のトップレベル宣言がすべて `internal` であること、`NasStore` と `NasFileVerifier.Status` の定数、storage のパッケージのスキャンと `storage` プロファイルだけで (Spring Boot で起動し、`Logger` など storage 外の Bean なしに) 公開契約の Bean がそろい `samba.*` が束縛されること、`storage` プロファイルなしでは組み立たないこと。
 - [StorageCallerBoundaryTest](../core/src/test/kotlin/me/pinfort/tsvideos/core/StorageCallerBoundaryTest.kt) (core): storage の例外の再試行/中断の分類、呼び出し元の public シグネチャに jcifs と Spring Web の型が出ないこと、core に NAS 実装のパッケージが残っていないこと。
+database-schema (#133) の検査:
+
+- [checkDatabaseSchemaBoundaries](../database-schema/build.gradle.kts) (Gradle タスク。`check` に含まれる): database-schema が (java-test-fixtures が加える自分自身への依存を除き) プロジェクト依存を持たないこと、main とテストフィクスチャに Kotlin/Java のソースがないこと、他のプロジェクトが database-schema を `test` で始まる設定からだけ参照すること (Gradle のモデルで判定)、他のビルドスクリプトの参照がすべて `test…(testFixtures(project(":database-schema")))` の形であること、他のモジュールの `src` に `db/migrations` と `ddl/*.sql` がないこと、migration が `NNN_name.sql` の形で番号が重複しないこと、`docker-compose.test.yml` が migration をファイル名順に同名でマウントし最後にシードデータをマウントすること、bootJar が有効なプロジェクト (実行アプリ) がすべて下の `checkDatabaseSchemaRuntimeIsolation` を適用していること。判定は `DatabaseSchemaRules` にまとめ、先に実行される `checkDatabaseSchemaBoundaryRules` が違反を含むフィクスチャをすべて検出し、許可されるものを検出しないことを確かめる。
+- [checkDatabaseSchemaRuntimeIsolation](../database-schema/runtime-isolation.gradle.kts) (Gradle タスク。`manager:api`、`manager:console`、`processor:console` が `apply(from = ...)` で適用し、各アプリの `check` に含まれる): 宣言ではなく実際に解決した `runtimeClasspath` と `productionRuntimeClasspath` (bootJar の中身) の依存グラフと成果物に、database-schema (main とテストフィクスチャのどちらのケイパビリティも) とそのディレクトリ配下のファイルが現れないこと。`test` で始まる設定を本番の設定が継承した場合や推移的な依存も検出する。依存グラフをタスクの入力にしているので依存が変われば再実行され、グラフにプロジェクト依存が 1 つもなければ (検査できていないとみなして) 失敗する。
+- [DatabaseSchemaResourcesTest](../database-schema/src/test/kotlin/me/pinfort/tsvideos/databaseschema/DatabaseSchemaResourcesTest.kt): テストフィクスチャのクラスパス上の `ddl/01_create_database.sql` が migration のファイル名順の連結と一致すること、各 migration・シードデータ・保守用 SQL がクラスパスから読めること。
+
 - `DoctorBootstrapTest` / `PreflightCommandTest`: Spring なしの診断の環境が `core` と `storage` プロファイルの既定値を読み込むこと、その CLI の設定だけで storage の Bean が組み立つこと。`ApiApplicationTest`: manager:api のコンテキストで `core` / `storage` プロファイルが有効で storage の Bean がそろうこと。`StorageCallerBoundaryTest`: core の設定が `storage` プロファイルを含むこと。
 
 ## 12. 子 Issue への引き継ぎ
@@ -619,7 +633,7 @@ storage (#132) の検査:
 | #130 NAS の公開型から Samba 実装を除く | §8.1 の漏出をすべて解消し、`NasStore` (定数名は不変) と storage の例外型を導入する。公開 NAS 操作 (アップロード・移動・削除・読み出し・診断のハンドルとストリーム) の jcifs の例外を storage の例外に変換し (§8.1)、`CIFSException` の catch は storage 側の例外に置き換え、配信の 404 と再試行の分類を保つ。モジュールの抽出はまだしないので、この Issue を妨げる未決事項はない |
 | #131 作成ファイルの登録・NAS 操作・HTTP 配信を分離 (実施済み) | §6.2 と §9.2。`streamCreatedFile` を catalog の判定 + storage の読み出しハンドル + manager:api の `Resource` に分ける。`SmbFileResource` を廃止し、ハンドルの寿命を明示する。`VerifiedUploadCommand` の `CreatedFileMapper` 直接使用を catalog の操作 (`MANDATORY` 登録を含む) に置き換える準備をする |
 | #132 storage を抽出 (実施済み、§8.3) | §4.5、§8。`NasComponent`・`VerifiedUploadNas`・`NasFileVerifier`・`SambaClient`・`DiagnosticNasClient`・`SambaConfigurationProperties`・`Sha256` と、#130 で作った `core.storage` パッケージ (`NasStore`、`NasStorageException`/`NasAccessException`/`NasAuthenticationException`) と Samba 側の変換 (`SambaFailures`) を移す。`NasStorageBoundaryTest` の検査は storage の境界チェックに引き継ぐ。storage は業務モジュールに依存しない。NAS 操作・移動・削除の既存テストを移す |
-| #133 migration と DB テスト資源を分離 | §11.6。`generateTestDdl`、`02_insert_data.sql`、`docker-compose.test.yml` のマウントを database-schema に合わせる |
+| #133 migration と DB テスト資源を分離 (実施済み、§11.6) | §11.6。`generateTestDdl`、`02_insert_data.sql`、`docker-compose.test.yml` のマウントを database-schema に合わせる |
 | #134 catalog の公開操作を整理 | §6、§11.1。§13 U1 (検索の library 絞り込み) を決着させる。`selectByName` / `CreatedFileCommand.updateStatus` の扱いを決める。library 向けの用途別読み取りとロック操作を用意する |
 | #135 catalog を抽出 | §4、§5。catalog の SQL が library のテーブルを参照しない状態にしてから移す。境界チェックの手段を決める |
 | #136 diagnostics を抽出 | §11.5。Spring なしの doctor/preflight の起動を確認する。jcifs の直接使用を storage の診断用接続に置き換える |

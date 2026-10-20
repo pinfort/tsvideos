@@ -3,6 +3,7 @@ This is the backend for tsvideos, built with Kotlin, Spring Boot, and Gradle.
 ## モジュール構成
 
 - `storage`: NAS の公開契約 (`me.pinfort.tsvideos.storage.api`) と Samba (jcifs) 実装、`samba.*` 設定。業務モジュールに依存しない（[storage/README.md](storage/README.md)）
+- `database-schema`: 番号付き migration (スキーマの単一の情報源)、テスト DDL の生成、DB テスト用のテストフィクスチャ。データ操作 API を持たず、本番の依存先にならない（[database-schema/README.md](database-schema/README.md)）
 - `core`: 共通コンポーネント（DB 接続、業務ロジックなど）。NAS は `storage` の公開契約を通して使う
 - `manager:infrastructure` / `manager:console` / `manager:api`: 処理済みの録画データを管理するためのツール（`manager:api` が Web API）
 - `processor:infrastructure` / `processor:console`: 録画データを処理して管理ツールで管理できる状態にするためのアプリケーション
@@ -28,6 +29,7 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 - `./gradlew test` - テストを実行（テストは Testcontainers で MariaDB を起動するため Docker が必要）
 - `./gradlew ktlintCheck` - Kotlin のコードスタイルチェック
 - `./gradlew storage:checkStorageBoundaries` - storage の境界チェック（`check` / `build` にも含まれる）
+- `./gradlew database-schema:checkDatabaseSchemaBoundaries` - database-schema の境界・migration 順序・compose マウントのチェック（`check` / `build` にも含まれる）
 
 ## processor:console (`tvpcli`)
 
@@ -90,7 +92,7 @@ EOF 時点で未完成の PES は破棄します。長さ 0 の PES は次の開
 
 既存の DB には次のテーブルを一度だけ作成してください。**この機能を含むビルドをデプロイする前に**作成する必要があります。番組詳細の取得（`ProgramCommand.findDetail`）が両テーブルを参照するため、テーブルが無いと manager の API・CLI の詳細表示が失敗します（processor 側は処理を止めず、録画が「未検査」になるだけです）。
 
-DDL は `core/src/main/resources/db/migrations/002_executed_file_tag.sql` を適用してください（`IF NOT EXISTS` なので再実行しても安全です）。
+DDL は `database-schema/src/main/resources/db/migrations/002_executed_file_tag.sql` を適用してください（`IF NOT EXISTS` なので再実行しても安全です）。
 
 ## manager:console の整合性検証 (`tvmcli verify`)
 
@@ -154,11 +156,11 @@ Processor status/history, migration, activity semantics and explicit retention: 
 
 Processor interruption: on SIGINT/SIGTERM `tvpcli` stops cooperatively, records the attempt as INTERRUPTED, keeps partial evidence instead of rolling back, and exits 130 (a native signal shutdown may report 143). `PROCESSOR_SHUTDOWN_GRACE_SECONDS` (default 30, 1–300) bounds the whole shutdown; see [graceful-shutdown.md](docs/graceful-shutdown.md).
 
-既存の DB には次のテーブルを一度だけ作成してください（DDL は `core/src/main/resources/db/migrations/064_processing_job.sql` と `067_processing_history.sql`、`071_recording_quality.sql`、`072_upload_manifest.sql` をこの順に適用してください）。**processor を停止してから、この機能を含むビルドをデプロイする前に**作成する必要があります。
+既存の DB には次のテーブルを一度だけ作成してください（DDL は `database-schema/src/main/resources/db/migrations/064_processing_job.sql` と `067_processing_history.sql`、`071_recording_quality.sql`、`072_upload_manifest.sql` をこの順に適用してください）。**processor を停止してから、この機能を含むビルドをデプロイする前に**作成する必要があります。
 
 ### DDL の管理
 
-スキーマの単一の情報源は `core/src/main/resources/db/migrations/` の番号付き SQL ファイルです（ファイル名順に適用、すべて `IF NOT EXISTS` で再実行可能）。テスト用の初期化 SQL（Testcontainers の `ddl/01_create_database.sql`）は Gradle の `core:generateTestDdl` がこれらを連結して生成し、`docker-compose.test.yml` も同じファイルをマウントします。スキーマを変更するときは新しい番号のファイルを追加し、`docker-compose.test.yml` のマウントに 1 行足してください。
+スキーマの単一の情報源は `database-schema/src/main/resources/db/migrations/` の番号付き SQL ファイルです（ファイル名順に適用、すべて `IF NOT EXISTS` で再実行可能）。テスト用の初期化 SQL（Testcontainers の `ddl/01_create_database.sql`）は Gradle の `database-schema:generateTestDdl` がこれらを連結して生成し、シードデータ `ddl/02_insert_data.sql` と一緒に `database-schema` のテストフィクスチャとして配布します。DB テストを持つモジュールは `testImplementation(testFixtures(project(":database-schema")))` を宣言してください。`docker-compose.test.yml` も同じファイルをマウントします。スキーマを変更するときは新しい番号のファイルを追加し、`docker-compose.test.yml` のマウントに 1 行足してください（`database-schema:checkDatabaseSchemaBoundaries` がずれを検出します）。詳細は [database-schema/README.md](database-schema/README.md) を参照してください。
 
 ## Recording quality
 

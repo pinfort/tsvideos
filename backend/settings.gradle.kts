@@ -5,6 +5,7 @@ rootProject.name = "tsvideos"
 
 include(
     "storage",
+    "database-schema",
     "core",
     "console-common",
     "manager:infrastructure",

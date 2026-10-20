@@ -6,6 +6,9 @@ plugins {
     alias(libs.plugins.ktlint)
 }
 
+// 実行時クラスパスに database-schema が入らないことの検査 (checkDatabaseSchemaRuntimeIsolation、check に含まれる)
+apply(from = rootDir.resolve("database-schema/runtime-isolation.gradle.kts"))
+
 kotlin {
     jvmToolchain(24)
 
