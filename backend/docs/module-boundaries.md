@@ -90,20 +90,23 @@ Gradle モジュール ([settings.gradle.kts](../settings.gradle.kts)) とコン
 
 | モジュール | 依存 | 備考 |
 | --- | --- | --- |
-| `core` | jcifs-ng, mybatis-spring-boot, MariaDB driver (runtime) | `generateVersionProperties` と `generateTestDdl` タスクもここにある ([build.gradle.kts](../core/build.gradle.kts)) |
+| `storage` | jcifs-ng (プロジェクト依存なし) | #132 で抽出。境界チェック `checkStorageBoundaries` ([build.gradle.kts](../storage/build.gradle.kts)、§11.7) |
+| `core` | `storage`, mybatis-spring-boot, MariaDB driver (runtime) | `generateVersionProperties` と `generateTestDdl` タスクもここにある ([build.gradle.kts](../core/build.gradle.kts)) |
 | `console-common` | なし | |
 | `manager:infrastructure` | `core` | Kotlin ソースなし |
-| `manager:api` | `core`, `manager:infrastructure` | [build.gradle.kts](../manager/api/build.gradle.kts) |
-| `manager:console` | `core`, `console-common`, `manager:infrastructure` | [build.gradle.kts](../manager/console/build.gradle.kts) |
-| `processor:infrastructure` | `core`, `me.pinfort:tsselect` | [build.gradle.kts](../processor/infrastructure/build.gradle.kts) |
-| `processor:console` | `core`, `console-common`, `processor:infrastructure` | [build.gradle.kts](../processor/console/build.gradle.kts) |
+| `manager:api` | `storage`, `core`, `manager:infrastructure` | [build.gradle.kts](../manager/api/build.gradle.kts) |
+| `manager:console` | `storage`, `core`, `console-common`, `manager:infrastructure` | [build.gradle.kts](../manager/console/build.gradle.kts) |
+| `processor:infrastructure` | `storage`, `core`, `me.pinfort:tsselect` | [build.gradle.kts](../processor/infrastructure/build.gradle.kts) |
+| `processor:console` | `storage`, `core`, `console-common`, `processor:infrastructure` | [build.gradle.kts](../processor/console/build.gradle.kts) |
+
+`core` は storage の公開型 (`NasStore` など) を自分の公開シグネチャにも出すが、依存は `implementation` にしている。storage の型を使うモジュールはそれぞれ `implementation(project(":storage"))` を明示的に宣言する。
 
 Spring の組み立て:
 
-- 3 つの実行アプリはすべて `scanBasePackages` に `me.pinfort.tsvideos.core` を含め、`@MapperScan("me.pinfort.tsvideos.core.external.database.mapper")` で全 Mapper を登録する ([ApiApplication](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/ApiApplication.kt) と [MyBatisConfig](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/config/MyBatisConfig.kt)、manager の [ConsoleApplication](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/ConsoleApplication.kt)、processor の [ConsoleApplication](../processor/console/src/main/kotlin/me/pinfort/tsvideos/processor/console/ConsoleApplication.kt))。そのため **manager の 2 アプリにも `TsSplitterClient`、`AmatsukazeAddTaskClient`、`ProcessorToolConfigurationProperties` などの処理専用 Bean が登録される**。これが親 Issue の完了条件「manager の実行時依存に処理専用ツール/設定が入らない」に反する現状の主因である。
-- `@ConfigurationPropertiesScan` は `me.pinfort.tsvideos.core.config` (manager はさらに存在しない `manager.infrastructure.config`) を対象にする。
-- 設定は [application-core.yaml](../core/src/main/resources/application-core.yaml) に `spring.datasource`、`samba`、`processor-tool`、`processor-preflight` がまとめて入り、各アプリが `core` プロファイルを include する ([core の application.yaml](../core/src/main/resources/application.yaml)、[processor:console](../processor/console/src/main/resources/application.yaml)、[manager:console](../manager/console/src/main/resources/application.yaml)、[manager:api](../manager/api/src/main/resources/application.yml))。両 CLI は `lazy-initialization: true` を使う ([processor](../processor/console/src/main/resources/application-console.yaml)、[manager](../manager/console/src/main/resources/application-console.yaml))。
-- `manager:console doctor` と `processor:console preflight` (および `process` の事前ゲート) は Spring コンテキストを作らずに診断部品を手で組み立てる ([DoctorBootstrap](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/DoctorBootstrap.kt)、[PreflightBootstrap](../processor/console/src/main/kotlin/me/pinfort/tsvideos/processor/console/PreflightBootstrap.kt))。
+- 3 つの実行アプリはすべて `scanBasePackages` に `me.pinfort.tsvideos.storage` (#132 以降) と `me.pinfort.tsvideos.core` を含め、`@MapperScan("me.pinfort.tsvideos.core.external.database.mapper")` で全 Mapper を登録する ([ApiApplication](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/ApiApplication.kt) と [MyBatisConfig](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/config/MyBatisConfig.kt)、manager の [ConsoleApplication](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/ConsoleApplication.kt)、processor の [ConsoleApplication](../processor/console/src/main/kotlin/me/pinfort/tsvideos/processor/console/ConsoleApplication.kt))。そのため **manager の 2 アプリにも `TsSplitterClient`、`AmatsukazeAddTaskClient`、`ProcessorToolConfigurationProperties` などの処理専用 Bean が登録される**。これが親 Issue の完了条件「manager の実行時依存に処理専用ツール/設定が入らない」に反する現状の主因である。
+- `@ConfigurationPropertiesScan` は `me.pinfort.tsvideos.core.config` (manager はさらに存在しない `manager.infrastructure.config`) を対象にする。storage の `samba.*` 設定クラスは storage 内部の `SambaStorageConfiguration` (`@EnableConfigurationProperties`) が登録するので、実行アプリはパッケージのスキャンだけでよい。
+- 設定は [application-core.yaml](../core/src/main/resources/application-core.yaml) に `spring.datasource`、`processor-tool`、`processor-preflight` がまとめて入る。`samba` は #132 で storage の [application-storage.yaml](../storage/src/main/resources/application-storage.yaml) に移した (キーと環境変数は同じ)。各アプリが `core` と `storage` プロファイルを include する ([core の application.yaml](../core/src/main/resources/application.yaml)、[processor:console](../processor/console/src/main/resources/application.yaml)、[manager:console](../manager/console/src/main/resources/application.yaml)、[manager:api](../manager/api/src/main/resources/application.yml)。各アプリは自分の設定で `core` と `storage` を明示し、core の application.yaml には頼らない)。両 CLI は `lazy-initialization: true` を使う ([processor](../processor/console/src/main/resources/application-console.yaml)、[manager](../manager/console/src/main/resources/application-console.yaml))。
+- `manager:console doctor` と `processor:console preflight` (および `process` の事前ゲート) は Spring コンテキストを作らずに診断部品を手で組み立てる ([DoctorBootstrap](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/DoctorBootstrap.kt)、[PreflightBootstrap](../processor/console/src/main/kotlin/me/pinfort/tsvideos/processor/console/PreflightBootstrap.kt))。NAS の診断用接続は storage の `DiagnosticNasClient.create()` で作る (実装クラスは storage の internal)。
 - DataSource は Spring Boot 自動構成の Hikari 1 つ (`auto-commit: false`、最大 10 接続)。`PlatformTransactionManager` もアプリごとに自動構成の 1 つだけで、独自の DataSource/TransactionManager/SqlSessionFactory の Bean 定義はない。独自の `@Bean` は [LoggerConfig](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/LoggerConfig.kt) の注入先ごとの slf4j `Logger` だけである。
 
 ## 4. 現行コードの所属先
@@ -174,7 +177,7 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 | 現行 | 設定キー | 移動先 |
 | --- | --- | --- |
 | `spring.datasource.*` ([application-core.yaml](../core/src/main/resources/application-core.yaml)) | `DATABASE_*` | 実行アプリ (DataSource は §7.1 の共有契約) |
-| [SambaConfigurationProperties](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/SambaConfigurationProperties.kt) | `samba.*` | `storage` |
+| [SambaConfigurationProperties](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/samba/SambaConfigurationProperties.kt) | `samba.*` | `storage` (#132 で移動済み。internal) |
 | [ProcessorToolConfigurationProperties](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/ProcessorToolConfigurationProperties.kt) | `processor-tool.*` | `processing` |
 | [ProcessingRetryConfigurationProperties](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/ProcessingRetryConfigurationProperties.kt) | `processor-retry.*` | `processing` |
 | [RecordingQualityConfigurationProperties](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/RecordingQualityConfigurationProperties.kt) | `processor-quality.*` | `processing` |
@@ -183,7 +186,7 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 | `processor.shutdown.grace-seconds` ([ConsoleRunner](../processor/console/src/main/kotlin/me/pinfort/tsvideos/processor/console/ConsoleRunner.kt)) | | `processor:console` (現状どおり) |
 | `SLACK_WEBHOOK_URL` ([SlackClient](../processor/infrastructure/src/main/kotlin/me/pinfort/tsvideos/processor/infrastructure/external/slack/SlackClient.kt)) | | `processing` |
 | [DiagnosticEnvironment](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/DiagnosticEnvironment.kt) | 引数・環境変数の解釈 | `diagnostics` |
-| [LoggerConfig](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/LoggerConfig.kt) | — | 実行アプリ。モジュールは slf4j の `Logger` 型の注入だけを要求し、Bean 定義には依存しない |
+| [LoggerConfig](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/LoggerConfig.kt) | — | 実行アプリ。モジュールは slf4j の `Logger` 型の注入だけを要求し、Bean 定義には依存しない。storage は注入も要求せず自前の `LoggerFactory` のロガーを使う (#132) |
 
 `application-core.yaml` は移行中に分割する。manager の実行アプリは `processor-tool` / `processor-preflight` を含む設定を include しない状態にする (#138、#139)。
 
@@ -191,12 +194,12 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 
 | 現行クラス | 外部 | 移動先 |
 | --- | --- | --- |
-| [SambaClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/SambaClient.kt) | jcifs | `storage` (internal 実装) |
-| [NasComponent](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/NasComponent.kt) | jcifs | `storage` |
-| [VerifiedUploadNas](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/VerifiedUploadNas.kt) | jcifs | `storage` |
-| [NasFileVerifier](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/NasFileVerifier.kt) | jcifs | `storage` |
-| [SambaReadHandle](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/SambaReadHandle.kt) (`internal`) | jcifs | `storage` (internal 実装)。#131 で `SmbFileResource` (jcifs + Spring `Resource`) を廃止し、storage の公開型 [NasReadHandle](../core/src/main/kotlin/me/pinfort/tsvideos/core/storage/NasReadHandle.kt) の実装として置き換えた。`Resource` への包装は `manager:api` (§9) |
-| [DiagnosticNasClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/DiagnosticNasClient.kt) | jcifs (短いタイムアウト付きの独立コンテキスト) | `storage` (Spring なしで使える接続口として公開) |
+| [SambaClient](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/samba/SambaClient.kt) | jcifs | `storage` (#132 で移動済み。internal 実装。公開契約 [NasPaths](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/api/NasPaths.kt) (`resolvePathUnderBaseDir`) を実装する) |
+| [NasComponent](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/api/NasComponent.kt) | jcifs | `storage` (#132 で移動済み。公開 interface と internal の [SambaNasComponent](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/samba/SambaNasComponent.kt) に分割) |
+| [VerifiedUploadNas](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/api/VerifiedUploadNas.kt) | jcifs | `storage` (同上。実装は [SambaVerifiedUploadNas](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/samba/SambaVerifiedUploadNas.kt)) |
+| [NasFileVerifier](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/api/NasFileVerifier.kt) | jcifs | `storage` (同上。実装は [SambaNasFileVerifier](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/samba/SambaNasFileVerifier.kt)。結果は低レベルの `NasFileVerifier.Status`、§13 U2) |
+| [SambaReadHandle](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/samba/SambaReadHandle.kt) (`internal`) | jcifs | `storage` (internal 実装)。#131 で `SmbFileResource` (jcifs + Spring `Resource`) を廃止し、storage の公開型 [NasReadHandle](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/api/NasReadHandle.kt) の実装として置き換えた。`Resource` への包装は `manager:api` (§9) |
+| [DiagnosticNasClient](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/api/DiagnosticNasClient.kt) | jcifs (短いタイムアウト付きの独立コンテキスト) | `storage` (#132 で移動済み。Spring なしで使える接続口として公開し、`DiagnosticNasClient.create()` が internal の [SambaDiagnosticNasClient](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/samba/SambaDiagnosticNasClient.kt) を返す) |
 | [ShellClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/shell/ShellClient.kt), [ShellComponent](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/shell/ShellComponent.kt), [ShellResult](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/shell/ShellResult.kt) | OS プロセス | `processing` |
 | [TsSplitterClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/tool/TsSplitterClient.kt), [AmatsukazeAddTaskClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/tool/AmatsukazeAddTaskClient.kt) | Windows 専用ツール | `processing` |
 | [DurationProbeClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/tool/DurationProbeClient.kt), [RecordingStreamProbeClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/tool/RecordingStreamProbeClient.kt), [VideoResolutionProbeClient](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/tool/VideoResolutionProbeClient.kt) | ffprobe | `processing` |
@@ -210,10 +213,10 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 | --- | --- |
 | `core/domain`: `Program`, `ProgramDetail`, `ExecutedFile`, `SplittedFile`, `CreatedFile`, `VideoResolution`, `ExecutedFileTag`/`ExecutedFileCheck`, `ProgramSearchQuery`/`ProgramSearchPage` | `catalog` (`ProgramSearchQuery` の `collectionId`/`libraryTagId` は §13 U1) |
 | `core/domain`: `BulkPlan` 一式, `CleanupPlan` 一式, `DuplicateGroup`, `DuplicateReview`, `LibraryOrganization`, `LibraryStats`, `StorageOverview`, `LibraryHealth`, `VerificationReport` (`FileFinding`, `VerificationReport`) | `library` |
-| `core/domain`: `VerificationStatus` | `storage` の低レベル結果型と library の結果型に分ける (§13 U2) |
+| `core/domain`: `VerificationStatus` | `library`。#132 で storage の低レベル結果 (`NasFileVerifier.Status`) と分けた。`VerificationStatus` は core に残り、`LibraryVerificationCommand` が対応付ける (§13 U2) |
 | `core/domain`: `ProcessingJob`/`ProcessingIdentity`, `ProcessingHistory` 一式, `RecordingQuality` 一式, `RecordingQualityReport`, `UploadManifest`/`VerifiedUploadReceipt`, `FileName` | `processing` (`UploadManifest.nasType` は storage の公開値型に置き換える) |
 | `core/domain`: `DiagnosticReport` 一式 | `diagnostics` |
-| `core/domain`: `Sha256` (`hex`, `sha256Hex`) | `storage` (NAS 側のハッシュ計算に必要。processing は storage 経由で使う) |
+| `core/domain`: `Sha256` (`hex`, `sha256Hex`) | `storage` (#132 で [storage.api](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/api/Sha256.kt) に移動済み。NAS 側のハッシュ計算に必要。processing は storage 経由で使う) |
 | `core/component`: `DirectoryNameComponent`, `NormalizeComponent` | `catalog` (移動先パスの規則。library と processing も catalog 経由で使う) |
 | `core/component`: `CompressComponent`, `MainSplittedFileFinderComponent`, `NasDestinationResolver`, `MimeTypeComponent`, `ValidateCompletedComponent`, `ProcessingCancellation`, `ProcessingRetry` 一式, `RecordingQualityInspector`, `RecordingInputs`, `LocalPreflightProbe`/`EncoderConnectivityProbe`, `RunningPlatformComponent` | `processing` |
 | `core/component`: `DatabaseDiagnosticProbe`, `NasDiagnosticProbe`, `DiagnosticCancellation` | `diagnostics` (`NasDiagnosticProbe` が直接使う jcifs は storage の接続口に置き換える) |
@@ -401,7 +404,7 @@ NAS の副作用と復旧: 削除/移動の NAS 操作は DB トランザクシ�
 
 ### 7.6 VerifiedUploadCommand
 
-[VerifiedUploadCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/VerifiedUploadCommand.kt) と [VerifiedUploadNas](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/VerifiedUploadNas.kt)。運用上の説明は [verified-uploads.md](verified-uploads.md)、再試行は [processing-retries.md](processing-retries.md)。
+[VerifiedUploadCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/VerifiedUploadCommand.kt) と [VerifiedUploadNas](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/api/VerifiedUploadNas.kt)。運用上の説明は [verified-uploads.md](verified-uploads.md)、再試行は [processing-retries.md](processing-retries.md)。
 
 トランザクション:
 
@@ -449,7 +452,7 @@ catalog が提供する、呼び出し元のトランザクションに参加す
 
 ### 8.1 実装型の漏出 (#130 で解消済み)
 
-#130 より前に jcifs (Samba 実装) の型が公開シグネチャに出ていた箇所と、その解消方法。storage の公開型は、モジュール抽出 (#132) までは core 内の責務パッケージ `me.pinfort.tsvideos.core.storage` に置く。
+#130 より前に jcifs (Samba 実装) の型が公開シグネチャに出ていた箇所と、その解消方法。storage の公開型は、モジュール抽出 (#132) までは core 内の責務パッケージ `me.pinfort.tsvideos.core.storage` に置いていた。#132 で `storage` モジュールに移し、公開型は `me.pinfort.tsvideos.storage.api`、Samba 実装は `me.pinfort.tsvideos.storage.samba` (internal) に置いた (§8.3)。下の表の `core.storage` / `core/external/samba` は #130 時点の場所を指す。
 
 | 箇所 | 漏れていた型 | #130 での扱い |
 | --- | --- | --- |
@@ -462,7 +465,7 @@ catalog が提供する、呼び出し元のトランザクションに参加す
 | `ProcessingRetry` (`TransientProcessingFailure`) | `jcifs.smb.SmbAuthException` を直接判定していた | 原因の連鎖に storage の `NasAuthenticationException` があれば再試行しない。Samba 側の変換が、jcifs の例外の連鎖のどこかに `SmbAuthException` があるときにこの型にするので、認証失敗を再試行しない判定は従来と同じ |
 | NAS 操作の例外 (アップロード・rename・削除・移動・存在/サイズ確認・SHA-256 の読み出し・ディレクトリ作成・読み出しハンドルとストリーム・診断用の接続/ハンドル/ストリーム) | jcifs の例外 (`CIFSException`、反復中の `RuntimeCIFSException`) がそのまま呼び出し元へ出ていた | `core/external/samba` の `SambaFailures` / `sambaOperation` が、公開操作の境界で storage の例外に変換する。読み出し・書き込みのストリームも `SambaInputStream` / `SambaOutputStream` で包み、read/write/close の失敗を変換する |
 
-storage の例外型 (`core.storage`、jcifs に依存しない):
+storage の例外型 (#132 以降は `storage.api`、jcifs に依存しない):
 
 - `NasStorageException`: 基底。`IOException` のサブクラス。
 - `NasAccessException`: NAS が操作を完了できなかった (共有・ファイルに到達できない、存在しない、I/O 要求の失敗)。実装はこれらを区別できない。
@@ -476,7 +479,7 @@ storage の例外型 (`core.storage`、jcifs に依存しない):
 - `NasFileVerifier` は従来どおり例外を外へ出さず、結果 (`INACCESSIBLE` など) に変える。
 - 呼び出し元 (`CreatedFileCommand.delete` / `move`、`ProgramCommand`、`BulkLibraryCommand`、`VerifiedUploadCommand`) は例外を型で分岐しておらず (`Exception` として記録・ラップするだけ)、ロールバック・claim の解放・再試行の可否は変わらない。
 
-jcifs を import してよい本番ソースは `core/external/samba` だけで、`core/storage` は実装に依存しない宣言 (`NasStore`、例外型、#131 で追加した読み出しハンドル `NasReadHandle`) だけを持つ。`NasStorageBoundaryTest` が、この import の制限と、storage の公開操作と呼び出し元 (`CreatedFileCommand`、`CreatedFileCatalog`、`VerifiedUploadCommand`、`NasDestinationResolver`、`UploadManifest`、`NasDiagnosticProbe`、`ProcessingRetry` など) の public シグネチャに jcifs の型が出ないこと、catalog と storage の public シグネチャに Spring の `Resource` (`org.springframework.core.io`) と HTTP の型が出ないことを検査する。境界での変換は `SambaFailuresTest`、`VerifiedUploadNasFailureTest`、`NasComponentTest`、`NasDiagnosticProbeTest` が検査する。
+#130 時点では、jcifs を import してよい本番ソースは `core/external/samba` だけで、`core/storage` は実装に依存しない宣言 (`NasStore`、例外型、#131 で追加した読み出しハンドル `NasReadHandle`) だけを持ち、`NasStorageBoundaryTest` がこれを検査していた。#132 でこの検査を storage の境界チェックと呼び出し元のテストに分けて引き継いだ (§8.3、§11.7)。境界での変換は storage の `SambaFailuresTest`、`VerifiedUploadNasFailureTest`、`NasComponentTest`、`SambaDiagnosticNasClientTest` と、core の `NasDiagnosticProbeTest` が検査する。
 
 ### 8.2 公開値型と操作 (契約)
 
@@ -491,9 +494,19 @@ jcifs を import してよい本番ソースは `core/external/samba` だけで�
   - Spring なしで使える、短いタイムアウトの診断用接続と、診断が必要とする読み取り・書き込み試験の操作 (`DiagnosticNasClient` / `NasDiagnosticProbe` が使う jcifs 操作の置き換え)
 - 例外は storage が定義する型にし、メッセージに URL や資格情報を含めない (現状の `NasFileVerifier` / 診断と同じ方針)。
 - アップロードの claim、REGISTERED の判定、ローカル削除の許可は processing、番組に関連付けた健全性の結果は library が所有する。storage はこれらを知らない。
-- 本番の呼び出し元がない `NasComponent.matchesSize` / `getResource` / `uploadResource` を storage の公開操作として引き継ぐかどうかは #130/#132 で決める。削除する場合は移動と別コミットにする。
+- 本番の呼び出し元がない `NasComponent.matchesSize` / `getResource` / `uploadResource` を storage の公開操作として引き継ぐかどうかは #130/#132 で決める。削除する場合は移動と別コミットにする。#132 では削除せず、`matchesSize` / `uploadResource` は公開 interface `NasComponent` に残し、jcifs を返す `getResource` は internal 実装 `SambaNasComponent` だけのメンバーにした (§13 U4)。
 
-現状の資源の寿命: `NasComponent` は Bean 生成時に両ストアのルート (`SmbFile`) を作って保持し、閉じない。`VerifiedUploadNas` は操作ごとにルートと解決したリソースを `use` で閉じる。`NasFileVerifier` はセッション単位でルートを開いて閉じる。storage に統合するときは、各操作の観測できる挙動 (フォールバックの有無、パス検証、エラー時の後始末) を変えずに寿命を明示する (§13 U7)。
+現状の資源の寿命: `NasComponent` は Bean 生成時に両ストアのルート (`SmbFile`) を作って保持し、閉じない (`openForRead` だけは呼び出しごとに新しいルートを作り、返すハンドルが所有する)。`VerifiedUploadNas` は操作ごとにルートと解決したリソースを `use` で閉じる。`NasFileVerifier` はセッション単位でルートを開いて閉じる。#132 ではこの寿命を統一せずにそのまま移し、各公開 interface の KDoc に明記した (§13 U7)。
+
+### 8.3 storage モジュール (#132 で抽出)
+
+- Gradle モジュール `storage` ([build.gradle.kts](../storage/build.gradle.kts)、[README](../storage/README.md))。プロジェクト依存を持たず、jcifs を宣言するのはこのモジュールだけである。
+- 公開パッケージ `me.pinfort.tsvideos.storage.api`: `NasStore`、`NasStorageException` / `NasAccessException` / `NasAuthenticationException`、`NasReadHandle`、`NasComponent`、`VerifiedUploadNas`、`NasFileVerifier` (低レベルの `Status` / `Result` / `Session`)、`NasPaths` (`resolvePathUnderBaseDir`)、`DiagnosticNasClient` (`create()`)、`sha256Hex` / `hex`。
+- 実装パッケージ `me.pinfort.tsvideos.storage.samba`: `SambaClient`、`SambaNasComponent`、`SambaVerifiedUploadNas`、`SambaNasFileVerifier`、`SambaReadHandle`、`SambaDiagnosticNasClient`、`SambaFailures`、`SambaConfigurationProperties`、`SambaStorageConfiguration`。トップレベルの宣言はすべて `internal`。
+- 移動で変えていないもの: フォールバックの順序 (VIDEO → ORIGINAL)、ストア明示の操作でフォールバックしないこと、パス検証、排他的作成 (`O_EXCL`)、置き換えなしの rename、サイズと SHA-256 の検証、失敗時の後始末、読み出しハンドルの寿命、例外の変換規則 (§8.1)、設定キーと環境変数、`NasStore` の定数名。
+- 業務上の状態 (アップロードの claim・マニフェストの状態遷移・REGISTERED 判定、健全性の結果の意味、`created_file` の登録) は呼び出し元 (`core` の `VerifiedUploadCommand`、`LibraryVerificationCommand` など) に残した。
+- 組み立て: 3 つの実行アプリが `me.pinfort.tsvideos.storage` をスキャンし、`storage` プロファイル (`application-storage.yaml`) を include する (§3)。doctor/preflight は `DiagnosticNasClient.create()` で Spring なしに組み立てる。
+- 検査: storage の `checkStorageBoundaries` と `StorageContractTest`、core の `StorageCallerBoundaryTest` (§11.7)。
 
 ## 9. 動画の HTTP 配信
 
@@ -502,7 +515,7 @@ jcifs を import してよい本番ソースは `core/external/samba` だけで�
 `GET /api/v1/video/{id}/stream` ([VideoFileController](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/controller/VideoFileController.kt)):
 
 1. catalog: [CreatedFileCatalog.findStreamableVideo(id)](../core/src/main/kotlin/me/pinfort/tsvideos/core/catalog/CreatedFileCatalog.kt) が、`created_file` 行がない、または `mime` が `video/mp4` でなければ `null` (**404**、NAS には触れない)。あれば `StreamableVideo(createdFileId, VIDEO_STORE_NAS, 記録済みパス)` を返す。**VIDEO_STORE_NAS だけを見る** (ORIGINAL へのフォールバックはない)。パスは記録値のまま渡し、区切り文字の正規化は storage が行う。
-2. storage: controller は `ResponseResources.of(request).adopt { NasComponent.openForRead(store, path) }` で読み出しハンドルを開き、要求の寿命に登録する。`openForRead` は呼び出しごとに新しいルートを作り、パスの `\` を `/` に置き換えて解決し、`length()` を読み、[NasReadHandle](../core/src/main/kotlin/me/pinfort/tsvideos/core/storage/NasReadHandle.kt) (実装は internal の [SambaReadHandle](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/samba/SambaReadHandle.kt)) を返す。開く途中で失敗したら、解決したファイルとルートをここで閉じてから例外を投げる (close の失敗は元の例外に suppressed)。
+2. storage: controller は `ResponseResources.of(request).adopt { NasComponent.openForRead(store, path) }` で読み出しハンドルを開き、要求の寿命に登録する。`openForRead` は呼び出しごとに新しいルートを作り、パスの `\` を `/` に置き換えて解決し、`length()` を読み、[NasReadHandle](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/api/NasReadHandle.kt) (実装は internal の [SambaReadHandle](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/samba/SambaReadHandle.kt)) を返す。開く途中で失敗したら、解決したファイルとルートをここで閉じてから例外を投げる (close の失敗は元の例外に suppressed)。
 3. jcifs の例外 (NAS に到達できない、ファイルがない、認証失敗など) は `openForRead` が storage の例外 (`NasStorageException` のサブクラス) に変換し、controller はそれを **404** にする (認証失敗も従来どおり 404)。それ以外の例外は Spring の既定処理 (500)。
 4. manager:api: ハンドルを [NasVideoResource](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/stream/NasVideoResource.kt) (`AbstractResource`) に包む。`Content-Type` は常に `video/mp4`。
 5. Range: `headers.range.firstOrNull()` が `null` なら 200 で全体の `ResourceRegion`、あれば 206 で**最初の範囲だけ**の `ResourceRegion`。Range ヘッダの解析失敗や範囲外 (`IllegalArgumentException`) は **416** と `Content-Range: bytes */<length>` (本文ストリームは開かない)。成功時は `Accept-Ranges: bytes`。
@@ -533,7 +546,7 @@ jcifs を import してよい本番ソースは `core/external/samba` だけで�
 - 寿命の所有は manager:api の `ResponseResources` (要求属性) と `ResponseResourcesFilter` (`@Component` の `OncePerRequestFilter`。Spring Boot がサーブレットフィルタとして自動登録する)。controller は `adopt` で開いたハンドルを登録し、フィルタはフィルタチェーンが戻るか例外で抜けた後 (= 本文の変換・書き出しの後) に、登録済みの資源を新しいものから順に閉じる。1 つの close が失敗しても残りを閉じ、失敗はログに残す。要求の完了後の `adopt` は開かずに拒否する。フィルタが入っていなければ `ResponseResources.of` が NAS を開く前に失敗する。
 - この配信は同期処理で、クライアントの切断や要求のキャンセルは書き出しの例外としてフィルタチェーンから抜けるので、正常終了と同じ `finally` で閉じる。将来ハンドラが非同期処理を始めた場合は、フィルタは閉じるのを `AsyncListener` の完了・エラー・タイムアウトまで遅らせる。
 - storage の `SambaReadHandle.close()` は、まだ開いているストリーム → 解決したファイル → ルートの順に、途中の失敗に関係なくすべて閉じ、最初の失敗を storage の例外として投げる (残りは suppressed)。2 回目以降は何もしない。閉じた後の `open` は `IllegalStateException`。利用者が閉じたストリームを後でハンドルが閉じ直すことはない。
-- 検証: [VideoFileControllerTest](../manager/api/src/test/kotlin/me/pinfort/tsvideos/manager/api/controller/VideoFileControllerTest.kt) (実フィルタ・controller・converter を通す MockMvc。正常 200/206、複数 Range、繰り返しの要求、416 (範囲外と解析失敗)、404、`open` 失敗、controller 内の失敗、書き出し中の切断)、[ResponseResourcesTest](../manager/api/src/test/kotlin/me/pinfort/tsvideos/manager/api/stream/ResponseResourcesTest.kt) (close の順序・冪等性・失敗の継続、チェーン失敗、非同期)、[NasComponentTest](../core/src/test/kotlin/me/pinfort/tsvideos/core/external/samba/NasComponentTest.kt) (開く失敗時の後始末、複数回の `open`、`close` の冪等性と部分失敗)、`ApiApplicationTest` (フィルタの Bean が本番の組み立てに含まれること)。
+- 検証: [VideoFileControllerTest](../manager/api/src/test/kotlin/me/pinfort/tsvideos/manager/api/controller/VideoFileControllerTest.kt) (実フィルタ・controller・converter を通す MockMvc。正常 200/206、複数 Range、繰り返しの要求、416 (範囲外と解析失敗)、404、`open` 失敗、controller 内の失敗、書き出し中の切断)、[ResponseResourcesTest](../manager/api/src/test/kotlin/me/pinfort/tsvideos/manager/api/stream/ResponseResourcesTest.kt) (close の順序・冪等性・失敗の継続、チェーン失敗、非同期)、[NasComponentTest](../storage/src/test/kotlin/me/pinfort/tsvideos/storage/samba/NasComponentTest.kt) (開く失敗時の後始末、複数回の `open`、`close` の冪等性と部分失敗)、`ApiApplicationTest` (フィルタの Bean が本番の組み立てに含まれること)。
 
 ## 10. NAS と DB の失敗時の責任
 
@@ -592,13 +605,20 @@ migration ファイル、テスト DDL の生成タスク、DB テスト用の�
 - モジュール外から Mapper、DTO、`persistence` / 内部パッケージを参照していないこと (`implementation` だけでは Kotlin の public 宣言への参照を防げないため、`internal` 化に加えてテストまたはビルドタスクで検証する。手段は #135 で決め、#139 で全モジュールに固定する)。
 - manager の実行アプリの実行時クラスパスに処理専用の依存 (tsselect など) と処理専用の設定クラスが含まれないこと (#138、#139)。
 
+storage (#132) の検査:
+
+- [checkStorageBoundaries](../storage/build.gradle.kts) (Gradle タスク。`check` に含まれるので `./gradlew build` / `check` で実行される): storage がどの設定にもプロジェクト依存を持たないこと、storage のソース (テストを含む) が `me.pinfort.tsvideos.storage` 以外のパッケージを参照しないこと、storage 以外のソースが公開パッケージ `me.pinfort.tsvideos.storage.api` 以外の storage パッケージ (Samba 実装 `me.pinfort.tsvideos.storage.samba` と今後の内部パッケージ) と jcifs を参照しないこと (コメント行は除く。コンポーネントスキャン用のパッケージ名 `me.pinfort.tsvideos.storage` そのものは許可)、storage 以外のビルドスクリプトが jcifs (`libs.samba`) を宣言しないこと。判定は `StorageBoundaryRules` にまとめ、先に実行される `checkStorageBoundaryRules` が違反を含むフィクスチャ (逆方向のプロジェクト依存とソース参照、外部からの内部パッケージと jcifs の参照、jcifs の宣言) をすべて検出し、許可される参照を検出しないことを確かめる。
+- [StorageContractTest](../storage/src/test/kotlin/me/pinfort/tsvideos/storage/api/StorageContractTest.kt): 公開型の public シグネチャに jcifs・Samba 実装・Spring `Resource`・HTTP の型が出ないこと、jcifs を import するのが Samba 実装だけであること、Samba 実装のトップレベル宣言がすべて `internal` であること、`NasStore` と `NasFileVerifier.Status` の定数、storage のパッケージのスキャンと `storage` プロファイルだけで (Spring Boot で起動し、`Logger` など storage 外の Bean なしに) 公開契約の Bean がそろい `samba.*` が束縛されること、`storage` プロファイルなしでは組み立たないこと。
+- [StorageCallerBoundaryTest](../core/src/test/kotlin/me/pinfort/tsvideos/core/StorageCallerBoundaryTest.kt) (core): storage の例外の再試行/中断の分類、呼び出し元の public シグネチャに jcifs と Spring Web の型が出ないこと、core に NAS 実装のパッケージが残っていないこと。
+- `DoctorBootstrapTest` / `PreflightCommandTest`: Spring なしの診断の環境が `core` と `storage` プロファイルの既定値を読み込むこと、その CLI の設定だけで storage の Bean が組み立つこと。`ApiApplicationTest`: manager:api のコンテキストで `core` / `storage` プロファイルが有効で storage の Bean がそろうこと。`StorageCallerBoundaryTest`: core の設定が `storage` プロファイルを含むこと。
+
 ## 12. 子 Issue への引き継ぎ
 
 | Issue | この文書から引き継ぐ内容 |
 | --- | --- |
 | #130 NAS の公開型から Samba 実装を除く | §8.1 の漏出をすべて解消し、`NasStore` (定数名は不変) と storage の例外型を導入する。公開 NAS 操作 (アップロード・移動・削除・読み出し・診断のハンドルとストリーム) の jcifs の例外を storage の例外に変換し (§8.1)、`CIFSException` の catch は storage 側の例外に置き換え、配信の 404 と再試行の分類を保つ。モジュールの抽出はまだしないので、この Issue を妨げる未決事項はない |
 | #131 作成ファイルの登録・NAS 操作・HTTP 配信を分離 (実施済み) | §6.2 と §9.2。`streamCreatedFile` を catalog の判定 + storage の読み出しハンドル + manager:api の `Resource` に分ける。`SmbFileResource` を廃止し、ハンドルの寿命を明示する。`VerifiedUploadCommand` の `CreatedFileMapper` 直接使用を catalog の操作 (`MANDATORY` 登録を含む) に置き換える準備をする |
-| #132 storage を抽出 | §4.5、§8。`NasComponent`・`VerifiedUploadNas`・`NasFileVerifier`・`SambaClient`・`DiagnosticNasClient`・`SambaConfigurationProperties`・`Sha256` と、#130 で作った `core.storage` パッケージ (`NasStore`、`NasStorageException`/`NasAccessException`/`NasAuthenticationException`) と Samba 側の変換 (`SambaFailures`) を移す。`NasStorageBoundaryTest` の検査は storage の境界チェックに引き継ぐ。storage は業務モジュールに依存しない。NAS 操作・移動・削除の既存テストを移す |
+| #132 storage を抽出 (実施済み、§8.3) | §4.5、§8。`NasComponent`・`VerifiedUploadNas`・`NasFileVerifier`・`SambaClient`・`DiagnosticNasClient`・`SambaConfigurationProperties`・`Sha256` と、#130 で作った `core.storage` パッケージ (`NasStore`、`NasStorageException`/`NasAccessException`/`NasAuthenticationException`) と Samba 側の変換 (`SambaFailures`) を移す。`NasStorageBoundaryTest` の検査は storage の境界チェックに引き継ぐ。storage は業務モジュールに依存しない。NAS 操作・移動・削除の既存テストを移す |
 | #133 migration と DB テスト資源を分離 | §11.6。`generateTestDdl`、`02_insert_data.sql`、`docker-compose.test.yml` のマウントを database-schema に合わせる |
 | #134 catalog の公開操作を整理 | §6、§11.1。§13 U1 (検索の library 絞り込み) を決着させる。`selectByName` / `CreatedFileCommand.updateStatus` の扱いを決める。library 向けの用途別読み取りとロック操作を用意する |
 | #135 catalog を抽出 | §4、§5。catalog の SQL が library のテーブルを参照しない状態にしてから移す。境界チェックの手段を決める |
@@ -614,10 +634,10 @@ migration ファイル、テスト DDL の生成タスク、DB テスト用の�
 | ID | 内容 | 決める Issue | 制約 |
 | --- | --- | --- | --- |
 | U1 | 番組検索の `collectionId` / `libraryTagId` 絞り込みの置き場所。案: (a) catalog の検索は台帳の条件だけにし、library が台帳テーブルを読む明示的な参照クエリ (§5.2) で絞り込み付き検索を提供する。(b) catalog が絞り込み用の拡張点を持ち library が実装する | #134 | #135 より前に、catalog の SQL とドメイン型が library のテーブルと概念を参照しない状態にする。`GET /api/v1/programs` と CLI 検索の結果・件数・並び順・ページングを変えない |
-| U2 | `VerificationStatus` を storage の低レベル結果と library の結果に分ける方法 | #132, #137 | `health_verification_finding.status` に保存される値、API/CLI の出力、`tvmcli verify` の終了コード 4 の意味を変えない |
+| U2 | `VerificationStatus` を storage の低レベル結果と library の結果に分ける方法 | #132, #137 | `health_verification_finding.status` に保存される値、API/CLI の出力、`tvmcli verify` の終了コード 4 の意味を変えない。**#132 で決着**: storage は自前の `NasFileVerifier.Status` (`VERIFIED` / `MISSING` / `SIZE_MISMATCH` / `INACCESSIBLE` / `UNCHECKED`) と `Result` を返し、library のドメイン型に依存しない。`LibraryVerificationCommand` が網羅的な `when` で同名の `VerificationStatus` に対応付ける (storage に値が増えたらコンパイルエラーで意味づけを強制する)。`VerificationStatus` は core に残り、#137 で library に移す。保存値・出力・終了コードは変わらない |
 | U3 | `ApplicationVersion` と `version.properties` 生成の置き場所 (console-common か、ビルド設定の共通化か) | #139 | 新たな汎用 common モジュールを作らない。`--version` の出力を変えない |
-| U4 | 本番の呼び出し元がない操作 (`ProgramCommand.selectByName`、`CreatedFileCommand.updateStatus`、`NasComponent.matchesSize` / `getResource` / `uploadResource`、`ProcessingJobCommand.reconcileSubmission`) を残すか削除するか。#130 では削除せず、jcifs を返す `getResource` だけを `internal` にした (`matchesSize` / `uploadResource` は引数を `NasStore` に変えて public のまま) | #130〜#138 の各移動 | 削除は移動と別コミットにし、記録済みの復旧 API (`VerifiedUploadCommand.cleanupTemporary`) は残す |
+| U4 | 本番の呼び出し元がない操作 (`ProgramCommand.selectByName`、`CreatedFileCommand.updateStatus`、`NasComponent.matchesSize` / `getResource` / `uploadResource`、`ProcessingJobCommand.reconcileSubmission`) を残すか削除するか。#130 では削除せず、jcifs を返す `getResource` だけを `internal` にした (`matchesSize` / `uploadResource` は引数を `NasStore` に変えて public のまま)。#132 でも削除せず、`getResource` は internal 実装 `SambaNasComponent` のメンバーとして残した | #130〜#138 の各移動 | 削除は移動と別コミットにし、記録済みの復旧 API (`VerifiedUploadCommand.cleanupTemporary`) は残す |
 | U5 | 番組の詳細・一覧の画面向けの形 (`ProgramDetail` などを catalog の型のまま公開するか、library のビューにするか) | #134, #137 | API 応答の JSON 形を変えない |
 | U6 | 一括操作・CLI の番組削除が `processing_job` / `upload_manifest` を残す現状の扱い | 本移行の対象外 (別 Issue) | 移行中は変えない |
-| U7 | storage 内の SMB ルートの寿命の統一 (`NasComponent` の常駐ルートと、操作ごとに閉じる `VerifiedUploadNas`) | #132 | フォールバックの有無、パス検証、失敗時の後始末を変えない |
+| U7 | storage 内の SMB ルートの寿命の統一 (`NasComponent` の常駐ルートと、操作ごとに閉じる `VerifiedUploadNas`) | #132 | フォールバックの有無、パス検証、失敗時の後始末を変えない。**#132 で決着**: 統一しない。抽出は移動に限り振る舞いを変えないため、各実装の寿命 (`NasComponent` は Bean と同じ寿命の常駐ルート、`openForRead` はハンドルが所有するルート、`VerifiedUploadNas` は操作ごと、`NasFileVerifier` はセッションごと、診断用接続は接続ごと) をそのまま移し、公開 interface の KDoc と [storage/README.md](../storage/README.md) に明記した。統一する場合は振る舞いの変更として別 Issue で扱う |
 | U8 | 配信で NAS に到達できない場合を 404 から別の状態コードにするか | 本移行の対象外 (別 Issue) | #131 では 404 を維持する |

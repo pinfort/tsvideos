@@ -3,7 +3,7 @@ package me.pinfort.tsvideos.core.component
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.SplittedFileCommand
-import me.pinfort.tsvideos.core.external.samba.NasComponent
+import me.pinfort.tsvideos.storage.api.NasComponent
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 

@@ -20,7 +20,7 @@ import me.pinfort.tsvideos.core.component.NasDiagnosticProbe
 import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
 import me.pinfort.tsvideos.core.domain.DiagnosticCheck
 import me.pinfort.tsvideos.core.domain.DiagnosticStatus
-import me.pinfort.tsvideos.core.external.samba.DiagnosticNasClient
+import me.pinfort.tsvideos.storage.api.DiagnosticNasClient
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.core.env.StandardEnvironment
@@ -130,7 +130,11 @@ object PreflightBootstrap {
                 PreflightCommand(
                     ProcessingPreflightCommand(
                         environment,
-                        EnvironmentDiagnosticCommand(environment, DatabaseDiagnosticProbe(), NasDiagnosticProbe(DiagnosticNasClient())),
+                        EnvironmentDiagnosticCommand(
+                            environment,
+                            DatabaseDiagnosticProbe(),
+                            NasDiagnosticProbe(DiagnosticNasClient.create()),
+                        ),
                         LocalPreflightProbe(),
                         EncoderConnectivityProbe(),
                     ),

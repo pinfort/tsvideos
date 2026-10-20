@@ -1,1 +1,1 @@
-spring.profiles.include: core, infrastructure, console
+spring.profiles.include: core, storage, infrastructure, console

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Build context must be backend/ (this module depends on :core and
+# Build context must be backend/ (this module depends on :storage, :core and
 # :manager:infrastructure, and settings.gradle.kts includes every module,
 # so the whole multi-project build needs to be present to configure).
 
@@ -9,6 +9,7 @@ WORKDIR /app
 
 COPY gradlew settings.gradle.kts ./
 COPY gradle gradle
+COPY storage/build.gradle.kts storage/build.gradle.kts
 COPY core/build.gradle.kts core/build.gradle.kts
 COPY console-common/build.gradle.kts console-common/build.gradle.kts
 COPY manager/infrastructure/build.gradle.kts manager/infrastructure/build.gradle.kts

@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.manager.api.stream
 
-import me.pinfort.tsvideos.core.storage.NasReadHandle
+import me.pinfort.tsvideos.storage.api.NasReadHandle
 import org.springframework.core.io.AbstractResource
 import java.io.InputStream
 

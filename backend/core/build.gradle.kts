@@ -73,10 +73,11 @@ sourceSets.test {
 }
 
 dependencies {
+    // storage の公開型 (NasStore など) は core の公開シグネチャにも出る。利用側も storage へ明示的に依存する
+    implementation(project(":storage"))
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.core:jackson-databind")
-    implementation(libs.samba)
     implementation(libs.mybatis.spring.boot)
 
     runtimeOnly("org.mariadb.jdbc:mariadb-java-client")

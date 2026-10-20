@@ -2,10 +2,10 @@ package me.pinfort.tsvideos.manager.api.controller
 
 import jakarta.servlet.http.HttpServletRequest
 import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
-import me.pinfort.tsvideos.core.external.samba.NasComponent
-import me.pinfort.tsvideos.core.storage.NasStorageException
 import me.pinfort.tsvideos.manager.api.stream.NasVideoResource
 import me.pinfort.tsvideos.manager.api.stream.ResponseResources
+import me.pinfort.tsvideos.storage.api.NasComponent
+import me.pinfort.tsvideos.storage.api.NasStorageException
 import org.springframework.core.io.support.ResourceRegion
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus

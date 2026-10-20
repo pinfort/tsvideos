@@ -12,7 +12,7 @@ import me.pinfort.tsvideos.core.external.database.dto.ExecutedCreatedFileDto
 import me.pinfort.tsvideos.core.external.database.dto.ProgramDto
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
-import me.pinfort.tsvideos.core.external.samba.NasFileVerifier
+import me.pinfort.tsvideos.storage.api.NasFileVerifier
 
 class LibraryVerificationCommandTest :
     ExpectSpec({
@@ -40,7 +40,7 @@ class LibraryVerificationCommandTest :
             every { files.selectByExecutedFileId(10) } returns listOf(file)
         }
         expect("selected program includes file identity and per-status summary") {
-            every { session.verify(file.file, 12) } returns NasFileVerifier.Result(VerificationStatus.SIZE_MISMATCH, 11)
+            every { session.verify(file.file, 12) } returns NasFileVerifier.Result(NasFileVerifier.Status.SIZE_MISMATCH, 11)
             val report = command.verify(1).shouldNotBeNull()
             report.findings.single().programId shouldBe 1
             report.findings.single().fileId shouldBe 2
@@ -54,7 +54,7 @@ class LibraryVerificationCommandTest :
         expect("library reads programs and files in batch, in one NAS session, and reports progress") {
             every { programs.selectAllOrderById() } returns listOf(program, program.copy(id = 2, executedFileId = 20))
             every { files.selectAllWithExecutedFileId() } returns listOf(executedCreated(10, file))
-            every { session.verify(any(), any()) } returns NasFileVerifier.Result(VerificationStatus.VERIFIED, 12)
+            every { session.verify(any(), any()) } returns NasFileVerifier.Result(NasFileVerifier.Status.VERIFIED, 12)
             val progress = mutableListOf<Pair<Int, Int>>()
             val report = command.verify { checked, total -> progress += checked to total }.shouldNotBeNull()
             report.findings.map { it.status } shouldBe listOf(VerificationStatus.VERIFIED, VerificationStatus.UNCHECKED)
@@ -78,14 +78,30 @@ class LibraryVerificationCommandTest :
         }
         expect("an inaccessible file does not prevent checking subsequent files, which are sorted by ID") {
             every { files.selectByExecutedFileId(10) } returns listOf(file.copy(id = 4, file = "base/second.mp4"), file)
-            every { session.verify(file.file, 12) } returns NasFileVerifier.Result(VerificationStatus.INACCESSIBLE)
-            every { session.verify("base/second.mp4", 12) } returns NasFileVerifier.Result(VerificationStatus.VERIFIED, 12)
+            every { session.verify(file.file, 12) } returns NasFileVerifier.Result(NasFileVerifier.Status.INACCESSIBLE)
+            every { session.verify("base/second.mp4", 12) } returns NasFileVerifier.Result(NasFileVerifier.Status.VERIFIED, 12)
             command
                 .verify(1)
                 .shouldNotBeNull()
                 .findings
                 .map { it.status } shouldBe
                 listOf(VerificationStatus.INACCESSIBLE, VerificationStatus.VERIFIED)
+        }
+        // Persisted health findings, API/CLI output and `tvmcli verify`'s exit code read VerificationStatus names.
+        expect("every low-level storage status becomes the same-named verification status, with size and reason") {
+            NasFileVerifier.Status.entries.forEach { status ->
+                every { session.verify(file.file, 12) } returns NasFileVerifier.Result(status, 13, "reason ${status.name}")
+                val finding =
+                    command
+                        .verify(1)
+                        .shouldNotBeNull()
+                        .findings
+                        .single()
+                finding.status shouldBe VerificationStatus.valueOf(status.name)
+                finding.actualBytes shouldBe 13
+                finding.reason shouldBe "reason ${status.name}"
+            }
+            VerificationStatus.entries.map { it.name } shouldBe NasFileVerifier.Status.entries.map { it.name }
         }
         expect("missing requested program differs from an empty library") {
             every { programs.find(99) } returns null

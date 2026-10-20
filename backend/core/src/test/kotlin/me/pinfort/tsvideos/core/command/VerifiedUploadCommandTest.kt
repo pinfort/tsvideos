@@ -19,16 +19,17 @@ import me.pinfort.tsvideos.core.config.ProcessingRetryConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest.State
 import me.pinfort.tsvideos.core.domain.VideoResolution
-import me.pinfort.tsvideos.core.domain.sha256Hex
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
-import me.pinfort.tsvideos.core.external.samba.SambaClient
-import me.pinfort.tsvideos.core.external.samba.VerifiedUploadNas
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasStore
+import me.pinfort.tsvideos.storage.api.VerifiedUploadNas
+import me.pinfort.tsvideos.storage.api.sha256Hex
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
 import org.springframework.boot.testcontainers.context.ImportTestcontainers
+import org.springframework.context.annotation.AnnotationConfigApplicationContext
+import org.springframework.core.env.MapPropertySource
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig
 import org.springframework.transaction.PlatformTransactionManager
@@ -453,26 +454,11 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             container.start()
             // '#' and '%' are common in titles and must reach SMB literally.
             val f = fixture(spring = true, name = "アニメ #3 100%.mp4")
+            var storage: AnnotationConfigApplicationContext? = null
             try {
                 container.execInContainer("sh", "-c", "chown 1000:1000 /shares && chmod 770 /shares").exitCode shouldBe 0
-                val server =
-                    me.pinfort.tsvideos.core.config.SambaConfigurationProperties.Server(
-                        "smb://${container.host}:${container.getMappedPort(445)}/upload",
-                        "uploadtest",
-                        "uploadtest",
-                        "",
-                    )
-                val samba =
-                    SambaClient(
-                        me.pinfort.tsvideos.core.config
-                            .SambaConfigurationProperties(server, server),
-                    )
-                val real =
-                    VerifiedUploadNas(
-                        samba,
-                        me.pinfort.tsvideos.core.external.samba
-                            .NasComponent(samba, mockk(relaxed = true)),
-                    )
+                storage = sambaStorage("smb://${container.host}:${container.getMappedPort(445)}/upload", "uploadtest", "uploadtest")
+                val real = storage.getBean(VerifiedUploadNas::class.java)
 
                 fun committed(
                     state: String,
@@ -515,6 +501,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.upload() shouldBe receipt
                 real.exists(NasStore.VIDEO_STORE_NAS, f.target) shouldBe true
             } finally {
+                storage?.close()
                 f.source.delete()
                 container.stop()
             }
@@ -1065,3 +1052,23 @@ class VerifiedUploadSpringConfiguration {
             true,
         )
 }
+
+/**
+ * The real Samba implementation of both stores at [url], assembled the way the applications do (component scan of the
+ * storage module plus `samba.*` settings), because its classes are internal to storage. The caller closes the context.
+ */
+private fun sambaStorage(
+    url: String,
+    username: String,
+    password: String,
+): AnnotationConfigApplicationContext =
+    AnnotationConfigApplicationContext().apply {
+        val server = mapOf("url" to url, "username" to username, "password" to password, "base-dir" to "")
+        val settings =
+            listOf("video-store-nas", "original-store-nas")
+                .flatMap { store -> server.map { (key, value) -> "samba.$store.$key" to value } }
+                .toMap()
+        environment.propertySources.addFirst(MapPropertySource("samba", settings))
+        scan("me.pinfort.tsvideos.storage")
+        refresh()
+    }

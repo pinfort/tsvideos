@@ -11,7 +11,7 @@ import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasStore
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.aop.support.AopUtils
 import org.springframework.beans.factory.annotation.Autowired

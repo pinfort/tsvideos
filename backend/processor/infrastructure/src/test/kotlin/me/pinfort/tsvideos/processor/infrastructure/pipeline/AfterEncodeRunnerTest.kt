@@ -24,10 +24,10 @@ import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.domain.VerifiedUploadReceipt
 import me.pinfort.tsvideos.core.domain.VideoResolution
-import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.VideoResolutionProbeClient
-import me.pinfort.tsvideos.core.storage.NasStore
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
+import me.pinfort.tsvideos.storage.api.NasPaths
+import me.pinfort.tsvideos.storage.api.NasStore
 import org.slf4j.Logger
 import java.io.File
 import java.nio.file.Files
@@ -55,7 +55,7 @@ class AfterEncodeRunnerTest :
             val validation = mockk<ValidateCompletedComponent>()
             val slack = mockk<SlackClient>(relaxed = true)
             val logger = mockk<Logger>(relaxed = true)
-            val samba = mockk<SambaClient>()
+            val nasPaths = mockk<NasPaths>()
             val resolutionProbe = mockk<VideoResolutionProbeClient>()
             val identity = ProcessingIdentity.from(original)
             val job = ProcessingJob(1, identity.key, identity.path, identity.size, identity.modifiedMillis, "SUBMITTED", 10, null)
@@ -83,7 +83,7 @@ class AfterEncodeRunnerTest :
                 every { programs.findByExecutedFileId(10) } returns program
                 every { jobs.findByExecutedFile(10) } returns job
                 every { jobs.claimCallback(any()) } returns "token"
-                every { samba.resolvePathUnderBaseDir(any(), any()) } answers { "base/${secondArg<String>()}" }
+                every { nasPaths.resolvePathUnderBaseDir(any(), any()) } answers { "base/${secondArg<String>()}" }
                 every { validation.validate(1) } returns true
                 every { resolutionProbe.probe(any()) } returns VideoResolution(1920, 1080)
                 every { uploads.upload(any(), any(), any(), any(), any(), any()) } returns receipt
@@ -96,7 +96,7 @@ class AfterEncodeRunnerTest :
                         splits,
                         executed,
                         programs,
-                        NasDestinationResolver(NormalizeComponent(), samba),
+                        NasDestinationResolver(NormalizeComponent(), nasPaths),
                         MimeTypeComponent(),
                         validation,
                         slack,

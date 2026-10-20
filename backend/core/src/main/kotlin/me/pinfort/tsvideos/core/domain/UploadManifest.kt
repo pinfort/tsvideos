@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.core.domain
 
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasStore
 
 /** Durable ownership evidence; paths are exact share-relative paths including baseDir. */
 data class UploadManifest(

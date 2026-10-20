@@ -4,6 +4,7 @@ plugins {
 rootProject.name = "tsvideos"
 
 include(
+    "storage",
     "core",
     "console-common",
     "manager:infrastructure",

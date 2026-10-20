@@ -14,7 +14,7 @@ import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasStore
 import java.time.LocalDateTime
 
 class DeleteTest :

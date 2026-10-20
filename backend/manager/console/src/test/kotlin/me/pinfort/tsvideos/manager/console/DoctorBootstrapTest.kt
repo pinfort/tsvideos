@@ -4,15 +4,32 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import me.pinfort.tsvideos.storage.api.NasComponent
+import me.pinfort.tsvideos.storage.api.NasFileVerifier
+import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import java.nio.file.Files
 
 class DoctorBootstrapTest :
     ExpectSpec({
-        expect("loads the actual application core profile defaults without any application context") {
+        expect("loads the actual application core and storage profile defaults without any application context") {
             val environment = DoctorBootstrap.loadEnvironment(emptyArray())
             environment.activeProfiles.toList().contains("core") shouldBe true
+            // samba.* defaults live in the storage module's application-storage.yaml
+            environment.activeProfiles.toList().contains("storage") shouldBe true
             environment.getProperty("spring.datasource.url").shouldNotBeNull() shouldContain "jdbc:"
             environment.getProperty("samba.video-store-nas.url").shouldNotBeNull() shouldContain "smb:"
+        }
+        // ConsoleApplication scans storage; its beans must assemble from this console's own configuration alone.
+        expect("the storage beans assemble from the console's loaded configuration") {
+            AnnotationConfigApplicationContext()
+                .apply {
+                    environment = DoctorBootstrap.loadEnvironment(emptyArray())
+                    scan("me.pinfort.tsvideos.storage")
+                    refresh()
+                }.use { context ->
+                    context.getBean(NasComponent::class.java)
+                    context.getBean(NasFileVerifier::class.java)
+                }
         }
         expect("external profile configuration overrides normal core defaults") {
             val directory = Files.createTempDirectory("doctor-config-")

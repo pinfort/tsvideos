@@ -4,7 +4,7 @@ import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasStore
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Propagation
