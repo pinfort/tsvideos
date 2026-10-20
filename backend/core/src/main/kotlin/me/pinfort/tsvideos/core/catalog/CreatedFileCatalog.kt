@@ -25,6 +25,24 @@ class CreatedFileCatalog(
 ) {
     fun find(id: Long): CreatedFile? = createdFileMapper.find(id)?.toDomain()
 
+    /** Created files of one recording by id; a row whose `splitted_file` is gone is not found. */
+    fun filesOfRecording(executedFileId: Long): List<CreatedFile> =
+        createdFileMapper.selectByExecutedFileId(executedFileId).sortedBy { it.id }.map { it.toDomain() }
+
+    /** Every created file, grouped by recording (`executed_file_id`) and ordered by id; orphaned rows are skipped. */
+    fun filesByRecording(): Map<Long, List<CreatedFile>> =
+        createdFileMapper.selectAllWithExecutedFileId().groupBy({ it.executedFileId }, { it.toDomain() })
+
+    /** `FILE_MOVED` files of the given recordings, grouped by recording and ordered by id. */
+    fun movedFilesByRecording(executedFileIds: Collection<Long>): Map<Long, List<CreatedFile>> =
+        executedFileIds
+            .distinct()
+            // Chunked so a huge set stays within placeholder limits.
+            .chunked(ID_CHUNK_SIZE)
+            .flatMap { ids -> createdFileMapper.selectMovedByExecutedFileIds(ids) }
+            .groupBy({ it.executedFileId }, { it.toDomain() })
+            .mapValues { (_, files) -> files.sortedBy { it.id } }
+
     /**
      * The video [id] may be played back: the row exists and its mime is `video/mp4`; anything else is treated as
      * missing. Playback reads VIDEO_STORE_NAS only, never the original store.
@@ -86,6 +104,10 @@ class CreatedFileCatalog(
         id: Long,
         resolution: VideoResolution,
     ): Boolean = createdFileMapper.updateResolutionIfMissing(id, resolution.width, resolution.height) > 0
+
+    private companion object {
+        const val ID_CHUNK_SIZE = 1000
+    }
 }
 
 /** Where a playable video is stored; [path] is relative to the share root of [store]. */

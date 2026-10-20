@@ -5,11 +5,15 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
+import me.pinfort.tsvideos.core.catalog.LedgerLocks
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
 import me.pinfort.tsvideos.core.domain.DuplicateLibraryNameException
 import me.pinfort.tsvideos.core.domain.LibraryItemNotFoundException
 import me.pinfort.tsvideos.core.domain.LibraryKind
+import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
 import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.external.database.mapper.LibraryOrganizationMapper
+import me.pinfort.tsvideos.core.external.database.mapper.LibraryProgramSearchMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
@@ -30,7 +34,7 @@ import javax.sql.DataSource
 @SpringJUnitConfig
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
-@Import(LibraryOrganizationCommand::class)
+@Import(LibraryOrganizationCommand::class, ProgramInventory::class, LedgerLocks::class)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class LibraryOrganizationCommandTest : ExpectSpec() {
     @Autowired private lateinit var dataSource: DataSource
@@ -40,6 +44,12 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
     @Autowired private lateinit var mapper: LibraryOrganizationMapper
 
     @Autowired private lateinit var programs: ProgramMapper
+
+    @Autowired private lateinit var inventory: ProgramInventory
+
+    @Autowired private lateinit var ledgerLocks: LedgerLocks
+
+    @Autowired private lateinit var search: LibraryProgramSearchMapper
 
     private fun sql(sql: String) {
         dataSource.connection.use { connection ->
@@ -80,7 +90,8 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
             shouldThrow<DuplicateLibraryNameException> { command.rename(LibraryKind.COLLECTION, first.id, "café") }
             command.find(LibraryKind.COLLECTION, first.id).name shouldBe "日本語シリーズ"
             command.rename(LibraryKind.COLLECTION, first.id, "番組集").name shouldBe "番組集"
-            LibraryOrganizationCommand(mapper).list(LibraryKind.COLLECTION).map { it.name }.toSet() shouldBe setOf("番組集", "Café")
+            val fresh = LibraryOrganizationCommand(mapper, inventory, ledgerLocks)
+            fresh.list(LibraryKind.COLLECTION).map { it.name }.toSet() shouldBe setOf("番組集", "Café")
             command.create(LibraryKind.TAG, "番組集").name shouldBe "番組集"
             command.create(LibraryKind.TAG, "か\u3099").name shouldBe "が"
             shouldThrow<DuplicateLibraryNameException> { command.create(LibraryKind.TAG, "が") }
@@ -137,21 +148,16 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
             (1L..3L).forEach { command.assign(LibraryKind.COLLECTION, collection.id, it, true) }
             val tag = command.assignTag(2, "pick")
             command.assign(LibraryKind.TAG, tag.id, 3, true)
-            val query =
-                ProgramSearchQuery(
-                    collectionId = collection.id,
-                    libraryTagId = tag.id,
-                    name = "episode",
-                    channel = "BS1",
-                    limit = 1,
-                    offset = 1,
-                )
-            programs.countSearch(query) shouldBe 2
-            programs.search(query).map { it.id } shouldBe listOf(2L)
-            programs.search(query.copy(libraryTagId = null, limit = 10, offset = 0)).map { it.id } shouldBe listOf(3L, 2L, 1L)
-            programs.countSearch(query.copy(collectionId = 9999)) shouldBe 0
+            val query = ProgramSearchQuery(name = "episode", channel = "BS1", limit = 1, offset = 1)
+            val filter = LibraryProgramFilter(collectionId = collection.id, libraryTagId = tag.id)
+            search.count(query, filter) shouldBe 2
+            search.search(query, filter).map { it.id } shouldBe listOf(2L)
+            search
+                .search(query.copy(limit = 10, offset = 0), filter.copy(libraryTagId = null))
+                .map { it.id } shouldBe listOf(3L, 2L, 1L)
+            search.count(query, filter.copy(collectionId = 9999)) shouldBe 0
             command.delete(LibraryKind.COLLECTION, collection.id)
-            programs.countSearch(query) shouldBe 0
+            search.count(query, filter) shouldBe 0
             programs.find(2)?.id shouldBe 2
             command
                 .forProgram(2)

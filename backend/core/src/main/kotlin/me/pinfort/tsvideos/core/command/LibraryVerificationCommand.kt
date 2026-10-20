@@ -1,20 +1,20 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.FileFinding
 import me.pinfort.tsvideos.core.domain.VerificationReport
 import me.pinfort.tsvideos.core.domain.VerificationStatus
-import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
-import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
-import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import me.pinfort.tsvideos.storage.api.NasFileVerifier
 import org.springframework.stereotype.Component
 import java.time.Instant
 
 @Component
 class LibraryVerificationCommand(
-    private val programMapper: ProgramMapper,
-    private val createdFileMapper: CreatedFileMapper,
+    private val programs: ProgramCommand,
+    private val inventory: ProgramInventory,
+    private val createdFiles: CreatedFileCatalog,
     private val nasFileVerifier: NasFileVerifier,
 ) {
     /**
@@ -28,19 +28,17 @@ class LibraryVerificationCommand(
         require(programId == null || programId > 0) { "Program ID must be positive" }
         // Library runs read programs and files in two queries instead of one per program. Both are held in
         // memory, which is fine at the current library size (thousands of rows); stream them if that changes.
-        // Like selectByExecutedFileId, the batch query only sees created_file rows that still have their
-        // splitted_file, so an orphaned created_file is skipped by both paths.
+        // Both catalog reads only see created_file rows that still have their splitted_file, so an orphaned
+        // created_file is skipped by both paths.
         val programs: List<Pair<Long, Long>>
-        val filesByExecutedFileId: Map<Long, List<CreatedFileDto>>
+        val filesByExecutedFileId: Map<Long, List<CreatedFile>>
         if (programId == null) {
-            programs = programMapper.selectAllOrderById().map { it.id to it.executedFileId }
-            filesByExecutedFileId =
-                createdFileMapper.selectAllWithExecutedFileId().groupBy({ it.executedFileId }, { it.toCreatedFileDto() })
+            programs = inventory.allPrograms().map { it.id to it.executedFileId }
+            filesByExecutedFileId = createdFiles.filesByRecording()
         } else {
-            val program = programMapper.find(programId) ?: return null
+            val program = this.programs.find(programId) ?: return null
             programs = listOf(program.id to program.executedFileId)
-            filesByExecutedFileId =
-                mapOf(program.executedFileId to createdFileMapper.selectByExecutedFileId(program.executedFileId).sortedBy { it.id })
+            filesByExecutedFileId = mapOf(program.executedFileId to createdFiles.filesOfRecording(program.executedFileId))
         }
         val findings =
             nasFileVerifier.session { nas ->
@@ -55,7 +53,7 @@ class LibraryVerificationCommand(
     private fun verifyProgram(
         nas: NasFileVerifier.Session,
         programId: Long,
-        files: List<CreatedFileDto>,
+        files: List<CreatedFile>,
     ): List<FileFinding> {
         if (files.isEmpty()) {
             return listOf(
@@ -71,8 +69,7 @@ class LibraryVerificationCommand(
                 ),
             )
         }
-        return files.map { dto ->
-            val file = dto.toDomain()
+        return files.map { file ->
             val result =
                 if (file.status != CreatedFile.Status.FILE_MOVED) {
                     NasFileVerifier.Result(NasFileVerifier.Status.UNCHECKED, reason = "NAS transfer not recorded as complete")

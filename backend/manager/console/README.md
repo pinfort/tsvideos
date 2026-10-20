@@ -195,6 +195,7 @@ java -jar manager-console.jar search --recorded-from 2026-10-01T00:00:00 --recor
 
 共有のバックエンド API は、`ProgramCommand.search(ProgramSearchQuery)` で、
 `ProgramSearchPage(items, total, limit, offset)` を返す。検証、フィルタリング、並べ替えの
-セマンティクスは core にあり、Web インターフェースが再利用する。以前の
+セマンティクスは core にあり、Web インターフェースが再利用する (Web の手動コレクション/タグの
+絞り込みは `LibraryProgramSearchCommand` が同じ条件に加える。CLI にはこの絞り込みがない)。以前の
 `selectByName` メソッドは既存の呼び出し元のために残されている。新しい検索の呼び出し元は
 共有のページング API を使うこと。

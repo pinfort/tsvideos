@@ -3,7 +3,7 @@ package me.pinfort.tsvideos.core.external.database.mapper
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 
-/** Only fixed SQL fragments are interpolated. All user values remain bound parameters. */
+/** Only fixed SQL fragments are interpolated. All user values remain bound parameters. Ledger tables only. */
 class ProgramSearchSql {
     fun search(query: ProgramSearchQuery): String {
         val column =
@@ -52,13 +52,6 @@ class ProgramSearchSql {
                 EXISTS (SELECT 1 FROM splitted_file sf JOIN created_file cf ON cf.splitted_file_id = sf.id
                     WHERE sf.executed_file_id = ex.id AND cf.status = 'FILE_MOVED' AND $mime)
                 """.trimIndent()
-        }
-        if (query.collectionId != null) {
-            conditions +=
-                "EXISTS (SELECT 1 FROM library_collection_program lcp WHERE lcp.program_id = pg.id AND lcp.label_id = #{collectionId})"
-        }
-        if (query.libraryTagId != null) {
-            conditions += "EXISTS (SELECT 1 FROM library_tag_program ltp WHERE ltp.program_id = pg.id AND ltp.label_id = #{libraryTagId})"
         }
         val where = if (conditions.isEmpty()) "" else " WHERE " + conditions.joinToString(" AND ")
         return "FROM program pg LEFT OUTER JOIN executed_file ex ON pg.executed_file_id = ex.id$where"

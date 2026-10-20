@@ -4,8 +4,10 @@ import com.ninjasquad.springmockk.MockkBean
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.mockk.every
+import me.pinfort.tsvideos.core.command.LibraryProgramSearchCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.domain.CreatedFile
+import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramDetail
 import me.pinfort.tsvideos.core.domain.ProgramSearchPage
@@ -32,6 +34,9 @@ class ProgramControllerTest : DescribeSpec() {
     @MockkBean
     lateinit var programCommand: ProgramCommand
 
+    @MockkBean
+    lateinit var librarySearch: LibraryProgramSearchCommand
+
     private val program =
         Program(
             id = 1,
@@ -46,6 +51,8 @@ class ProgramControllerTest : DescribeSpec() {
             title = "",
             channelName = "",
         )
+
+    private val emptyPage = ProgramSearchPage(emptyList(), 0, 100, 0)
 
     private val programDetail =
         ProgramDetail(
@@ -66,7 +73,7 @@ class ProgramControllerTest : DescribeSpec() {
     init {
         describe("index") {
             it("success") {
-                every { programCommand.search(ProgramSearchQuery()) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
+                every { librarySearch.search(ProgramSearchQuery(), LibraryProgramFilter()) } returns emptyPage
                 mockMvc
                     .perform(get("/api/v1/programs"))
                     .andDo(print())
@@ -74,8 +81,8 @@ class ProgramControllerTest : DescribeSpec() {
             }
 
             it("success with parameters") {
-                every { programCommand.search(ProgramSearchQuery(name = "foo", limit = 10, offset = 5)) } returns
-                    ProgramSearchPage(emptyList(), 3, 10, 5)
+                val query = ProgramSearchQuery(name = "foo", limit = 10, offset = 5)
+                every { librarySearch.search(query, LibraryProgramFilter()) } returns ProgramSearchPage(emptyList(), 3, 10, 5)
                 mockMvc
                     .perform(get("/api/v1/programs").param("name", "foo").param("limit", "10").param("offset", "5"))
                     .andDo(print())
@@ -100,7 +107,7 @@ class ProgramControllerTest : DescribeSpec() {
                         limit = 500,
                         offset = 2,
                     )
-                every { programCommand.search(query) } returns ProgramSearchPage(listOf(program), 10, 500, 2)
+                every { librarySearch.search(query, LibraryProgramFilter()) } returns ProgramSearchPage(listOf(program), 10, 500, 2)
                 mockMvc
                     .perform(
                         get("/api/v1/programs")
@@ -121,7 +128,7 @@ class ProgramControllerTest : DescribeSpec() {
                     .andExpect(jsonPath("$.total").value(10))
             }
             it("treats an empty recordedFrom as absent") {
-                every { programCommand.search(ProgramSearchQuery()) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
+                every { librarySearch.search(ProgramSearchQuery(), LibraryProgramFilter()) } returns emptyPage
                 mockMvc
                     .perform(get("/api/v1/programs").param("recordedFrom", ""))
                     .andExpect(status().isOk)
@@ -129,7 +136,7 @@ class ProgramControllerTest : DescribeSpec() {
 
             it("accepts recordedTo without recordedFrom") {
                 val query = ProgramSearchQuery(recordedTo = LocalDateTime.parse("2026-11-01T00:00:00"))
-                every { programCommand.search(query) } returns ProgramSearchPage(emptyList(), 0, 100, 0)
+                every { librarySearch.search(query, LibraryProgramFilter()) } returns emptyPage
                 mockMvc
                     .perform(get("/api/v1/programs").param("recordedTo", "2026-11-01T00:00:00"))
                     .andExpect(status().isOk)
@@ -159,15 +166,33 @@ class ProgramControllerTest : DescribeSpec() {
             }
         }
 
-        it("passes collection and tag filters into shared search and rejects nonpositive IDs") {
-            every { programCommand.search(match { it.collectionId == 3L && it.libraryTagId == 9L }) } returns
-                ProgramSearchPage(emptyList(), 0, 100, 0)
+        it("passes collection and tag filters into the library search and rejects nonpositive IDs") {
+            every { librarySearch.search(ProgramSearchQuery(name = "news"), LibraryProgramFilter(3, 9)) } returns emptyPage
             mockMvc
-                .perform(get("/api/v1/programs").param("collectionId", "3").param("libraryTagId", "9"))
+                .perform(get("/api/v1/programs").param("name", "news").param("collectionId", "3").param("libraryTagId", "9"))
                 .andExpect(status().isOk)
                 .andExpect(jsonPath("$.total").value(0))
-            mockMvc.perform(get("/api/v1/programs").param("collectionId", "0")).andExpect(status().isBadRequest)
-            mockMvc.perform(get("/api/v1/programs").param("libraryTagId", "-1")).andExpect(status().isBadRequest)
+            mockMvc
+                .perform(get("/api/v1/programs").param("collectionId", "0"))
+                .andExpect(status().isBadRequest)
+                .andExpect(status().reason("collectionId must be positive"))
+            mockMvc
+                .perform(get("/api/v1/programs").param("libraryTagId", "-1"))
+                .andExpect(status().isBadRequest)
+                .andExpect(status().reason("libraryTagId must be positive"))
+        }
+
+        // Timestamps are reported before library IDs, and library IDs before the other search bounds, as before.
+        it("reports invalid parameters in the established order") {
+            mockMvc
+                .perform(get("/api/v1/programs").param("recordedFrom", "bad").param("collectionId", "0"))
+                .andExpect(status().reason("recording timestamps must be ISO local date-times"))
+            mockMvc
+                .perform(get("/api/v1/programs").param("collectionId", "0").param("libraryTagId", "0").param("limit", "0"))
+                .andExpect(status().reason("collectionId must be positive"))
+            mockMvc
+                .perform(get("/api/v1/programs").param("libraryTagId", "0").param("limit", "0"))
+                .andExpect(status().reason("libraryTagId must be positive"))
         }
 
         describe("detail") {

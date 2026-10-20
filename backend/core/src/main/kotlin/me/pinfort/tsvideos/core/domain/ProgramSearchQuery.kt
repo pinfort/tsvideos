@@ -5,6 +5,7 @@ import java.time.LocalDateTime
 /**
  * Shared CLI/API search semantics; recording timestamps use the recording environment's local time.
  * The web UI mirrors these bounds in frontend/lib/program-query.ts; keep the two in sync.
+ * Ledger conditions only.
  */
 data class ProgramSearchQuery(
     val name: String? = null,
@@ -19,9 +20,6 @@ data class ProgramSearchQuery(
     val direction: Direction = Direction.DESC,
     val limit: Int = 100,
     val offset: Int = 0,
-    val collectionId: Long? = null,
-    /** A manual library_tag ID, not a detector tag from executed_file_tag. */
-    val libraryTagId: Long? = null,
 ) {
     enum class FileType { TS, ENCODED }
 
@@ -30,8 +28,6 @@ data class ProgramSearchQuery(
     enum class Direction { ASC, DESC }
 
     init {
-        require(collectionId == null || collectionId > 0) { "collectionId must be positive" }
-        require(libraryTagId == null || libraryTagId > 0) { "libraryTagId must be positive" }
         require(
             recordedFrom == null || recordedTo == null || recordedFrom < recordedTo,
         ) { "recorded-from must be earlier than recorded-to" }

@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Param
 import org.apache.ibatis.annotations.Select
 
+/** Catalog-owned ledger locks and bulk snapshot reads; callers use them through catalog's LedgerLocks / LedgerSnapshots. */
 @Mapper
 interface BulkLibraryMapper {
     // Guarded (cleanup) apply only, after lockFiles: created_file -> program -> executed_file -> splitted_file is the
@@ -63,4 +64,10 @@ interface BulkLibraryMapper {
 
     @Select("SELECT id FROM program WHERE executed_file_id = #{id} ORDER BY id")
     fun references(id: Long): List<Long>
+
+    // Single-program lock for manual label associations; the server's default lock wait, unlike the bulk locks.
+    @Select("SELECT id FROM program WHERE id=#{id} FOR UPDATE")
+    fun lockProgramRow(
+        @Param("id") id: Long,
+    ): Long?
 }

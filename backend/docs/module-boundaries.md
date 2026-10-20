@@ -118,7 +118,12 @@ Spring の組み立て:
 
 | 現行クラス | 移動先 | 補足 |
 | --- | --- | --- |
-| [ProgramCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ProgramCommand.kt) | `catalog` (分割) | 読み取り、登録/状態更新、協調削除/移動を用途別の公開操作に分ける (§6.1)。検索のライブラリ絞り込みは §13 U1 |
+| [ProgramCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ProgramCommand.kt) | `catalog` (分割) | 読み取り、登録/状態更新、協調削除/移動を用途別の公開操作に分ける (§6.1)。#134 で検索を台帳の条件だけにした (ライブラリ絞り込みは `LibraryProgramSearchCommand`、§13 U1) |
+| [ProgramInventory](../core/src/main/kotlin/me/pinfort/tsvideos/core/catalog/ProgramInventory.kt) | `catalog` | #134 で追加。library 向けの番組の読み取り (重複検出の入力 `recordedPrograms`、検証対象 `allPrograms`、`allIds`、存在確認 `exists`、複数 ID による取得 `summaries`、状態/ドロップ別 `withStatus` / `withDrops`)。結果は `Program` と `ProgramSummary` |
+| [LedgerSnapshots](../core/src/main/kotlin/me/pinfort/tsvideos/core/catalog/LedgerSnapshots.kt) | `catalog` | #134 で追加。一括スナップショットの読み取り (`programSnapshot`、`allCreatedFiles`、`createdFilesOfPrograms`、`referencingPrograms`)。結果は `ProgramSnapshot` / `CreatedFileSnapshot` |
+| [LedgerLocks](../core/src/main/kotlin/me/pinfort/tsvideos/core/catalog/LedgerLocks.kt) | `catalog` | #134 で追加。台帳行のロック (`lockCreatedFiles` → ガード付きのみ `lockWholeLedger` → `lockProgramGraph`、関連付け用の `lockProgramRow`)。すべて `MANDATORY` (§7.3) |
+| [CatalogStatistics](../core/src/main/kotlin/me/pinfort/tsvideos/core/catalog/CatalogStatistics.kt) | `catalog` | #134 で追加。統計の集計元 (`programs` / `files`) と保存領域の参照 (`storageReferences`)。結果は `ProgramStatsRow` / `FileStatsRow` / `StorageReference` |
+| [LibraryProgramSearchCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/LibraryProgramSearchCommand.kt) | `library` | #134 で追加。`GET /api/v1/programs` の検索。絞り込みがなければ catalog の検索そのもの、あれば library の参照クエリ `LibraryProgramSearchMapper` (§5.2、§13 U1) |
 | [CreatedFileCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/CreatedFileCommand.kt) | `catalog` | #131 で登録・配信を分離済み。残る協調削除・移動 (`delete` / `move` / `restoreMoved`) と読み取り (`selectBySplittedFileId`) は catalog、NAS 操作は storage (§6.2) |
 | [CreatedFileCatalog](../core/src/main/kotlin/me/pinfort/tsvideos/core/catalog/CreatedFileCatalog.kt) | `catalog` | #131 で追加。`created_file` の読み取り (`find`、配信できる動画の判定 `findStreamableVideo`)、登録 (`register`、`MANDATORY`)、未設定メタデータの補完 (`fillMimeIfMissing` / `fillResolutionIfMissing`、`MANDATORY`)。NAS と HTTP の型を持たない (§6.2、§7.6、§9) |
 | [ExecutedFileCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ExecutedFileCommand.kt) | `catalog` | `delete` はタグ/実施記録も消す |
@@ -145,16 +150,17 @@ Spring の組み立て:
 
 | 現行 Mapper | 参照するテーブル (書き込みは太字) | 移動先 |
 | --- | --- | --- |
-| [ProgramMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/ProgramMapper.kt) + [ProgramSearchSql](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/ProgramSearchSql.kt) | **program**, executed_file, splitted_file, created_file, library_collection_program, library_tag_program | `catalog`。検索 SQL の library テーブル参照は catalog 抽出 (#135) より前に外す (§13 U1) |
+| [ProgramMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/ProgramMapper.kt) + [ProgramSearchSql](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/ProgramSearchSql.kt) | **program**, executed_file, splitted_file, created_file | `catalog`。検索 SQL の library テーブル参照は #134 で外した (§13 U1)。#134 で library 向けの `findId` / `summariesByIds` / `summariesByStatus` / `summariesWithDrops` を追加 (`ProgramInventory` 経由で使う) |
 | [ExecutedFileMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/ExecutedFileMapper.kt) | **executed_file** | `catalog` |
 | [SplittedFileMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/SplittedFileMapper.kt) | **splitted_file** | `catalog` |
 | [CreatedFileMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/CreatedFileMapper.kt) | **created_file**, splitted_file | `catalog` |
 | [ExecutedFileTagMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/ExecutedFileTagMapper.kt) / [ExecutedFileCheckMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/ExecutedFileCheckMapper.kt) | **executed_file_tag**, **executed_file_check** | `catalog` |
-| [BulkLibraryMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/BulkLibraryMapper.kt) | program, executed_file, splitted_file, created_file (読み取りと `FOR UPDATE`) | `catalog` (ロックと一括スナップショットの読み取りは台帳行に対する操作のため。library は公開操作経由で使う) |
-| [StorageOverviewMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/StorageOverviewMapper.kt) | program, splitted_file, created_file | `catalog` の用途別読み取り操作 (library 向け) |
-| [LibraryStatsMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/LibraryStatsMapper.kt) | program, executed_file, splitted_file, created_file | `catalog` の用途別読み取り操作 (library 向け) |
-| [LibraryOrganizationMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/LibraryOrganizationMapper.kt) + [LibraryOrganizationSql](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/LibraryOrganizationSql.kt) | **library_collection**, **library_tag**, **library_collection_program**, **library_tag_program**, program (件数/絞り込みの JOIN、`lockProgram` の `FOR UPDATE`、`findProgram`) | `library`。`lockProgram`/`findProgram` は catalog の操作に置き換え、JOIN は §5.2 の明示的な参照クエリとして残す |
-| [LibraryHealthMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/LibraryHealthMapper.kt) | **health_verification_run**, **health_verification_finding**, program, executed_file | `library`。`failedPrograms` / `droppedPrograms` は catalog の読み取り操作に置き換える。`findingPrograms` は `health_verification_finding` の subquery を含むため SQL ごと catalog へは移さず、library が自分の findings から program ID を得て catalog の複数 ID 取得を呼ぶ形に分ける (§5.2) |
+| [BulkLibraryMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/BulkLibraryMapper.kt) | program, executed_file, splitted_file, created_file (読み取りと `FOR UPDATE`) | `catalog` (ロックと一括スナップショットの読み取りは台帳行に対する操作のため。library は公開操作 `LedgerLocks` / `LedgerSnapshots` 経由で使う。#134 で関連付け用の `lockProgramRow` を `LibraryOrganizationMapper.lockProgram` から移した) |
+| [StorageOverviewMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/StorageOverviewMapper.kt) | program, splitted_file, created_file | `catalog` の用途別読み取り操作 (library 向け、#134 で `CatalogStatistics.storageReferences`) |
+| [LibraryStatsMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/LibraryStatsMapper.kt) | program, executed_file, splitted_file, created_file | `catalog` の用途別読み取り操作 (library 向け、#134 で `CatalogStatistics.programs` / `files`。引数は library の `LibraryStatsQuery` ではなく録画日時の範囲だけ) |
+| [LibraryProgramSearchMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/LibraryProgramSearchMapper.kt) + `LibraryProgramSearchSql` | program, executed_file, splitted_file, created_file, library_collection_program, library_tag_program (読み取りのみ、ロックなし) | `library`。#134 で追加した、手動コレクション/タグで絞り込む番組検索の明示的な参照クエリ (§5.2、§13 U1) |
+| [LibraryOrganizationMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/LibraryOrganizationMapper.kt) + [LibraryOrganizationSql](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/LibraryOrganizationSql.kt) | **library_collection**, **library_tag**, **library_collection_program**, **library_tag_program**, program (件数/絞り込みの JOIN) | `library`。#134 で `lockProgram`/`findProgram` を削除し、catalog の `LedgerLocks.lockProgramRow` / `ProgramInventory.exists` に置き換えた。JOIN は §5.2 の明示的な参照クエリとして残す |
+| [LibraryHealthMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/LibraryHealthMapper.kt) | **health_verification_run**, **health_verification_finding**, program, executed_file | `library`。#134 で `failedPrograms` / `droppedPrograms` / `findingPrograms` を削除した。前 2 つは catalog の `ProgramInventory.withStatus(ERROR)` / `withDrops`、`findingPrograms` は library が自分の findings から program ID を得て catalog の `ProgramInventory.summaries` を呼ぶ形に分けた (§5.2)。この Mapper は台帳テーブルを読まない |
 | [ProcessingJobMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/ProcessingJobMapper.kt) | **processing_job** | `processing` |
 | [ProcessingHistoryMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/ProcessingHistoryMapper.kt) | **processing_history_identity**, **processing_attempt**, **processing_stage_event**, processing_job | `processing` |
 | [RecordingQualityMapper](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/mapper/RecordingQualityMapper.kt) | **processing_quality_report**, **processing_job**, processing_attempt | `processing` |
@@ -167,8 +173,8 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 
 | 現行 DTO | 移動先 | 補足 |
 | --- | --- | --- |
-| [ProgramDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/ProgramDto.kt), [ExecutedFileDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/ExecutedFileDto.kt), [SplittedFileDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/SplittedFileDto.kt), [CreatedFileDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/CreatedFileDto.kt), [ExecutedCreatedFileDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/ExecutedCreatedFileDto.kt) | `catalog` (internal) | **現状、`ExecutedFileDto`/`SplittedFileDto`/`CreatedFileDto` は [BulkSnapshot](../core/src/main/kotlin/me/pinfort/tsvideos/core/domain/BulkPlan.kt) を通じて `POST /api/v1/programs/bulk/preview` の JSON にそのまま出ている**。catalog の公開スナップショット型に置き換えるときは、JSON のプロパティ名・値・enum 名を変えない |
-| [StatsDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/StatsDto.kt) (`StatsProgramDto`, `StatsFileDto`), [StorageReferenceDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/StorageReferenceDto.kt) | `catalog` (internal) | catalog の用途別読み取り操作の結果型に変換して公開する |
+| [ProgramDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/ProgramDto.kt), [ExecutedFileDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/ExecutedFileDto.kt), [SplittedFileDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/SplittedFileDto.kt), [CreatedFileDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/CreatedFileDto.kt), [ExecutedCreatedFileDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/ExecutedCreatedFileDto.kt) | `catalog` (internal) | #134 より前は `ExecutedFileDto`/`SplittedFileDto`/`CreatedFileDto` が [BulkSnapshot](../core/src/main/kotlin/me/pinfort/tsvideos/core/domain/BulkPlan.kt) を通じて `POST /api/v1/programs/bulk/preview` の JSON にそのまま出ていた。#134 で `ExecutedFile` / `SplittedFile` (DTO と同じプロパティ名・enum 名) と catalog の `CreatedFileSnapshot` (`CreatedFileDto` と同じ 9 プロパティ。`CreatedFile` の派生プロパティを持たない) に置き換えた。JSON のプロパティ名・値・enum 名とフィンガープリントの直列化は変わらない (`BulkLibraryControllerTest`、`BulkLibraryCommandTest`) |
+| [StatsDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/StatsDto.kt) (`StatsProgramDto`, `StatsFileDto`), [StorageReferenceDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/StorageReferenceDto.kt) | `catalog` (internal) | #134 で `CatalogStatistics` が `ProgramStatsRow` / `FileStatsRow` / `StorageReference` に変換して公開する |
 | [HealthDto](../core/src/main/kotlin/me/pinfort/tsvideos/core/external/database/dto/HealthDto.kt) (`HealthRunDto`, `HealthFindingDto`) | `library` (internal) | |
 
 `ProcessingJob` や `UploadManifest` など processing の Mapper は DTO を介さずドメイン型へ直接マップしている。processing 内部に閉じるのでそのままでよい。
@@ -212,7 +218,7 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 
 | 現行 | 移動先 |
 | --- | --- |
-| `core/domain`: `Program`, `ProgramDetail`, `ExecutedFile`, `SplittedFile`, `CreatedFile`, `VideoResolution`, `ExecutedFileTag`/`ExecutedFileCheck`, `ProgramSearchQuery`/`ProgramSearchPage` | `catalog` (`ProgramSearchQuery` の `collectionId`/`libraryTagId` は §13 U1) |
+| `core/domain`: `Program`, `ProgramDetail`, `ExecutedFile`, `SplittedFile`, `CreatedFile`, `VideoResolution`, `ExecutedFileTag`/`ExecutedFileCheck`, `ProgramSearchQuery`/`ProgramSearchPage` | `catalog` (`ProgramSearchQuery` の `collectionId`/`libraryTagId` は #134 で library の `LibraryProgramFilter` に移した、§13 U1) |
 | `core/domain`: `BulkPlan` 一式, `CleanupPlan` 一式, `DuplicateGroup`, `DuplicateReview`, `LibraryOrganization`, `LibraryStats`, `StorageOverview`, `LibraryHealth`, `VerificationReport` (`FileFinding`, `VerificationReport`) | `library` |
 | `core/domain`: `VerificationStatus` | `library`。#132 で storage の低レベル結果 (`NasFileVerifier.Status`) と分けた。`VerificationStatus` は core に残り、`LibraryVerificationCommand` が対応付ける (§13 U2) |
 | `core/domain`: `ProcessingJob`/`ProcessingIdentity`, `ProcessingHistory` 一式, `RecordingQuality` 一式, `RecordingQualityReport`, `UploadManifest`/`VerifiedUploadReceipt`, `FileName` | `processing` (`UploadManifest.nasType` は storage の公開値型に置き換える) |
@@ -248,19 +254,20 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 
 ### 5.2 モジュールをまたぐ読み取り
 
-現状、所有者以外のテーブルを読む SQL は次のとおり。
+#134 より前に所有者以外のテーブルを読んでいた SQL と、その扱い。「#134」の付いた扱いは実施済み。
 
 | SQL | 呼び出し元 (現状の所属) | 読む他モジュールのテーブル | 契約での扱い |
 | --- | --- | --- | --- |
-| `ProgramSearchSql` の `collectionId`/`libraryTagId` 条件 | `ProgramCommand.search` (catalog) | library_collection_program, library_tag_program | **catalog から library への逆向き参照**。#135 より前に解消する (§13 U1) |
-| `LibraryOrganizationSql.select` / `forProgram`、`findProgram` | `LibraryOrganizationCommand` (library) | program | library 所有の明示的な参照クエリとして残してよい (件数と絞り込みの JOIN のみ)。`findProgram` は catalog の存在確認操作に置き換える |
-| `LibraryHealthMapper.failedPrograms` / `droppedPrograms` | `LibraryHealthCommand` (library) | program, executed_file | catalog の用途別読み取り操作 (状態/ドロップによる番組一覧) に置き換える |
-| `LibraryHealthMapper.findingPrograms` | `LibraryHealthCommand.read` (library) | program, executed_file (条件に library 所有の `health_verification_finding` の subquery を含む) | **SQL ごと catalog へ移すと catalog が library のテーブルを参照する逆依存になるため移さない。** library が自分の Mapper で対象 run の findings (`program_id` を含む) を読み、その program ID 集合で catalog の「複数 ID による番組取得」(存在しない ID は結果に含めない) を呼ぶ。両方の読み取りは `LibraryHealthCommand.read` の `readOnly` + `REPEATABLE_READ` トランザクション内で行い、catalog の操作は `REQUIRED` で参加するので同じ read snapshot になる。結果に含まれない ID を「削除済みの番組」(`programRemoved`) とする現状の判定と、名前・並び順を変えない。ID が空なら catalog を呼ばない。library の参照クエリとしては残さない |
-| `LibraryStatsMapper.programs` / `files` | `LibraryStatsCommand` (library) | program, executed_file, splitted_file, created_file | catalog の用途別集計操作にする (全件取得してアプリ側で集計し直さない) |
-| `StorageOverviewMapper.references` | `StorageOverviewCommand` (library) | program, splitted_file, created_file | 同上 |
-| `ProgramMapper.selectAll` / `selectAllIds` / `selectAllOrderById` | `DuplicateProgramCommand`, `CleanupPlanCommand`, `LibraryVerificationCommand` (library) | program, executed_file | catalog の読み取り操作 |
-| `CreatedFileMapper.selectMovedByExecutedFileIds` / `selectAllWithExecutedFileId` | `DuplicateReviewCommand`, `LibraryVerificationCommand` (library) | created_file, splitted_file | catalog の読み取り操作 |
-| `BulkLibraryMapper` の読み取り (`allFiles`, `createdFilesOfPrograms`, `references`) と `ExecutedFileMapper`/`SplittedFileMapper`/`CreatedFileMapper` の直接使用 | `BulkLibraryCommand` (library) | catalog の全テーブル | catalog の一括スナップショット操作 (§11.1) |
+| `ProgramSearchSql` の `collectionId`/`libraryTagId` 条件 | `ProgramCommand.search` (catalog) | library_collection_program, library_tag_program | **catalog から library への逆向き参照**。#134 で解消: catalog の検索から外し、library の参照クエリ `LibraryProgramSearchMapper` に移した (§13 U1) |
+| `LibraryProgramSearchSql.search` / `count` (#134 で追加) | `LibraryProgramSearchCommand` (library) | program, executed_file, splitted_file, created_file | library 所有の明示的な参照クエリ。台帳の条件・並び順・ページングは `ProgramSearchSql` と同じ文で、手動コレクション/タグの `EXISTS` を加える。読み取り専用でロックしない |
+| `LibraryOrganizationSql.select` / `forProgram`、`findProgram` | `LibraryOrganizationCommand` (library) | program | library 所有の明示的な参照クエリとして残してよい (件数と絞り込みの JOIN のみ)。#134 で `findProgram` を catalog の `ProgramInventory.exists` に置き換えた |
+| `LibraryHealthMapper.failedPrograms` / `droppedPrograms` | `LibraryHealthCommand` (library) | program, executed_file | #134 で catalog の `ProgramInventory.withStatus` / `withDrops` に置き換えた (SQL の条件と並び順は同じ) |
+| `LibraryHealthMapper.findingPrograms` | `LibraryHealthCommand.read` (library) | program, executed_file (条件に library 所有の `health_verification_finding` の subquery を含む) | **SQL ごと catalog へ移すと catalog が library のテーブルを参照する逆依存になるため移さない。** library が自分の Mapper で対象 run の findings (`program_id` を含む) を読み、その program ID 集合で catalog の「複数 ID による番組取得」(存在しない ID は結果に含めない) を呼ぶ。両方の読み取りは `LibraryHealthCommand.read` の `readOnly` + `REPEATABLE_READ` トランザクション内で行い、catalog の操作は `REQUIRED` で参加するので同じ read snapshot になる。結果に含まれない ID を「削除済みの番組」(`programRemoved`) とする現状の判定と、名前・並び順を変えない。ID が空なら catalog を呼ばない。library の参照クエリとしては残さない。**#134 で実施**: `ProgramInventory.summaries(ids)` (重複除去・昇順・1000 件ずつ。空なら SQL を発行しない) |
+| `LibraryStatsMapper.programs` / `files` | `LibraryStatsCommand` (library) | program, executed_file, splitted_file, created_file | catalog の用途別集計操作にする (全件取得してアプリ側で集計し直さない)。#134 で `CatalogStatistics.programs` / `files` (SQL は同じ) |
+| `StorageOverviewMapper.references` | `StorageOverviewCommand` (library) | program, splitted_file, created_file | 同上。#134 で `CatalogStatistics.storageReferences` |
+| `ProgramMapper.selectAll` / `selectAllIds` / `selectAllOrderById` | `DuplicateProgramCommand`, `CleanupPlanCommand`, `LibraryVerificationCommand` (library) | program, executed_file | catalog の読み取り操作。#134 で `ProgramInventory.recordedPrograms` / `allIds` / `allPrograms` |
+| `CreatedFileMapper.selectMovedByExecutedFileIds` / `selectAllWithExecutedFileId` / `selectByExecutedFileId` | `DuplicateReviewCommand`, `LibraryVerificationCommand` (library) | created_file, splitted_file | catalog の読み取り操作。#134 で `CreatedFileCatalog.movedFilesByRecording` / `filesByRecording` / `filesOfRecording` |
+| `BulkLibraryMapper` の読み取り (`allFiles`, `createdFilesOfPrograms`, `references`) と `ExecutedFileMapper`/`SplittedFileMapper`/`CreatedFileMapper` の直接使用 | `BulkLibraryCommand` (library) | catalog の全テーブル | catalog の一括スナップショット操作 (§11.1)。#134 で `LedgerSnapshots` |
 | `CreatedFileMapper.find` | `VerifiedUploadCommand` (processing) | created_file | catalog の読み取り操作。#131 で `CreatedFileCatalog.find` に置き換え済み (`VerifiedUploadCommand` は `CreatedFileMapper` を参照しない) |
 
 読み取りの契約:
@@ -278,8 +285,8 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 | `ExecutedFileCommand.insert` / `updateStatus` / `delete`、`ProgramCommand.insert` / `deleteByExecutedFileId` / `updateStatusByExecutedFileId` / `delete`、`SplittedFileCommand.insert` / `updateStatus` / `delete`、`ExecutedFileTagCommand.recordCheck` | catalog | processing (`FileProcessingPipeline`, `AfterEncodeRunner`, `ResetRunner`) |
 | `CreatedFileCatalog.register` / `fillMimeIfMissing` / `fillResolutionIfMissing` (#131 で `CreatedFileCommand.insert` と Mapper の直接使用から置き換え。すべて `MANDATORY`) | created_file | processing (`VerifiedUploadCommand.register`) |
 | `ProgramCommand.delete` / `moveCreatedFiles`、`CreatedFileCommand.delete` | catalog の全テーブル + NAS | library (`BulkLibraryCommand`)、manager:console (`Delete`, `Modify`) |
-| `BulkLibraryMapper.lock*` (`SELECT … FOR UPDATE`) | catalog の行ロック | library (`BulkLibraryCommand`) |
-| `LibraryOrganizationMapper.lockProgram` (`SELECT … FOR UPDATE`) | program の行ロック | library (`LibraryOrganizationCommand`) |
+| `LedgerLocks.lockCreatedFiles` / `lockWholeLedger` / `lockProgramGraph` (#134。中身は `BulkLibraryMapper.lock*` の `SELECT … FOR UPDATE`) | catalog の行ロック | library (`BulkLibraryCommand`) |
+| `LedgerLocks.lockProgramRow` (#134 で `LibraryOrganizationMapper.lockProgram` から移した同じ `SELECT … FOR UPDATE`) | program の行ロック | library (`LibraryOrganizationCommand`) |
 | FK `ON DELETE CASCADE` | library_collection_program, library_tag_program | catalog の `program` 削除 (`ProgramMapper.deleteById` / `deleteByExecutedFileId`) |
 
 書き込みの契約:
@@ -299,8 +306,8 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 
 | 操作 | トランザクション | 本番の呼び出し元と用途 | 移行後 (契約) |
 | --- | --- | --- | --- |
-| `search(query)` | `readOnly`, `REPEATABLE_READ` | [ProgramController.index](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/controller/ProgramController.kt) (`GET /api/v1/programs`)、[Search](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/commands/Search.kt) (CLI 検索)。件数とページを同じスナップショットで返す | catalog の検索。library 絞り込みは §13 U1 |
-| `selectByName(name, limit, offset)` | なし | **本番の呼び出し元なし** (テストのみ) | 移動時に削除するか残すかを #134 で決める。削除は移動と別コミットにする |
+| `search(query)` | `readOnly`, `REPEATABLE_READ` | [LibraryProgramSearchCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/LibraryProgramSearchCommand.kt) (絞り込みなしのとき。[ProgramController.index](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/controller/ProgramController.kt) の `GET /api/v1/programs`)、[Search](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/commands/Search.kt) (CLI 検索。手動コレクション/タグのオプションはもともとないので直接呼ぶ)。件数とページを同じスナップショットで返す | catalog の検索 (台帳の条件のみ。#134 で library 絞り込みを外した、§13 U1) |
+| `selectByName(name, limit, offset)` | なし | **本番の呼び出し元なし** (テストのみ) | **#134 で残すと決めた。** 台帳の条件だけの読み取りで境界の問題がなく、削除は振る舞いを変えない整理として別 Issue (§13 U4) で扱う |
 | `find(id)` | なし | ProgramController.get、[Delete](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/commands/Delete.kt) (`PROGRAM`)、[Modify](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/commands/Modify.kt)、[ValidateCompletedComponent](../core/src/main/kotlin/me/pinfort/tsvideos/core/component/ValidateCompletedComponent.kt)、`BulkLibraryCommand` (プレビューの対象取得、適用時のロック後の再読込) | catalog の読み取り |
 | `findByName(name)` | なし | [FileProcessingPipeline](../processor/infrastructure/src/main/kotlin/me/pinfort/tsvideos/processor/infrastructure/pipeline/FileProcessingPipeline.kt) (claim 前の名前衝突確認と、`inspect` での再確認) | catalog の読み取り |
 | `findByExecutedFileId(id)` | なし | [AfterEncodeRunner](../processor/infrastructure/src/main/kotlin/me/pinfort/tsvideos/processor/infrastructure/pipeline/AfterEncodeRunner.kt) (`finishProcess`)、[ResetRunner](../processor/infrastructure/src/main/kotlin/me/pinfort/tsvideos/processor/infrastructure/pipeline/ResetRunner.kt) (`run` と中断 reset の完了判定) | catalog の読み取り |
@@ -319,7 +326,7 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 | --- | --- | --- | --- |
 | `selectBySplittedFileId(id)` | なし | ValidateCompletedComponent (完了判定の対象ファイル) | catalog の読み取り |
 | ~~`insert(...)`~~ | — | — | **#131 で削除。** `CreatedFileCatalog.register` (`MANDATORY`、§7.6) に置き換えた。本番の呼び出し元は dry-run を使っていなかったので、dry-run 引数と任意の `status` 引数は引き継いでいない (登録は常に `FILE_MOVED`) |
-| `updateStatus(...)` | なし | **本番の呼び出し元なし** (テストのみ) | #134 で扱いを決める (#131 では変更しない) |
+| `updateStatus(...)` | なし | **本番の呼び出し元なし** (テストのみ) | **#134 で残すと決めた** (`selectByName` と同じ理由。削除は §13 U4 の別 Issue) |
 | ~~`findMp4File(id)`~~ | — | — | **#131 で削除。** `CreatedFileCatalog.findStreamableVideo(id)` (§9) |
 | ~~`streamCreatedFile(id)`~~ | — | — | **#131 で削除。** catalog の判定 + storage の読み出しハンドル + manager:api の `Resource` に分割 (§9) |
 | `delete(file, dryRun)` | `REQUIRED` | `ProgramCommand.delete`、Delete (`TS_FILES`、ファイルごとに独立したトランザクション) | catalog の協調削除 (storage の削除を呼ぶ) |
@@ -346,7 +353,8 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 
 | 場所 | 伝播 / 分離レベル | 意図 |
 | --- | --- | --- |
-| `ProgramCommand.search`, `DuplicateReviewCommand.review`, `LibraryStatsCommand.summarize`, `StorageOverviewCommand.overview`, `LibraryHealthCommand.read`, `LibraryOrganizationCommand.forProgram` | `REQUIRED`, `readOnly`, `REPEATABLE_READ` | 1 スナップショットでの一貫した読み取り |
+| `ProgramCommand.search`, `LibraryProgramSearchCommand.search`, `DuplicateReviewCommand.review`, `LibraryStatsCommand.summarize`, `StorageOverviewCommand.overview`, `LibraryHealthCommand.read`, `LibraryOrganizationCommand.forProgram` | `REQUIRED`, `readOnly`, `REPEATABLE_READ` | 1 スナップショットでの一貫した読み取り。#134 の catalog の読み取り (`ProgramInventory`、`LedgerSnapshots`、`CatalogStatistics`、`CreatedFileCatalog` の読み取り) はトランザクションを宣言せず、この中に参加する |
+| `LedgerLocks` の全操作 (#134) | `MANDATORY` | 呼び出し元 (`BulkLibraryCommand` の `write`、`LibraryOrganizationCommand` の更新系) のトランザクションでロックし、その終了まで保持する。トランザクション外では `IllegalTransactionStateException` |
 | `ProgramCommand.delete` / `moveCreatedFiles`, `CreatedFileCommand.delete` / `move` | `REQUIRED` | 単独で呼ばれれば独自のトランザクション、一括適用からは参加 |
 | `ExecutedFileTagCommand.recordCheck`, `ProcessingJobCommand` の更新系, `RecordingQualityCommand.record` / `release`, `LibraryOrganizationCommand` の更新系 | `REQUIRED` | 各操作を 1 トランザクションで確定 |
 | `ProcessingJobClaimCommand.insert` / `retry`, `HealthVerificationStore` の全操作 | `REQUIRES_NEW` | 呼び出し元と独立に確定する短い記録 |
@@ -368,12 +376,12 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 1. 入力を検証し、全対象のフィンガープリントがそろっていることを確認する。
 2. MOVE の選択全体の移動先件数 (`proposed`) を、別の `read` トランザクションで 1 回だけ計算する。
 3. 対象ごとに `write` (`REQUIRES_NEW`, `REPEATABLE_READ`) を 1 つ開く。**ロックを対象をまたいで保持しない**。スレッドが割り込まれていれば新しい対象を始めない。
-4. 対象トランザクション内のロック順序 (すべて `innodb_lock_wait_timeout = 10` の `SELECT … FOR UPDATE`):
-   1. `lockFiles()`: `created_file` 全行 (正規化後のエイリアス衝突を防ぐため、全件スキャンの next-key ロック)
-   2. ガード付きのときだけ `lockAllPrograms()` → `lockAllExecuted()` → `lockAllSplits()` の全行ロックをとり、`guard(id, 成功済み ID)` を評価する (拒否なら変更せずその結果を返す)
-   3. `lockProgram(id)` (消えていれば NOT_FOUND)
-   4. `lockExecuted(executedFileId)` → `lockSplits(executedFileId)` → `lockReferences(executedFileId)` (同じ executed を参照する program)
-5. ロック下でスナップショットを作り直し (`target`)、フィンガープリントが違えば STALE、不適格なら FAILED を返す。
+4. 対象トランザクション内のロック順序 (すべて `innodb_lock_wait_timeout = 10` の `SELECT … FOR UPDATE`。#134 から `BulkLibraryCommand` は catalog の `LedgerLocks` (`MANDATORY`) を呼び、括弧内の `BulkLibraryMapper` の文はその中で同じ順に実行される):
+   1. `LedgerLocks.lockCreatedFiles()` (`lockFiles()`): `created_file` 全行 (正規化後のエイリアス衝突を防ぐため、全件スキャンの next-key ロック)
+   2. ガード付きのときだけ `LedgerLocks.lockWholeLedger()` (`lockAllPrograms()` → `lockAllExecuted()` → `lockAllSplits()`) の全行ロックをとり、`guard(id, 成功済み ID)` を評価する (拒否なら変更せずその結果を返す)
+   3. `LedgerLocks.lockProgramGraph(id)`: `lockProgram(id)` (消えていれば null を返し NOT_FOUND)
+   4. 続けて同じ操作の中で `lockExecuted(executedFileId)` → `lockSplits(executedFileId)` → `lockReferences(executedFileId)` (同じ executed を参照する program)
+5. ロック下でスナップショットを作り直し (`target`。#134 から `LedgerSnapshots.programSnapshot` で読む)、フィンガープリントが違えば STALE、不適格なら FAILED を返す。
 6. 一致すれば `mutating = true` にしてから `ProgramCommand.delete` または `moveCreatedFiles` を呼ぶ。これらは `REQUIRED` なので対象トランザクションに参加し、行ロックは NAS 操作が終わり commit されるまで保持される。
 7. 例外の分類: `PessimisticLockingFailureException` は変更前なら「Library is busy」の FAILED、変更後なら「NAS が部分的に変わった可能性」の FAILED。その他の例外も `mutating` で同様に分ける。原因の連鎖に `InterruptedException` があれば割り込みフラグを立て直す。ガード付き呼び出しは割り込みで `BulkInterruptedException` (完了済みの結果を保持) を投げて全体を止める。
 
@@ -576,6 +584,18 @@ storage の例外型 (#132 以降は `storage.api`、jcifs に依存しない):
 - 協調操作 (library・CLI・reset 向け): 台帳行のロック (§7.3 の順序と待機上限、`MANDATORY`)、一括スナップショット (プレビュー/再検証用、`BulkSnapshot` の後継)、番組の協調削除と協調移動 (`REQUIRED`)、作成ファイルの単独削除 (`REQUIRED`)。
 - 結果型: `Program`、`ProgramDetail`、`ExecutedFile`、`SplittedFile`、`CreatedFile`、検索ページ、スナップショット型。**`BulkSnapshot` の後継は、一括プレビューの JSON 形を変えない** (§4.3)。
 
+#134 で用意した公開操作 (`me.pinfort.tsvideos.core.catalog`。#135 の抽出までは core 内のパッケージ):
+
+| 操作の型 | 用途 | 伝播 | 結果型 |
+| --- | --- | --- | --- |
+| `ProgramInventory` | library 向けの番組の読み取り (重複検出・cleanup・検証・健全性) | 宣言なし (参加) | `Program`、`ProgramSummary` |
+| `LedgerSnapshots` | 一括プレビューとロック下の再検証のスナップショット | 宣言なし (参加) | `ProgramSnapshot`、`CreatedFileSnapshot` |
+| `LedgerLocks` | 台帳行のロック (§7.3 の順序と 10 秒、関連付け用の 1 行ロック) | `MANDATORY` | `CreatedFileSnapshot`、`Program`、`Boolean` |
+| `CatalogStatistics` | 統計と保存領域の集計元 (SQL は従来どおり) | 宣言なし (参加) | `ProgramStatsRow`、`FileStatsRow`、`StorageReference` |
+| `CreatedFileCatalog` (#131 から。#134 で `filesOfRecording` / `filesByRecording` / `movedFilesByRecording` を追加) | 作成ファイルの読み取りと登録 | 読み取りは参加、登録・補完は `MANDATORY` | `CreatedFile`、`StreamableVideo` |
+
+`ProgramCommand` / `CreatedFileCommand` / `ExecutedFileCommand` / `SplittedFileCommand` / `ExecutedFileTagCommand` は現行の操作のまま catalog の公開操作として残る (§6)。汎用の「台帳アクセス」型は作らず、用途ごとに型を分けた。`BulkSnapshot` は library の型 (`core/domain`) のまま、`ProgramSnapshot` から作る。
+
 ### 11.2 library
 
 - `BulkLibraryCommand` (preview / apply)、`CleanupPlanCommand` (plan / apply、ガード付き apply は internal)、`DuplicateProgramCommand` / `DuplicateReviewCommand`、`LibraryOrganizationCommand`、`LibraryStatsCommand`、`StorageOverviewCommand`、`LibraryVerificationCommand`、`LibraryHealthCommand` / `LibraryHealthScanCommand` / `HealthVerificationStore` の現行の公開操作。
@@ -618,6 +638,11 @@ storage (#132) の検査:
 - [checkStorageBoundaries](../storage/build.gradle.kts) (Gradle タスク。`check` に含まれるので `./gradlew build` / `check` で実行される): storage がどの設定にもプロジェクト依存を持たないこと、storage のソース (テストを含む) が `me.pinfort.tsvideos.storage` 以外のパッケージを参照しないこと、storage 以外のソースが公開パッケージ `me.pinfort.tsvideos.storage.api` 以外の storage パッケージ (Samba 実装 `me.pinfort.tsvideos.storage.samba` と今後の内部パッケージ) と jcifs を参照しないこと (コメント行は除く。コンポーネントスキャン用のパッケージ名 `me.pinfort.tsvideos.storage` そのものは許可)、storage 以外のビルドスクリプトが jcifs (`libs.samba`) を宣言しないこと。判定は `StorageBoundaryRules` にまとめ、先に実行される `checkStorageBoundaryRules` が違反を含むフィクスチャ (逆方向のプロジェクト依存とソース参照、外部からの内部パッケージと jcifs の参照、jcifs の宣言) をすべて検出し、許可される参照を検出しないことを確かめる。
 - [StorageContractTest](../storage/src/test/kotlin/me/pinfort/tsvideos/storage/api/StorageContractTest.kt): 公開型の public シグネチャに jcifs・Samba 実装・Spring `Resource`・HTTP の型が出ないこと、jcifs を import するのが Samba 実装だけであること、Samba 実装のトップレベル宣言がすべて `internal` であること、`NasStore` と `NasFileVerifier.Status` の定数、storage のパッケージのスキャンと `storage` プロファイルだけで (Spring Boot で起動し、`Logger` など storage 外の Bean なしに) 公開契約の Bean がそろい `samba.*` が束縛されること、`storage` プロファイルなしでは組み立たないこと。
 - [StorageCallerBoundaryTest](../core/src/test/kotlin/me/pinfort/tsvideos/core/StorageCallerBoundaryTest.kt) (core): storage の例外の再試行/中断の分類、呼び出し元の public シグネチャに jcifs と Spring Web の型が出ないこと、core に NAS 実装のパッケージが残っていないこと。
+catalog (#134、モジュール抽出前の暫定。手段の確定は #135):
+
+- [CatalogBoundaryTest](../core/src/test/kotlin/me/pinfort/tsvideos/core/catalog/CatalogBoundaryTest.kt): core・manager:api・manager:console・processor の本番ソースのうち catalog 所有 (`core/catalog`、catalog の Command、台帳の Mapper/DTO) 以外が、台帳の Mapper・SQL プロバイダ・DTO を参照しないこと (コメント行を除き単語単位で判定。library 所有の Mapper は対象外)。台帳の Mapper が library/processing のテーブルを参照しないこと、catalog 所有のコードが library/processing の型 (`LibraryProgramFilter`、`LibraryStatsQuery`、`HealthProgram`、`BulkSnapshot` など) を使わないこと、catalog の公開操作と結果型の public メンバーに `core.external.database` の型が出ないこと、`ProgramSearchQuery` に library の条件がないこと。
+- [CatalogTransactionTest](../core/src/test/kotlin/me/pinfort/tsvideos/core/catalog/CatalogTransactionTest.kt) (Testcontainers): `LedgerLocks` がプロキシ越しに `MANDATORY` であること、ロックが呼び出し元のトランザクション終了まで別接続を待たせること、`REQUIRED` の協調削除が呼び出し元とともにロールバックされること、一括適用が対象ごとのトランザクションでロックして確定し NAS 失敗で戻ること、catalog の読み取りが `REPEATABLE_READ` のスナップショットに参加すること、library の絞り込み検索が catalog の検索と結果・件数・並び順・ページングで一致すること。
+
 database-schema (#133) の検査:
 
 - [checkDatabaseSchemaBoundaries](../database-schema/build.gradle.kts) (Gradle タスク。`check` に含まれる): database-schema が (java-test-fixtures が加える自分自身への依存を除き) プロジェクト依存を持たないこと、main とテストフィクスチャに Kotlin/Java のソースがないこと、他のプロジェクトが database-schema を `test` で始まる設定からだけ参照すること (Gradle のモデルで判定)、他のビルドスクリプトの参照がすべて `test…(testFixtures(project(":database-schema")))` の形であること、他のモジュールの `src` に `db/migrations` と `ddl/*.sql` がないこと、migration が `NNN_name.sql` の形で番号が重複しないこと、`docker-compose.test.yml` が migration をファイル名順に同名でマウントし最後にシードデータをマウントすること、bootJar が有効なプロジェクト (実行アプリ) がすべて下の `checkDatabaseSchemaRuntimeIsolation` を適用していること。判定は `DatabaseSchemaRules` にまとめ、先に実行される `checkDatabaseSchemaBoundaryRules` が違反を含むフィクスチャをすべて検出し、許可されるものを検出しないことを確かめる。
@@ -634,7 +659,7 @@ database-schema (#133) の検査:
 | #131 作成ファイルの登録・NAS 操作・HTTP 配信を分離 (実施済み) | §6.2 と §9.2。`streamCreatedFile` を catalog の判定 + storage の読み出しハンドル + manager:api の `Resource` に分ける。`SmbFileResource` を廃止し、ハンドルの寿命を明示する。`VerifiedUploadCommand` の `CreatedFileMapper` 直接使用を catalog の操作 (`MANDATORY` 登録を含む) に置き換える準備をする |
 | #132 storage を抽出 (実施済み、§8.3) | §4.5、§8。`NasComponent`・`VerifiedUploadNas`・`NasFileVerifier`・`SambaClient`・`DiagnosticNasClient`・`SambaConfigurationProperties`・`Sha256` と、#130 で作った `core.storage` パッケージ (`NasStore`、`NasStorageException`/`NasAccessException`/`NasAuthenticationException`) と Samba 側の変換 (`SambaFailures`) を移す。`NasStorageBoundaryTest` の検査は storage の境界チェックに引き継ぐ。storage は業務モジュールに依存しない。NAS 操作・移動・削除の既存テストを移す |
 | #133 migration と DB テスト資源を分離 (実施済み、§11.6) | §11.6。`generateTestDdl`、`02_insert_data.sql`、`docker-compose.test.yml` のマウントを database-schema に合わせる |
-| #134 catalog の公開操作を整理 | §6、§11.1。§13 U1 (検索の library 絞り込み) を決着させる。`selectByName` / `CreatedFileCommand.updateStatus` の扱いを決める。library 向けの用途別読み取りとロック操作を用意する |
+| #134 catalog の公開操作を整理 (実施済み) | §6、§11.1。§13 U1 (検索の library 絞り込み) を決着させる。`selectByName` / `CreatedFileCommand.updateStatus` の扱いを決める (残す、§6)。library 向けの用途別読み取りとロック操作を用意する (§11.1、§11.7) |
 | #135 catalog を抽出 | §4、§5。catalog の SQL が library のテーブルを参照しない状態にしてから移す。境界チェックの手段を決める |
 | #136 diagnostics を抽出 | §11.5。Spring なしの doctor/preflight の起動を確認する。jcifs の直接使用を storage の診断用接続に置き換える |
 | #137 library へ移す | §4.1、§5.2、§7.3、§7.5。Mapper の直接使用を catalog の公開操作に置き換える。`BulkSnapshot` の JSON 形を保つ |
@@ -647,10 +672,10 @@ database-schema (#133) の検査:
 
 | ID | 内容 | 決める Issue | 制約 |
 | --- | --- | --- | --- |
-| U1 | 番組検索の `collectionId` / `libraryTagId` 絞り込みの置き場所。案: (a) catalog の検索は台帳の条件だけにし、library が台帳テーブルを読む明示的な参照クエリ (§5.2) で絞り込み付き検索を提供する。(b) catalog が絞り込み用の拡張点を持ち library が実装する | #134 | #135 より前に、catalog の SQL とドメイン型が library のテーブルと概念を参照しない状態にする。`GET /api/v1/programs` と CLI 検索の結果・件数・並び順・ページングを変えない |
+| U1 | 番組検索の `collectionId` / `libraryTagId` 絞り込みの置き場所。案: (a) catalog の検索は台帳の条件だけにし、library が台帳テーブルを読む明示的な参照クエリ (§5.2) で絞り込み付き検索を提供する。(b) catalog が絞り込み用の拡張点を持ち library が実装する | #134 | #135 より前に、catalog の SQL とドメイン型が library のテーブルと概念を参照しない状態にする。`GET /api/v1/programs` と CLI 検索の結果・件数・並び順・ページングを変えない。**#134 で (a) に決着**: `ProgramSearchQuery` と `ProgramSearchSql` から `collectionId` / `libraryTagId` を外し、library の `LibraryProgramFilter` (同じ検証とメッセージ) と `LibraryProgramSearchCommand` (`readOnly` + `REPEATABLE_READ`) に移した。絞り込みがなければ catalog の `ProgramCommand.search` をそのまま呼び (同じスナップショットに参加)、あれば library の参照クエリ `LibraryProgramSearchMapper` が台帳の条件・並び順・ページングを同じ文で繰り返し、`EXISTS` で絞り込む。件数とページは同じトランザクションで読む。(b) の拡張点は catalog が library の存在を前提にするので採らなかった。条件を 2 か所に持つ代わりに、`CatalogTransactionTest` が両者の結果を比較する。API の検証順 (日時 → library ID → その他の範囲) とエラーメッセージは変わらない。CLI 検索には library の絞り込みオプションがないので catalog の検索を直接呼ぶ |
 | U2 | `VerificationStatus` を storage の低レベル結果と library の結果に分ける方法 | #132, #137 | `health_verification_finding.status` に保存される値、API/CLI の出力、`tvmcli verify` の終了コード 4 の意味を変えない。**#132 で決着**: storage は自前の `NasFileVerifier.Status` (`VERIFIED` / `MISSING` / `SIZE_MISMATCH` / `INACCESSIBLE` / `UNCHECKED`) と `Result` を返し、library のドメイン型に依存しない。`LibraryVerificationCommand` が網羅的な `when` で同名の `VerificationStatus` に対応付ける (storage に値が増えたらコンパイルエラーで意味づけを強制する)。`VerificationStatus` は core に残り、#137 で library に移す。保存値・出力・終了コードは変わらない |
 | U3 | `ApplicationVersion` と `version.properties` 生成の置き場所 (console-common か、ビルド設定の共通化か) | #139 | 新たな汎用 common モジュールを作らない。`--version` の出力を変えない |
-| U4 | 本番の呼び出し元がない操作 (`ProgramCommand.selectByName`、`CreatedFileCommand.updateStatus`、`NasComponent.matchesSize` / `getResource` / `uploadResource`、`ProcessingJobCommand.reconcileSubmission`) を残すか削除するか。#130 では削除せず、jcifs を返す `getResource` だけを `internal` にした (`matchesSize` / `uploadResource` は引数を `NasStore` に変えて public のまま)。#132 でも削除せず、`getResource` は internal 実装 `SambaNasComponent` のメンバーとして残した | #130〜#138 の各移動 | 削除は移動と別コミットにし、記録済みの復旧 API (`VerifiedUploadCommand.cleanupTemporary`) は残す |
+| U4 | 本番の呼び出し元がない操作 (`ProgramCommand.selectByName`、`CreatedFileCommand.updateStatus`、`NasComponent.matchesSize` / `getResource` / `uploadResource`、`ProcessingJobCommand.reconcileSubmission`) を残すか削除するか。#130 では削除せず、jcifs を返す `getResource` だけを `internal` にした (`matchesSize` / `uploadResource` は引数を `NasStore` に変えて public のまま)。#132 でも削除せず、`getResource` は internal 実装 `SambaNasComponent` のメンバーとして残した。#134 でも `selectByName` / `updateStatus` は削除しない (§6) | #130〜#138 の各移動 | 削除は移動と別コミットにし、記録済みの復旧 API (`VerifiedUploadCommand.cleanupTemporary`) は残す |
 | U5 | 番組の詳細・一覧の画面向けの形 (`ProgramDetail` などを catalog の型のまま公開するか、library のビューにするか) | #134, #137 | API 応答の JSON 形を変えない |
 | U6 | 一括操作・CLI の番組削除が `processing_job` / `upload_manifest` を残す現状の扱い | 本移行の対象外 (別 Issue) | 移行中は変えない |
 | U7 | storage 内の SMB ルートの寿命の統一 (`NasComponent` の常駐ルートと、操作ごとに閉じる `VerifiedUploadNas`) | #132 | フォールバックの有無、パス検証、失敗時の後始末を変えない。**#132 で決着**: 統一しない。抽出は移動に限り振る舞いを変えないため、各実装の寿命 (`NasComponent` は Bean と同じ寿命の常駐ルート、`openForRead` はハンドルが所有するルート、`VerifiedUploadNas` は操作ごと、`NasFileVerifier` はセッションごと、診断用接続は接続ごと) をそのまま移し、公開 interface の KDoc と [storage/README.md](../storage/README.md) に明記した。統一する場合は振る舞いの変更として別 Issue で扱う |

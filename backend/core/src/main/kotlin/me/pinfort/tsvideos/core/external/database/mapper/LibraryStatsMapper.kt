@@ -1,11 +1,13 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
-import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
 import me.pinfort.tsvideos.core.external.database.dto.StatsFileDto
 import me.pinfort.tsvideos.core.external.database.dto.StatsProgramDto
 import org.apache.ibatis.annotations.Mapper
+import org.apache.ibatis.annotations.Param
 import org.apache.ibatis.annotations.Select
+import java.time.LocalDateTime
 
+/** Catalog-owned ledger reads behind CatalogStatistics; the recording-time bounds are plain values, not a library query. */
 @Mapper
 interface LibraryStatsMapper {
     @Select(
@@ -21,7 +23,10 @@ interface LibraryStatsMapper {
         </script>
     """,
     )
-    fun programs(query: LibraryStatsQuery): List<StatsProgramDto>
+    fun programs(
+        @Param("recordedFrom") recordedFrom: LocalDateTime?,
+        @Param("recordedTo") recordedTo: LocalDateTime?,
+    ): List<StatsProgramDto>
 
     @Select(
         """
@@ -39,5 +44,8 @@ interface LibraryStatsMapper {
         </script>
     """,
     )
-    fun files(query: LibraryStatsQuery): List<StatsFileDto>
+    fun files(
+        @Param("recordedFrom") recordedFrom: LocalDateTime?,
+        @Param("recordedTo") recordedTo: LocalDateTime?,
+    ): List<StatsFileDto>
 }

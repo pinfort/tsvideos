@@ -9,6 +9,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
 import me.pinfort.tsvideos.core.command.HealthScanAlreadyRunning
 import me.pinfort.tsvideos.core.command.HealthVerificationStore
 import me.pinfort.tsvideos.core.command.LibraryHealthCommand
@@ -38,7 +39,7 @@ import javax.sql.DataSource
 @SpringJUnitConfig
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
-@Import(HealthVerificationStore::class, LibraryHealthCommand::class)
+@Import(HealthVerificationStore::class, LibraryHealthCommand::class, ProgramInventory::class)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class LibraryHealthMapperTest : ExpectSpec() {
     @Autowired private lateinit var dataSource: DataSource
@@ -48,6 +49,8 @@ class LibraryHealthMapperTest : ExpectSpec() {
     @Autowired private lateinit var store: HealthVerificationStore
 
     @Autowired private lateinit var health: LibraryHealthCommand
+
+    @Autowired private lateinit var inventory: ProgramInventory
 
     init {
         beforeTest {
@@ -80,7 +83,7 @@ class LibraryHealthMapperTest : ExpectSpec() {
                     },
                 ),
             )
-            val restarted = LibraryHealthCommand(mapper).read()
+            val restarted = LibraryHealthCommand(mapper, inventory).read()
             restarted.lastCompletedRun?.id shouldBe id
             restarted.lastCompletedRun?.completedAt?.isBefore(restarted.lastCompletedRun.startedAt) shouldBe false
             restarted.summary shouldBe VerificationStatus.entries.associateWith { 1 }
@@ -90,6 +93,35 @@ class LibraryHealthMapperTest : ExpectSpec() {
             restarted.findings.first().programRemoved shouldBe false
             sql(listOf("DELETE FROM program"))
             health.read().findings.all { it.programRemoved && it.programName == null } shouldBe true
+        }
+        expect("findings name present programs through the catalog and mark absent ones removed, keeping finding order") {
+            sql(
+                listOf(
+                    "INSERT INTO executed_file VALUES(1,'a',0,1,'2026-01-01','c','a','c',1,'SPLITTED')",
+                    "INSERT INTO program VALUES(5,'kept',1,'COMPLETED'),(6,'orphan',999,'ERROR'),(7,'unrelated',1,'COMPLETED')",
+                ),
+            )
+            val id = store.start()
+            val checkedAt = Instant.parse("2026-01-01T00:00:00Z")
+            store.complete(
+                id,
+                VerificationReport(
+                    listOf(
+                        FileFinding(8, 1, "gone", VerificationStatus.MISSING, checkedAt, 10, null, null),
+                        FileFinding(5, 2, "kept", VerificationStatus.VERIFIED, checkedAt, 10, 10, null),
+                        FileFinding(6, null, null, VerificationStatus.UNCHECKED, checkedAt, null, null, null),
+                        FileFinding(5, 3, "kept2", VerificationStatus.VERIFIED, checkedAt, 10, 10, null),
+                    ),
+                ),
+            )
+            val findings = health.read().findings
+            findings.map { it.finding.programId } shouldBe listOf(8L, 5L, 6L, 5L)
+            findings.map { it.programName } shouldBe listOf(null, "kept", "orphan", "kept")
+            findings.map { it.programRemoved } shouldBe listOf(true, false, false, false)
+            // The catalog batch lookup omits unknown IDs and ignores duplicates and order.
+            inventory.summaries(listOf(8, 6, 5, 5)).map { it.id } shouldBe listOf(5L, 6L)
+            inventory.summaries(emptyList()) shouldBe emptyList()
+            inventory.summaries(listOf(6)).single().drops shouldBe null
         }
         expect("active run is separate from prior completed and scan failure preserves old report without secrets") {
             val old = store.start()

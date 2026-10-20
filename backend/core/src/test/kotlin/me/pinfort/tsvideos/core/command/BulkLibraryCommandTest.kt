@@ -10,31 +10,40 @@ import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.mockk.verifyOrder
+import me.pinfort.tsvideos.core.catalog.LedgerLocks
+import me.pinfort.tsvideos.core.catalog.LedgerSnapshots
 import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.domain.BulkAction
 import me.pinfort.tsvideos.core.domain.BulkApplyRequest
+import me.pinfort.tsvideos.core.domain.BulkOutcome
 import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
 import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
 import me.pinfort.tsvideos.core.external.database.dto.ExecutedFileDto
+import me.pinfort.tsvideos.core.external.database.dto.ProgramDto
 import me.pinfort.tsvideos.core.external.database.dto.SplittedFileDto
 import me.pinfort.tsvideos.core.external.database.mapper.BulkLibraryMapper
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ExecutedFileMapper
+import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import me.pinfort.tsvideos.core.external.database.mapper.SplittedFileMapper
 import org.slf4j.Logger
 import org.springframework.dao.CannotAcquireLockException
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
 import java.time.LocalDateTime
+import kotlin.reflect.KClass
 import kotlin.reflect.full.memberProperties
 import kotlin.reflect.full.primaryConstructor
 
 class BulkLibraryCommandTest :
     ExpectSpec({
+        // Program lookups are stubbed on the ProgramCommand mock; the catalog's ProgramMapper delegates to it.
         val programs = mockk<ProgramCommand>(relaxed = true)
+        val programMapper = mockk<ProgramMapper>()
         val executed = mockk<ExecutedFileMapper>()
         val splits = mockk<SplittedFileMapper>()
         val created = mockk<CreatedFileMapper>()
@@ -42,13 +51,26 @@ class BulkLibraryCommandTest :
         val tx = mockk<PlatformTransactionManager>(relaxed = true)
         val logger = mockk<Logger>(relaxed = true)
 
+        fun Program.toDto() =
+            ProgramDto(
+                id,
+                name,
+                executedFileId,
+                ProgramDto.Status.valueOf(status.name),
+                drops,
+                size,
+                recordedAt,
+                channel,
+                title,
+                channelName,
+                duration,
+            )
+
         fun command(normalize: NormalizeComponent = NormalizeComponent()) =
             BulkLibraryCommand(
                 programs,
-                executed,
-                splits,
-                created,
-                mapper,
+                LedgerSnapshots(programMapper, executed, splits, created, mapper),
+                LedgerLocks(mapper, programMapper),
                 DirectoryNameComponent(NormalizeComponent()),
                 normalize,
                 tx,
@@ -74,8 +96,9 @@ class BulkLibraryCommandTest :
         val file = CreatedFileDto(30, 20, "base/a/alpha/video.mp4", 12, "video/mp4", null, CreatedFileDto.Status.FILE_MOVED, 1920, 1080)
         val request = BulkRequest(listOf(1), BulkAction.DELETE)
         beforeTest {
-            clearMocks(programs, executed, splits, created, mapper, tx, logger)
+            clearMocks(programs, programMapper, executed, splits, created, mapper, tx, logger)
             every { tx.getTransaction(any()) } returns SimpleTransactionStatus()
+            every { programMapper.find(any()) } answers { programs.find(firstArg())?.toDto() }
             every { programs.find(any()) } returns program
             every { executed.find(10) } returns source
             every { splits.selectByExecutedFileId(10) } returns listOf(split)
@@ -95,7 +118,7 @@ class BulkLibraryCommandTest :
                 .single()
                 .snapshot
                 .shouldNotBeNull()
-                .executed shouldBe source
+                .executed shouldBe source.toDomain()
             plan.targets.single().estimatedMetadataBytes shouldBe 12
             plan.originalSourcePreserved shouldBe true
             verify(exactly = 0) {
@@ -428,6 +451,78 @@ class BulkLibraryCommandTest :
             } finally {
                 Thread.interrupted()
             }
+        }
+        expect("apply takes the ledger locks in the documented order before re-reading and mutating") {
+            val plan = command.preview(request)
+            val result = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+            result.outcomes.single().status shouldBe BulkOutcomeStatus.SUCCESS
+            verifyOrder {
+                mapper.lockFiles()
+                mapper.lockProgram(1)
+                programMapper.find(1)
+                mapper.lockExecuted(10)
+                mapper.lockSplits(10)
+                mapper.lockReferences(10)
+                programMapper.find(1)
+                executed.find(10)
+                programs.delete(program, false)
+            }
+            verify(exactly = 0) {
+                mapper.lockAllPrograms()
+                mapper.lockAllExecuted()
+                mapper.lockAllSplits()
+            }
+        }
+        expect("guarded apply locks the whole ledger after the created files and before the target") {
+            val plan = command.preview(request)
+            val guarded = mutableListOf<Long>()
+            val result =
+                command.applyGuarded(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))) { id, _ ->
+                    guarded += id
+                    null
+                }
+            result.outcomes.single().status shouldBe BulkOutcomeStatus.SUCCESS
+            guarded shouldBe listOf(1L)
+            verifyOrder {
+                mapper.lockFiles()
+                mapper.lockAllPrograms()
+                mapper.lockAllExecuted()
+                mapper.lockAllSplits()
+                mapper.lockProgram(1)
+                mapper.lockExecuted(10)
+                mapper.lockSplits(10)
+                mapper.lockReferences(10)
+                programs.delete(program, false)
+            }
+        }
+        expect("a guard veto returns before the target is locked or changed") {
+            val plan = command.preview(request)
+            val result =
+                command.applyGuarded(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))) { id, _ ->
+                    BulkOutcome(id, BulkOutcomeStatus.STALE, "changed")
+                }
+            result.outcomes.single().status shouldBe BulkOutcomeStatus.STALE
+            verify(exactly = 0) {
+                mapper.lockProgram(any())
+                programs.delete(any(), any())
+            }
+        }
+        expect("preview snapshots publish the stored row properties only") {
+            val snapshot =
+                command
+                    .preview(request)
+                    .targets
+                    .single()
+                    .snapshot
+                    .shouldNotBeNull()
+
+            fun names(type: KClass<*>) = type.memberProperties.map { it.name }.toSet()
+            names(snapshot.executed.shouldNotBeNull()::class) shouldBe names(ExecutedFileDto::class)
+            names(snapshot.splitFiles.single()::class) shouldBe names(SplittedFileDto::class)
+            names(snapshot.createdFiles.single()::class) shouldBe names(CreatedFileDto::class)
+            snapshot.createdFiles
+                .single()
+                .status.name shouldBe file.status.name
         }
         expect("missing target is a per-target result") {
             val plan = command.preview(request)

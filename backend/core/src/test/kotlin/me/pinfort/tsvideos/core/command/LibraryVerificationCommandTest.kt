@@ -6,6 +6,8 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
 import me.pinfort.tsvideos.core.domain.VerificationStatus
 import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
 import me.pinfort.tsvideos.core.external.database.dto.ExecutedCreatedFileDto
@@ -34,7 +36,16 @@ class LibraryVerificationCommandTest :
             files = mockk()
             nas = mockk()
             session = mockk()
-            command = LibraryVerificationCommand(programs, files, nas)
+            // The catalog's program lookup reads the mocked mapper, so the stubs below drive both paths.
+            val programCommand = mockk<ProgramCommand>()
+            every { programCommand.find(any()) } answers { programs.find(firstArg())?.toDomain() }
+            command =
+                LibraryVerificationCommand(
+                    programCommand,
+                    ProgramInventory(programs),
+                    CreatedFileCatalog(files, mockk(relaxed = true)),
+                    nas,
+                )
             every { nas.session<Any?>(any()) } answers { firstArg<(NasFileVerifier.Session) -> Any?>()(session) }
             every { programs.find(1) } returns program
             every { files.selectByExecutedFileId(10) } returns listOf(file)

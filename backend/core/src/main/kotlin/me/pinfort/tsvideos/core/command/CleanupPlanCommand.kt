@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
 import me.pinfort.tsvideos.core.domain.BulkAction
 import me.pinfort.tsvideos.core.domain.BulkApplyRequest
 import me.pinfort.tsvideos.core.domain.BulkOutcome
@@ -12,7 +13,6 @@ import me.pinfort.tsvideos.core.domain.CleanupGroup
 import me.pinfort.tsvideos.core.domain.CleanupMode
 import me.pinfort.tsvideos.core.domain.CleanupPlan
 import me.pinfort.tsvideos.core.domain.CleanupTarget
-import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import org.springframework.stereotype.Component
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
@@ -25,7 +25,7 @@ class CleanupResourceMissing : IllegalArgumentException("An explicitly selected 
 @Component
 class CleanupPlanCommand(
     private val duplicates: DuplicateReviewCommand,
-    private val programs: ProgramMapper,
+    private val programs: ProgramInventory,
     private val bulk: BulkLibraryCommand,
     transactionManager: PlatformTransactionManager,
 ) {
@@ -73,7 +73,7 @@ class CleanupPlanCommand(
         completed: Set<Long>,
     ): BulkOutcome? {
         val remainingTargets = plan.targets.filter { it.id !in completed }
-        val allIds = programs.selectAllIds().toSet()
+        val allIds = programs.allIds().toSet()
         if (id !in allIds) return BulkOutcome(id, BulkOutcomeStatus.NOT_FOUND, "Recording no longer exists")
         val keptMissing = plan.keptTargets.any { it.id !in allIds }
         if (keptMissing) {
@@ -109,7 +109,7 @@ class CleanupPlanCommand(
     private fun generate(
         criteria: CleanupCriteria,
         createdAt: String,
-        known: Set<Long> = programs.selectAllIds().toSet(),
+        known: Set<Long> = programs.allIds().toSet(),
     ): CleanupPlan {
         validateCriteria(criteria)
         val groups: List<CleanupGroup>
@@ -146,11 +146,11 @@ class CleanupPlanCommand(
                 groups = emptyList()
                 val before = LocalDateTime.parse(requireNotNull(criteria.recordedBefore) { "RETENTION requires recordedBefore" })
                 ids =
+                    // Only programs with a recording row; its recorded_at is NOT NULL.
                     programs
-                        .selectAll()
+                        .recordedPrograms()
                         .filter {
-                            it.recordedAt != null &&
-                                it.recordedAt < before &&
+                            it.recordedAt < before &&
                                 (criteria.channel == null || it.channel == criteria.channel)
                         }.map { it.id }
                         .sorted()

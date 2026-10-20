@@ -1,11 +1,13 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
+import me.pinfort.tsvideos.core.catalog.ProgramSummary
 import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.external.database.dto.ProgramDto
 import org.apache.ibatis.annotations.Delete
 import org.apache.ibatis.annotations.Insert
 import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Options
+import org.apache.ibatis.annotations.Param
 import org.apache.ibatis.annotations.Select
 import org.apache.ibatis.annotations.SelectProvider
 import org.apache.ibatis.annotations.Update
@@ -39,6 +41,35 @@ interface ProgramMapper {
 
     @Select("SELECT id FROM program ORDER BY id")
     fun selectAllIds(): List<Long>
+
+    @Select("SELECT id FROM program WHERE id=#{id}")
+    fun findId(
+        @Param("id") id: Long,
+    ): Long?
+
+    @Select(
+        """
+        <script>
+        SELECT p.id, p.name, p.status, e.drops FROM program p LEFT JOIN executed_file e ON e.id=p.executed_file_id
+        WHERE p.id IN <foreach item="id" collection="ids" open="(" separator="," close=")">#{id}</foreach> ORDER BY p.id
+        </script>
+    """,
+    )
+    fun summariesByIds(
+        @Param("ids") ids: List<Long>,
+    ): List<ProgramSummary>
+
+    @Select(
+        "SELECT p.id, p.name, p.status, e.drops FROM program p LEFT JOIN executed_file e ON e.id=p.executed_file_id WHERE p.status=#{status} ORDER BY p.id",
+    )
+    fun summariesByStatus(
+        @Param("status") status: String,
+    ): List<ProgramSummary>
+
+    @Select(
+        "SELECT p.id, p.name, p.status, e.drops FROM program p JOIN executed_file e ON e.id=p.executed_file_id WHERE e.drops>0 ORDER BY p.id",
+    )
+    fun summariesWithDrops(): List<ProgramSummary>
 
     @SelectProvider(type = ProgramSearchSql::class, method = "search")
     fun search(query: ProgramSearchQuery): List<ProgramDto>

@@ -6,6 +6,8 @@ import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import me.pinfort.tsvideos.core.catalog.LedgerLocks
+import me.pinfort.tsvideos.core.catalog.LedgerSnapshots
 import me.pinfort.tsvideos.core.command.BulkLibraryCommand
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
 import me.pinfort.tsvideos.core.command.ExecutedFileCommand
@@ -106,10 +108,8 @@ class BulkLibraryMapperTest : ExpectSpec() {
                 val command =
                     BulkLibraryCommand(
                         programCommand,
-                        executedMapper,
-                        splitMapper,
-                        createdMapper,
-                        mapper,
+                        LedgerSnapshots(programMapper, executedMapper, splitMapper, createdMapper, mapper),
+                        LedgerLocks(mapper, programMapper),
                         directories,
                         NormalizeComponent(),
                         transactionManager,

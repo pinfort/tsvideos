@@ -4,10 +4,13 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
+import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
 import me.pinfort.tsvideos.core.domain.DuplicateKeepCriterion
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
 import org.springframework.boot.testcontainers.context.ImportTestcontainers
@@ -31,7 +34,11 @@ class DuplicateReviewCommandTest : ExpectSpec() {
 
     @Autowired private lateinit var files: CreatedFileMapper
 
-    private fun command() = DuplicateReviewCommand(DuplicateProgramCommand(programs), files)
+    private fun command() =
+        DuplicateReviewCommand(
+            DuplicateProgramCommand(ProgramInventory(programs)),
+            CreatedFileCatalog(files, LoggerFactory.getLogger(DuplicateReviewCommandTest::class.java)),
+        )
 
     init {
         beforeTest { clear() }
@@ -53,7 +60,7 @@ class DuplicateReviewCommandTest : ExpectSpec() {
             )
             val result = command().review().groups.single()
             result.members.map { it.program.id } shouldBe
-                DuplicateProgramCommand(programs)
+                DuplicateProgramCommand(ProgramInventory(programs))
                     .detect()
                     .single()
                     .programs

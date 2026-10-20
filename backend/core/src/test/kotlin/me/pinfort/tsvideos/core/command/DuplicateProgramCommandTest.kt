@@ -7,6 +7,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
 import me.pinfort.tsvideos.core.domain.DuplicateGroup
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.external.database.dto.ProgramDto
@@ -21,7 +22,7 @@ class DuplicateProgramCommandTest :
         beforeTest {
             clearAllMocks()
             programMapper = mockk()
-            duplicateProgramCommand = DuplicateProgramCommand(programMapper)
+            duplicateProgramCommand = DuplicateProgramCommand(ProgramInventory(programMapper))
         }
 
         val base = LocalDateTime.of(2025, 10, 5, 21, 0, 0)

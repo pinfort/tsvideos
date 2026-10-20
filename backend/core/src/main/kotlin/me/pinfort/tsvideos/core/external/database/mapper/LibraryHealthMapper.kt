@@ -1,6 +1,5 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
-import me.pinfort.tsvideos.core.domain.HealthProgram
 import me.pinfort.tsvideos.core.domain.HealthRun
 import me.pinfort.tsvideos.core.external.database.dto.HealthFindingDto
 import me.pinfort.tsvideos.core.external.database.dto.HealthRunDto
@@ -11,27 +10,12 @@ import org.apache.ibatis.annotations.Select
 import org.apache.ibatis.annotations.Update
 import java.time.LocalDateTime
 
+/**
+ * Library-owned health runs and findings. Program names and states come from catalog's ProgramInventory, not from
+ * SQL here: this mapper reads no ledger table.
+ */
 @Mapper
 interface LibraryHealthMapper {
-    @Select(
-        "SELECT p.id, p.name, p.status, e.drops FROM program p LEFT JOIN executed_file e ON e.id=p.executed_file_id WHERE p.status='ERROR' ORDER BY p.id",
-    )
-    fun failedPrograms(): List<HealthProgram>
-
-    @Select(
-        "SELECT p.id, p.name, p.status, e.drops FROM program p JOIN executed_file e ON e.id=p.executed_file_id WHERE e.drops>0 ORDER BY p.id",
-    )
-    fun droppedPrograms(): List<HealthProgram>
-
-    /** Programs still present among one run's findings; a finding whose program is absent refers to a deleted program. */
-    @Select(
-        """
-        SELECT p.id, p.name, p.status, e.drops FROM program p LEFT JOIN executed_file e ON e.id=p.executed_file_id
-        WHERE p.id IN (SELECT program_id FROM health_verification_finding WHERE run_id=#{runId}) ORDER BY p.id
-    """,
-    )
-    fun findingPrograms(runId: Long): List<HealthProgram>
-
     @Insert("INSERT INTO health_verification_run(state,started_at,active_marker) VALUES('RUNNING',#{startedAt},1)")
     @Options(useGeneratedKeys = true, keyProperty = "keyHolder.id")
     fun start(
