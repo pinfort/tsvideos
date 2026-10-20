@@ -1,1 +1,1 @@
-spring.profiles.include: api, infrastructure
+spring.profiles.include: core, storage, api, infrastructure

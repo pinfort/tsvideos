@@ -11,10 +11,10 @@ import me.pinfort.tsvideos.core.domain.UploadManifest
 import me.pinfort.tsvideos.core.domain.UploadManifest.State
 import me.pinfort.tsvideos.core.domain.VerifiedUploadReceipt
 import me.pinfort.tsvideos.core.domain.VideoResolution
-import me.pinfort.tsvideos.core.domain.sha256Hex
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
-import me.pinfort.tsvideos.core.external.samba.VerifiedUploadNas
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasStore
+import me.pinfort.tsvideos.storage.api.VerifiedUploadNas
+import me.pinfort.tsvideos.storage.api.sha256Hex
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.stereotype.Component

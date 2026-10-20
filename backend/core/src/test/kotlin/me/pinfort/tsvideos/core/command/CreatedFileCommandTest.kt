@@ -13,8 +13,8 @@ import io.mockk.verifySequence
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
-import me.pinfort.tsvideos.core.external.samba.NasComponent
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasComponent
+import me.pinfort.tsvideos.storage.api.NasStore
 import org.slf4j.Logger
 
 class CreatedFileCommandTest :

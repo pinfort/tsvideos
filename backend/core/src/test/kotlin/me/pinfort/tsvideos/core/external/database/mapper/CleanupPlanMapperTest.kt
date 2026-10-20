@@ -27,8 +27,8 @@ import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
 import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.domain.CleanupCriteria
 import me.pinfort.tsvideos.core.domain.CleanupMode
-import me.pinfort.tsvideos.core.external.samba.NasComponent
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasComponent
+import me.pinfort.tsvideos.storage.api.NasStore
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase

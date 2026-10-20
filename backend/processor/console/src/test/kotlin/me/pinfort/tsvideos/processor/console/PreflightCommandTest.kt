@@ -11,6 +11,9 @@ import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
 import me.pinfort.tsvideos.core.domain.DiagnosticCheck
 import me.pinfort.tsvideos.core.domain.DiagnosticReport
 import me.pinfort.tsvideos.core.domain.DiagnosticStatus
+import me.pinfort.tsvideos.storage.api.NasComponent
+import me.pinfort.tsvideos.storage.api.VerifiedUploadNas
+import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import tools.jackson.databind.json.JsonMapper
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
@@ -60,6 +63,26 @@ class PreflightCommandTest :
             DiagnosticEnvironment.commandArguments(args) shouldBe listOf("preflight", "--spring.flag", "/recording")
             DiagnosticEnvironment.commandArguments(arrayOf("process", "--", "--spring.x=y")) shouldBe
                 listOf("process", "--", "--spring.x=y")
+        }
+        // Standalone preflight reads the NAS settings from the storage module's application-storage.yaml.
+        expect("the standalone environment loads the core and storage profile defaults") {
+            val environment = DiagnosticEnvironment.load(emptyArray())
+            environment.activeProfiles.toList().contains("core") shouldBe true
+            environment.activeProfiles.toList().contains("storage") shouldBe true
+            environment.getProperty("samba.video-store-nas.url")!!.startsWith("smb:") shouldBe true
+            environment.getProperty("samba.original-store-nas.url")!!.startsWith("smb:") shouldBe true
+        }
+        // ConsoleApplication scans storage; its beans must assemble from this console's own configuration alone.
+        expect("the storage beans assemble from the console's loaded configuration") {
+            AnnotationConfigApplicationContext()
+                .apply {
+                    environment = DiagnosticEnvironment.load(emptyArray())
+                    scan("me.pinfort.tsvideos.storage")
+                    refresh()
+                }.use { context ->
+                    context.getBean(NasComponent::class.java)
+                    context.getBean(VerifiedUploadNas::class.java)
+                }
         }
         expect("unloadable configuration reports config.load as JSON and exits 1") {
             val out = ByteArrayOutputStream()

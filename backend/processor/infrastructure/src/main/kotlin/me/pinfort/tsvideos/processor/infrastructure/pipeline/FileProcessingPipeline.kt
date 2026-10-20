@@ -31,9 +31,9 @@ import me.pinfort.tsvideos.core.exception.TsVideosException
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient
 import me.pinfort.tsvideos.core.external.tool.TsSplitterClient
-import me.pinfort.tsvideos.core.storage.NasStore
 import me.pinfort.tsvideos.processor.infrastructure.external.ts.EmergencyBroadcastDetector
 import me.pinfort.tsvideos.processor.infrastructure.external.tsselect.TsSelectClient
+import me.pinfort.tsvideos.storage.api.NasStore
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 import java.io.File

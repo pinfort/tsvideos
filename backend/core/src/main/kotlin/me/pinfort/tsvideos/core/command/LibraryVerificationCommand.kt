@@ -7,7 +7,7 @@ import me.pinfort.tsvideos.core.domain.VerificationStatus
 import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
 import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
-import me.pinfort.tsvideos.core.external.samba.NasFileVerifier
+import me.pinfort.tsvideos.storage.api.NasFileVerifier
 import org.springframework.stereotype.Component
 import java.time.Instant
 
@@ -75,7 +75,7 @@ class LibraryVerificationCommand(
             val file = dto.toDomain()
             val result =
                 if (file.status != CreatedFile.Status.FILE_MOVED) {
-                    NasFileVerifier.Result(VerificationStatus.UNCHECKED, reason = "NAS transfer not recorded as complete")
+                    NasFileVerifier.Result(NasFileVerifier.Status.UNCHECKED, reason = "NAS transfer not recorded as complete")
                 } else {
                     nas.verify(file.file, file.size)
                 }
@@ -83,12 +83,28 @@ class LibraryVerificationCommand(
                 programId = programId,
                 fileId = file.id,
                 file = file.file,
-                status = result.status,
+                status = result.status.toVerificationStatus(),
                 checkedAt = Instant.now(),
                 expectedBytes = file.size,
                 actualBytes = result.actualBytes,
                 reason = result.reason,
             )
         }
+    }
+
+    internal companion object {
+        /**
+         * The library's status for a low-level storage check. Each storage status maps to the same-named value, so the
+         * persisted `health_verification_finding.status`, API/CLI output and `tvmcli verify`'s exit code 4 are unchanged.
+         * Exhaustive on purpose: a new storage status must be given a library meaning here.
+         */
+        fun NasFileVerifier.Status.toVerificationStatus(): VerificationStatus =
+            when (this) {
+                NasFileVerifier.Status.VERIFIED -> VerificationStatus.VERIFIED
+                NasFileVerifier.Status.MISSING -> VerificationStatus.MISSING
+                NasFileVerifier.Status.SIZE_MISMATCH -> VerificationStatus.SIZE_MISMATCH
+                NasFileVerifier.Status.INACCESSIBLE -> VerificationStatus.INACCESSIBLE
+                NasFileVerifier.Status.UNCHECKED -> VerificationStatus.UNCHECKED
+            }
     }
 }

@@ -6,7 +6,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import me.pinfort.tsvideos.core.config.ProcessingRetryConfigurationProperties
-import me.pinfort.tsvideos.core.storage.NasAuthenticationException
+import me.pinfort.tsvideos.storage.api.NasAuthenticationException
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Import

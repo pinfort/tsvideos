@@ -2,13 +2,14 @@ This is the backend for tsvideos, built with Kotlin, Spring Boot, and Gradle.
 
 ## モジュール構成
 
-- `core`: 共通コンポーネント（DB 接続、Samba (NAS) 接続など）
+- `storage`: NAS の公開契約 (`me.pinfort.tsvideos.storage.api`) と Samba (jcifs) 実装、`samba.*` 設定。業務モジュールに依存しない（[storage/README.md](storage/README.md)）
+- `core`: 共通コンポーネント（DB 接続、業務ロジックなど）。NAS は `storage` の公開契約を通して使う
 - `manager:infrastructure` / `manager:console` / `manager:api`: 処理済みの録画データを管理するためのツール（`manager:api` が Web API）
 - `processor:infrastructure` / `processor:console`: 録画データを処理して管理ツールで管理できる状態にするためのアプリケーション
 
 ## ローカルでの動作確認
 
-`docker-compose.test.yml`（リポジトリルート）で MariaDB と Samba (NAS) を起動すると、`core/src/main/resources/application-core.yaml` のデフォルト値のまま環境変数なしで `manager:api` をローカル起動できます。
+`docker-compose.test.yml`（リポジトリルート）で MariaDB と Samba (NAS) を起動すると、`core/src/main/resources/application-core.yaml`（DB）と `storage/src/main/resources/application-storage.yaml`（NAS）のデフォルト値のまま環境変数なしで `manager:api` をローカル起動できます。
 
 ```bash
 docker compose -f ../docker-compose.test.yml up -d
@@ -26,6 +27,7 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 - `./gradlew build` - 全モジュールをビルド
 - `./gradlew test` - テストを実行（テストは Testcontainers で MariaDB を起動するため Docker が必要）
 - `./gradlew ktlintCheck` - Kotlin のコードスタイルチェック
+- `./gradlew storage:checkStorageBoundaries` - storage の境界チェック（`check` / `build` にも含まれる）
 
 ## processor:console (`tvpcli`)
 

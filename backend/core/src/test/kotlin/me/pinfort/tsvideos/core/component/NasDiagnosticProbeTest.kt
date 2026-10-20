@@ -5,56 +5,44 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
+import io.mockk.Runs
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
-import jcifs.CloseableIterator
-import jcifs.RuntimeCIFSException
-import jcifs.SmbConstants
-import jcifs.SmbResource
-import jcifs.smb.SmbAuthException
-import jcifs.smb.SmbException
 import me.pinfort.tsvideos.core.domain.DiagnosticStatus
-import me.pinfort.tsvideos.core.external.samba.DiagnosticNasClient
-import me.pinfort.tsvideos.core.storage.NasAccessException
-import me.pinfort.tsvideos.core.storage.NasAuthenticationException
+import me.pinfort.tsvideos.storage.api.DiagnosticNasClient
+import me.pinfort.tsvideos.storage.api.NasAccessException
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.OutputStream
 
+/**
+ * The probe over the storage diagnostic contract. The Samba adapter itself (O_EXCL flags, close ownership and
+ * failure translation) is covered by storage's SambaDiagnosticNasClientTest.
+ */
 class NasDiagnosticProbeTest :
     ExpectSpec({
         lateinit var client: DiagnosticNasClient
-        lateinit var root: SmbResource
-        lateinit var directory: SmbResource
-        lateinit var file: SmbResource
+        lateinit var connection: DiagnosticNasClient.Connection
+        lateinit var directory: DiagnosticNasClient.Directory
+        lateinit var file: DiagnosticNasClient.FileHandle
         lateinit var output: ByteArrayOutputStream
         lateinit var probe: NasDiagnosticProbe
         beforeTest {
             client = mockk()
-            root = mockk(relaxed = true)
+            connection = mockk(relaxed = true)
             directory = mockk(relaxed = true)
             file = mockk(relaxed = true)
             output = ByteArrayOutputStream()
-            // The real SMB adapter over mocked jcifs resources, so flags and close ownership stay covered.
-            every { client.open(any(), any(), any()) } returns DiagnosticNasClient.connection(root) {}
-            every { root.resolve("base/") } returns directory
-            every { directory.exists() } returns true
-            every { directory.isDirectory } returns true
-            val children = mockk<CloseableIterator<SmbResource>>(relaxed = true)
-            every { children.hasNext() } returns false
-            every { directory.children() } returns children
-            every { directory.resolve(any<String>()) } returns file
-            every {
-                file.openOutputStream(
-                    true,
-                    SmbConstants.O_WRONLY or SmbConstants.O_CREAT or SmbConstants.O_EXCL,
-                    SmbConstants.FILE_WRITE_DATA,
-                    SmbConstants.FILE_NO_SHARE,
-                )
-            } returns output
+            every { client.open(any(), any(), any()) } returns connection
+            every { connection.directory("base") } returns directory
+            every { directory.isDirectory() } returns true
+            every { directory.listFirstEntry() } just Runs
+            every { directory.file(any()) } returns file
+            every { file.createExclusive() } returns output
             every { file.openInputStream() } answers { ByteArrayInputStream(output.toByteArray()) }
             probe = NasDiagnosticProbe(client)
         }
@@ -70,43 +58,42 @@ class NasDiagnosticProbeTest :
                 Thread.interrupted()
             }
         }
-        expect("default checks directory and listing but never writes") {
+        expect("default checks directory and listing but never writes, closing what it opened") {
             val checks = run()
             checks.single { it.id.endsWith(".read") }.status shouldBe DiagnosticStatus.PASS
             checks.single { it.id.endsWith(".write") }.status shouldBe DiagnosticStatus.UNCHECKED
-            verify(exactly = 0) { directory.resolve(any<String>()) }
+            verify(exactly = 1) { client.open("smb://host/share", "user", "secret") }
+            verify(exactly = 1) { directory.listFirstEntry() }
+            verify(exactly = 0) { directory.file(any()) }
             verify {
-                root.close()
                 directory.close()
+                connection.close()
             }
         }
-        expect("blank base directory inspects the share root, closing it only with the connection") {
-            every { root.exists() } returns true
-            every { root.isDirectory } returns true
-            val children = mockk<CloseableIterator<SmbResource>>(relaxed = true)
-            every { root.children() } returns children
+        expect("blank base directory is passed to the connection as is") {
+            every { connection.directory("") } returns directory
             val checks = probe.check("nas.test", "smb://host/share", "user", "secret", "", false)
             checks.single { it.id.endsWith(".read") }.status shouldBe DiagnosticStatus.PASS
-            verify(exactly = 0) { root.resolve(any<String>()) }
-            verify(exactly = 1) { root.close() }
+            verify(exactly = 1) { connection.directory("") }
         }
-        expect("missing directory reports actionable failure without creating it") {
-            every { directory.exists() } returns false
+        expect("missing directory reports actionable failure without listing or writing") {
+            every { directory.isDirectory() } returns false
             val checks = run(true)
             checks.first().status shouldBe DiagnosticStatus.FAIL
             checks.last().status shouldBe DiagnosticStatus.UNCHECKED
-            verify(exactly = 0) { directory.mkdir() }
+            verify(exactly = 0) { directory.listFirstEntry() }
+            verify(exactly = 0) { directory.file(any()) }
         }
         expect("denied listing is a safe failure and no write is attempted") {
-            every { directory.children() } throws IOException("password=secret")
+            every { directory.listFirstEntry() } throws IOException("password=secret")
             val checks = run(true)
             checks.first().status shouldBe DiagnosticStatus.FAIL
             checks.toString() shouldNotContain "secret"
-            verify(exactly = 0) { file.openOutputStream(any(), any(), any(), any()) }
+            verify(exactly = 0) { file.createExclusive() }
         }
         expect("write probe uses an isolated name, verifies bytes and deletes its own file") {
             val name = slot<String>()
-            every { directory.resolve(capture(name)) } returns file
+            every { directory.file(capture(name)) } returns file
             val checks = run(true)
             checks.all { it.status == DiagnosticStatus.PASS } shouldBe true
             name.captured shouldContain ".tsvideos-doctor-"
@@ -115,9 +102,10 @@ class NasDiagnosticProbeTest :
             verify(exactly = 1) {
                 file.delete()
             }
+            verify { file.close() }
         }
         expect("write failure still removes the probe") {
-            every { file.openOutputStream(any(), any(), any(), any()) } returns
+            every { file.createExclusive() } returns
                 object : OutputStream() {
                     override fun write(value: Int) = throw IOException("secret")
                 }
@@ -139,12 +127,12 @@ class NasDiagnosticProbeTest :
             result.reason shouldNotContain "secret"
         }
         expect("failed exclusive creation does not delete a file it does not own") {
-            every { file.openOutputStream(any(), any(), any(), any()) } throws IOException("already exists")
+            every { file.createExclusive() } throws NasAccessException("NAS exclusive create failed")
             run(true).single { it.id.endsWith(".write") }.status shouldBe DiagnosticStatus.FAIL
             verify(exactly = 0) { file.delete() }
         }
         expect("write and cleanup failures are both reported") {
-            every { file.openOutputStream(any(), any(), any(), any()) } returns
+            every { file.createExclusive() } returns
                 object : OutputStream() {
                     override fun write(value: Int) = throw IOException("secret")
                 }
@@ -164,32 +152,18 @@ class NasDiagnosticProbeTest :
             shouldThrow<InterruptedException> { run(true) }
             Thread.interrupted() shouldBe true
         }
-        expect("diagnostic handles and streams surface Samba failures as storage exceptions") {
-            val connection = DiagnosticNasClient.connection(root) {}
-            val directoryView = connection.directory("base")
-            every { directory.children() } throws RuntimeCIFSException("smb://host/share listing denied")
-            shouldThrow<NasAccessException> { directoryView.listFirstEntry() }.message shouldNotContain "smb://"
-
-            val handle = directoryView.file("probe.tmp")
-            every { file.openOutputStream(any(), any(), any(), any()) } throws SmbException("exists")
-            shouldThrow<NasAccessException> { handle.createExclusive() }
-
-            every { file.openOutputStream(any(), any(), any(), any()) } returns
-                object : OutputStream() {
-                    override fun write(value: Int) = throw SmbException("write failed")
-                }
-            shouldThrow<NasAccessException> { handle.createExclusive().write(1) }
-
-            every { file.delete() } throws mockk<SmbAuthException>(relaxed = true) { every { cause } returns null }
-            shouldThrow<NasAuthenticationException> { handle.delete() }
-
-            every { file.openInputStream() } throws InterruptedException()
-            shouldThrow<InterruptedException> { handle.openInputStream() }
-        }
-        expect("a Samba listing failure is a safe read failure") {
-            every { directory.children() } throws RuntimeCIFSException("password=secret")
+        expect("a storage listing failure is a safe read failure") {
+            every { directory.listFirstEntry() } throws NasAccessException("NAS directory listing failed", IOException("password=secret"))
             val checks = run(true)
             checks.first().status shouldBe DiagnosticStatus.FAIL
+            checks.toString() shouldNotContain "secret"
+        }
+        expect("a connection failure is a safe read failure") {
+            every { client.open(any(), any(), any()) } throws
+                NasAccessException("NAS connect failed", IOException("smb://user:secret@host"))
+            val checks = run(true)
+            checks.single { it.id.endsWith(".read") }.status shouldBe DiagnosticStatus.FAIL
+            checks.single { it.id.endsWith(".write") }.status shouldBe DiagnosticStatus.UNCHECKED
             checks.toString() shouldNotContain "secret"
         }
         expect("a failure after a successful read is a separate operation failure") {

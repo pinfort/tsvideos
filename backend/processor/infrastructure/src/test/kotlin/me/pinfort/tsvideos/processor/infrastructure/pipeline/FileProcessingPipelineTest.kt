@@ -40,14 +40,14 @@ import me.pinfort.tsvideos.core.domain.QualityAction
 import me.pinfort.tsvideos.core.domain.RecordingQualityDecision
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
-import me.pinfort.tsvideos.core.external.samba.NasComponent
-import me.pinfort.tsvideos.core.external.samba.SambaClient
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient
 import me.pinfort.tsvideos.core.external.tool.TsSplitterClient
-import me.pinfort.tsvideos.core.storage.NasStore
 import me.pinfort.tsvideos.processor.infrastructure.external.ts.EmergencyBroadcastDetector
 import me.pinfort.tsvideos.processor.infrastructure.external.tsselect.TsSelectClient
+import me.pinfort.tsvideos.storage.api.NasComponent
+import me.pinfort.tsvideos.storage.api.NasPaths
+import me.pinfort.tsvideos.storage.api.NasStore
 import org.slf4j.Logger
 import java.io.File
 import java.nio.file.Files
@@ -66,7 +66,7 @@ class FileProcessingPipelineTest :
         lateinit var amatsukazeAddTaskClient: AmatsukazeAddTaskClient
         lateinit var durationProbeClient: DurationProbeClient
         lateinit var nasComponent: NasComponent
-        lateinit var sambaClient: SambaClient
+        lateinit var nasPaths: NasPaths
         lateinit var jobs: ProcessingJobCommand
         lateinit var uploads: VerifiedUploadCommand
         lateinit var history: ProcessingHistoryCommand
@@ -104,7 +104,7 @@ class FileProcessingPipelineTest :
             amatsukazeAddTaskClient = mockk()
             durationProbeClient = mockk()
             nasComponent = mockk()
-            sambaClient = mockk()
+            nasPaths = mockk()
             logger = mockk(relaxed = true)
             jobs = mockk(relaxed = true)
             uploads = mockk(relaxed = true)
@@ -119,7 +119,7 @@ class FileProcessingPipelineTest :
             every { jobs.claimCallback(any()) } returns "token"
             every { createdFileCommand.selectBySplittedFileId(any()) } returns emptyList()
             every { nasComponent.matchesSize(any(), any(), any()) } returns true
-            every { sambaClient.resolvePathUnderBaseDir(any(), any()) } answers { secondArg() }
+            every { nasPaths.resolvePathUnderBaseDir(any(), any()) } answers { secondArg() }
             fileProcessingPipeline =
                 FileProcessingPipeline(
                     executedFileCommand = executedFileCommand,
@@ -133,7 +133,7 @@ class FileProcessingPipelineTest :
                     durationProbeClient = durationProbeClient,
                     mainSplittedFileFinderComponent = MainSplittedFileFinderComponent(),
                     compressComponent = CompressComponent(logger),
-                    nasDestinationResolver = NasDestinationResolver(NormalizeComponent(), sambaClient),
+                    nasDestinationResolver = NasDestinationResolver(NormalizeComponent(), nasPaths),
                     processorToolConfigurationProperties = properties,
                     logger = logger,
                     processingJobCommand = jobs,
@@ -377,7 +377,7 @@ class FileProcessingPipelineTest :
                 every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
 
                 every {
-                    sambaClient.resolvePathUnderBaseDir(NasStore.ORIGINAL_STORE_NAS, any())
+                    nasPaths.resolvePathUnderBaseDir(NasStore.ORIGINAL_STORE_NAS, any())
                 } answers { "nas-base-dir/${secondArg<String>()}" }
 
                 every { nasComponent.uploadResource(any(), any(), any(), any()) } returns true
@@ -462,7 +462,7 @@ class FileProcessingPipelineTest :
                 every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
 
                 every {
-                    sambaClient.resolvePathUnderBaseDir(NasStore.ORIGINAL_STORE_NAS, any())
+                    nasPaths.resolvePathUnderBaseDir(NasStore.ORIGINAL_STORE_NAS, any())
                 } answers { "nas-base-dir/${secondArg<String>()}" }
 
                 every { nasComponent.uploadResource(any(), any(), any(), any()) } returns true
@@ -695,7 +695,7 @@ class FileProcessingPipelineTest :
                 every { splittedFileCommand.delete(any(), any()) } just Runs
                 every { executedFileCommand.updateStatus(any(), any(), any()) } returns executedFile
                 every {
-                    sambaClient.resolvePathUnderBaseDir(NasStore.ORIGINAL_STORE_NAS, any())
+                    nasPaths.resolvePathUnderBaseDir(NasStore.ORIGINAL_STORE_NAS, any())
                 } answers { "nas-base-dir/${secondArg<String>()}" }
                 return File(outDir, "${splitFile.name}.gz")
             }

@@ -1,7 +1,7 @@
 package me.pinfort.tsvideos.manager.api.stream
 
-import me.pinfort.tsvideos.core.storage.NasAccessException
-import me.pinfort.tsvideos.core.storage.NasReadHandle
+import me.pinfort.tsvideos.storage.api.NasAccessException
+import me.pinfort.tsvideos.storage.api.NasReadHandle
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream

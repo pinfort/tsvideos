@@ -13,17 +13,6 @@ spring:
       minimum-idle: 5
       maximum-pool-size: 10
       auto-commit: false
-samba:
-  video-store-nas:
-    url: ${VIDEO_STORE_NAS_URL:smb://localhost:139/alice}
-    username: ${VIDEO_STORE_NAS_USERNAME:pinfort}
-    password: ${VIDEO_STORE_NAS_PASSWORD:password}
-    base-dir: ${VIDEO_STORE_NAS_BASE_DIR:}
-  original-store-nas:
-    url: ${ORIGINAL_STORE_NAS_URL:smb://localhost:139/bob}
-    username: ${ORIGINAL_STORE_NAS_USERNAME:pinfort}
-    password: ${ORIGINAL_STORE_NAS_PASSWORD:password}
-    base-dir: ${ORIGINAL_STORE_NAS_BASE_DIR:}
 processor-tool:
   ts-splitter-path: ${TS_SPLITTER_PATH:C:\tools\TsSplitter\TsSplitter.exe}
   amatsukaze-add-task-path: ${AMATSUKAZE_ADD_TASK_PATH:C:\tools\Amatsukaze\exe_files\AmatsukazeAddTask.exe}

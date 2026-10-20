@@ -1,7 +1,7 @@
 package me.pinfort.tsvideos.core.component
 
 import me.pinfort.tsvideos.core.config.ProcessingRetryConfigurationProperties
-import me.pinfort.tsvideos.core.storage.NasAuthenticationException
+import me.pinfort.tsvideos.storage.api.NasAuthenticationException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.io.FileNotFoundException

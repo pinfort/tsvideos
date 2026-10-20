@@ -27,7 +27,7 @@ import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
 import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import me.pinfort.tsvideos.core.external.database.mapper.SplittedFileMapper
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasStore
 import org.slf4j.Logger
 import java.nio.file.Path
 import java.time.LocalDateTime

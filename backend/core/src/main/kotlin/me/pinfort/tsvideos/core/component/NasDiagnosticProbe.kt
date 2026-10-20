@@ -2,7 +2,7 @@ package me.pinfort.tsvideos.core.component
 
 import me.pinfort.tsvideos.core.domain.DiagnosticCheck
 import me.pinfort.tsvideos.core.domain.DiagnosticStatus
-import me.pinfort.tsvideos.core.external.samba.DiagnosticNasClient
+import me.pinfort.tsvideos.storage.api.DiagnosticNasClient
 import org.springframework.stereotype.Component
 import java.util.UUID
 

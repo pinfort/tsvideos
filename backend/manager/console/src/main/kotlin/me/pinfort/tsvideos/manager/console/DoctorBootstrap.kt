@@ -9,8 +9,8 @@ import me.pinfort.tsvideos.core.component.NasDiagnosticProbe
 import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
 import me.pinfort.tsvideos.core.domain.DiagnosticCheck
 import me.pinfort.tsvideos.core.domain.DiagnosticStatus
-import me.pinfort.tsvideos.core.external.samba.DiagnosticNasClient
 import me.pinfort.tsvideos.manager.console.commands.Doctor
+import me.pinfort.tsvideos.storage.api.DiagnosticNasClient
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.core.env.StandardEnvironment
@@ -42,7 +42,14 @@ object DoctorBootstrap {
                 }
                 return 1
             }
-        val doctor = Doctor(EnvironmentDiagnosticCommand(environment, DatabaseDiagnosticProbe(), NasDiagnosticProbe(DiagnosticNasClient())))
+        val doctor =
+            Doctor(
+                EnvironmentDiagnosticCommand(
+                    environment,
+                    DatabaseDiagnosticProbe(),
+                    NasDiagnosticProbe(DiagnosticNasClient.create()),
+                ),
+            )
         return try {
             doctor.parseManager(commandArguments(args).drop(1))
             0

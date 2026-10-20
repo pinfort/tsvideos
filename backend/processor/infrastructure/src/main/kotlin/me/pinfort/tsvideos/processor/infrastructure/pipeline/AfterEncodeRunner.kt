@@ -21,8 +21,8 @@ import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.external.tool.VideoResolutionProbeClient
-import me.pinfort.tsvideos.core.storage.NasStore
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
+import me.pinfort.tsvideos.storage.api.NasStore
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 import java.io.File

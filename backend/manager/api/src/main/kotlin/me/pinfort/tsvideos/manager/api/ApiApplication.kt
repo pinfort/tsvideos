@@ -6,6 +6,7 @@ import org.springframework.boot.runApplication
 
 @SpringBootApplication(
     scanBasePackages = [
+        "me.pinfort.tsvideos.storage",
         "me.pinfort.tsvideos.core",
         "me.pinfort.tsvideos.manager",
     ],

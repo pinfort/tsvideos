@@ -11,6 +11,7 @@ import kotlin.system.exitProcess
 @MapperScan("me.pinfort.tsvideos.core.external.database.mapper")
 @SpringBootApplication(
     scanBasePackages = [
+        "me.pinfort.tsvideos.storage",
         "me.pinfort.tsvideos.core",
         "me.pinfort.tsvideos.console.common",
         "me.pinfort.tsvideos.processor",

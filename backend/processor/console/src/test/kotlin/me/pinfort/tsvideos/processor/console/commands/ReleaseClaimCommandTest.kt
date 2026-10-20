@@ -13,7 +13,7 @@ import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.UploadManifest
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasStore
 import java.io.File
 
 class ReleaseClaimCommandTest :

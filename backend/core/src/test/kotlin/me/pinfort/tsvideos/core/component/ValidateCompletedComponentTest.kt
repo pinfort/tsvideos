@@ -13,7 +13,7 @@ import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.SplittedFile
-import me.pinfort.tsvideos.core.external.samba.NasComponent
+import me.pinfort.tsvideos.storage.api.NasComponent
 import org.slf4j.Logger
 import java.time.LocalDateTime
 

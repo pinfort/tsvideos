@@ -1,14 +1,14 @@
 package me.pinfort.tsvideos.core.component
 
-import me.pinfort.tsvideos.core.external.samba.SambaClient
-import me.pinfort.tsvideos.core.storage.NasStore
+import me.pinfort.tsvideos.storage.api.NasPaths
+import me.pinfort.tsvideos.storage.api.NasStore
 import org.springframework.stereotype.Component
 import java.nio.file.Path
 
 @Component
 class NasDestinationResolver(
     private val normalizeComponent: NormalizeComponent,
-    private val sambaClient: SambaClient,
+    private val nasPaths: NasPaths,
 ) {
     fun resolve(
         recordingDirectory: Path,
@@ -16,6 +16,6 @@ class NasDestinationResolver(
         nasType: NasStore,
     ): String {
         val directory = normalizeComponent.normalize(recordingDirectory.fileName.toString())
-        return sambaClient.resolvePathUnderBaseDir(nasType, "${directory.take(1)}/$directory/$fileName")
+        return nasPaths.resolvePathUnderBaseDir(nasType, "${directory.take(1)}/$directory/$fileName")
     }
 }
