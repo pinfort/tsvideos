@@ -1,6 +1,8 @@
 package me.pinfort.tsvideos.manager.api.controller
 
+import me.pinfort.tsvideos.core.command.LibraryProgramSearchCommand
 import me.pinfort.tsvideos.core.command.ProgramCommand
+import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
 import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.manager.api.exception.ProgramNotFoundException
@@ -20,6 +22,7 @@ import java.time.format.DateTimeParseException
 @RestController
 class ProgramController(
     private val programCommand: ProgramCommand,
+    private val librarySearch: LibraryProgramSearchCommand,
 ) {
     @GetMapping("/api/v1/programs")
     fun index(
@@ -38,31 +41,22 @@ class ProgramController(
         @RequestParam(name = "collectionId", required = false) collectionId: Long?,
         @RequestParam(name = "libraryTagId", required = false) libraryTagId: Long?,
     ): SearchResponse {
-        val query =
+        val (query, filter) =
             try {
-                ProgramSearchQuery(
-                    name,
-                    channel,
-                    parseLocalDateTime(recordedFrom),
-                    parseLocalDateTime(recordedTo),
-                    status,
-                    minDrops,
-                    maxDrops,
-                    fileType,
-                    sort,
-                    direction,
-                    limit,
-                    offset,
-                    collectionId,
-                    libraryTagId,
-                )
+                // Timestamps are parsed first and the library filter is checked before the ledger query, keeping
+                // the order in which invalid parameters are reported.
+                val from = parseLocalDateTime(recordedFrom)
+                val to = parseLocalDateTime(recordedTo)
+                val filter = LibraryProgramFilter(collectionId, libraryTagId)
+                ProgramSearchQuery(name, channel, from, to, status, minDrops, maxDrops, fileType, sort, direction, limit, offset) to filter
             } catch (_: DateTimeParseException) {
                 throw ResponseStatusException(HttpStatus.BAD_REQUEST, "recording timestamps must be ISO local date-times")
             } catch (error: IllegalArgumentException) {
-                // Only ProgramSearchQuery's init-block `require`s can throw here; their messages are static and safe to return.
+                // Only the init-block `require`s of LibraryProgramFilter and ProgramSearchQuery can throw here; their
+                // messages are static and safe to return.
                 throw ResponseStatusException(HttpStatus.BAD_REQUEST, error.message)
             }
-        val page = programCommand.search(query)
+        val page = librarySearch.search(query, filter)
         return SearchResponse(page.items, page.total, page.limit, page.offset)
     }
 

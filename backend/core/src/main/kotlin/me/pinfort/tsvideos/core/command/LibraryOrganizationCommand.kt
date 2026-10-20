@@ -1,5 +1,7 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.catalog.LedgerLocks
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
 import me.pinfort.tsvideos.core.domain.DuplicateLibraryNameException
 import me.pinfort.tsvideos.core.domain.LibraryItemNotFoundException
 import me.pinfort.tsvideos.core.domain.LibraryKind
@@ -22,6 +24,8 @@ import java.util.Locale
 @Component
 class LibraryOrganizationCommand(
     private val mapper: LibraryOrganizationMapper,
+    private val programs: ProgramInventory,
+    private val ledgerLocks: LedgerLocks,
 ) {
     fun list(kind: LibraryKind): List<LibraryLabel> = mapper.list(kind)
 
@@ -36,7 +40,7 @@ class LibraryOrganizationCommand(
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun forProgram(programId: Long): ProgramOrganization {
         positive(programId)
-        if (mapper.findProgram(programId) == null) throw LibraryItemNotFoundException()
+        if (!programs.exists(programId)) throw LibraryItemNotFoundException()
         return ProgramOrganization(mapper.forProgram(LibraryKind.COLLECTION, programId), mapper.forProgram(LibraryKind.TAG, programId))
     }
 
@@ -96,7 +100,7 @@ class LibraryOrganizationCommand(
         positive(programId)
         // Program before label: recording deletion locks the program and then cascades into the associations,
         // so taking the program first keeps the two from deadlocking.
-        if (mapper.lockProgram(programId) == null || mapper.lock(kind, id) == null) throw LibraryItemNotFoundException()
+        if (!ledgerLocks.lockProgramRow(programId) || mapper.lock(kind, id) == null) throw LibraryItemNotFoundException()
         if (assigned) mapper.assign(kind, id, programId) else mapper.unassign(kind, id, programId)
     }
 
@@ -110,7 +114,7 @@ class LibraryOrganizationCommand(
         val key = GeneratedKeyHolder()
         // Same program-then-label order as assign. Reusing an existing tag still consumes an AUTO_INCREMENT
         // value (InnoDB upsert), which is harmless with BIGINT IDs.
-        if (mapper.lockProgram(programId) == null) throw LibraryItemNotFoundException()
+        if (!ledgerLocks.lockProgramRow(programId)) throw LibraryItemNotFoundException()
         mapper.reuse(LibraryKind.TAG, name, key(name), key)
         mapper.assign(LibraryKind.TAG, key.id, programId)
         return mapper.find(LibraryKind.TAG, key.id) ?: error("Assigned tag ${key.id} is not visible")

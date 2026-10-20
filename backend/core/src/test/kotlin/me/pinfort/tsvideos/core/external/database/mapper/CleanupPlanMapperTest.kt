@@ -9,6 +9,10 @@ import io.mockk.Called
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
+import me.pinfort.tsvideos.core.catalog.LedgerLocks
+import me.pinfort.tsvideos.core.catalog.LedgerSnapshots
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
 import me.pinfort.tsvideos.core.command.BulkLibraryCommand
 import me.pinfort.tsvideos.core.command.CleanupPlanCommand
 import me.pinfort.tsvideos.core.command.CreatedFileCommand
@@ -110,18 +114,17 @@ class CleanupPlanMapperTest : ExpectSpec() {
         val bulk =
             BulkLibraryCommand(
                 programs,
-                executedMapper,
-                splitMapper,
-                createdMapper,
-                mapper,
+                LedgerSnapshots(programMapper, executedMapper, splitMapper, createdMapper, mapper),
+                LedgerLocks(mapper, programMapper),
                 directories,
                 NormalizeComponent(),
                 transactionManager,
                 logger,
             )
+        val inventory = ProgramInventory(programMapper)
         return CleanupPlanCommand(
-            DuplicateReviewCommand(DuplicateProgramCommand(programMapper), createdMapper),
-            programMapper,
+            DuplicateReviewCommand(DuplicateProgramCommand(inventory), CreatedFileCatalog(createdMapper, logger)),
+            inventory,
             bulk,
             transactionManager,
         ) to

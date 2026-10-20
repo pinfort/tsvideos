@@ -1,9 +1,9 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.catalog.CatalogStatistics
 import me.pinfort.tsvideos.core.domain.StorageDuplicateCandidate
 import me.pinfort.tsvideos.core.domain.StorageOverview
 import me.pinfort.tsvideos.core.domain.StorageRecording
-import me.pinfort.tsvideos.core.external.database.mapper.StorageOverviewMapper
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
@@ -13,13 +13,13 @@ import java.util.Locale
 class StorageOverviewCommand(
     private val stats: LibraryStatsCommand,
     private val duplicates: DuplicateProgramCommand,
-    private val mapper: StorageOverviewMapper,
+    private val catalog: CatalogStatistics,
 ) {
-    // summarize() declares these same settings and detect() none, so both join this snapshot.
+    // summarize() declares these same settings and detect() and the catalog reads none, so all join this snapshot.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun overview(): StorageOverview {
         val totals = stats.summarize().totals
-        val references = mapper.references()
+        val references = catalog.storageReferences()
         val recordings =
             references.groupBy { it.programId }.mapValues { (id, rows) ->
                 StorageRecording(id, rows.first().programName, rows.distinctBy { it.fileId }.sumOf { registeredSize(it.size) })

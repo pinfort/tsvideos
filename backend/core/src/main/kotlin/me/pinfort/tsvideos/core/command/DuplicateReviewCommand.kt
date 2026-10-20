@@ -1,10 +1,10 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
 import me.pinfort.tsvideos.core.domain.DuplicateRecommendation
 import me.pinfort.tsvideos.core.domain.DuplicateReview
 import me.pinfort.tsvideos.core.domain.DuplicateReviewGroup
 import me.pinfort.tsvideos.core.domain.DuplicateReviewMember
-import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
@@ -12,20 +12,13 @@ import org.springframework.transaction.annotation.Transactional
 @Component
 class DuplicateReviewCommand(
     private val duplicates: DuplicateProgramCommand,
-    private val files: CreatedFileMapper,
+    private val files: CreatedFileCatalog,
 ) {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun review(): DuplicateReview {
         val groups = duplicates.detect()
-        // Batched instead of one query per member; chunked so a huge duplicate set stays within placeholder limits.
-        val movedFiles =
-            groups
-                .flatMap { group -> group.programs.map { it.executedFileId } }
-                .distinct()
-                .chunked(ID_CHUNK_SIZE)
-                .flatMap { ids -> files.selectMovedByExecutedFileIds(ids) }
-                .groupBy({ it.executedFileId }, { it.toDomain() })
-                .mapValues { (_, files) -> files.sortedBy { it.id } }
+        // Batched instead of one query per member.
+        val movedFiles = files.movedFilesByRecording(groups.flatMap { group -> group.programs.map { it.executedFileId } })
         return DuplicateReview(
             groups.map { group ->
                 // DuplicateGroup guarantees 2+ members, sorted by keep order so the recommended one comes first.
@@ -50,9 +43,5 @@ class DuplicateReviewCommand(
                 )
             },
         )
-    }
-
-    companion object {
-        private const val ID_CHUNK_SIZE = 1000
     }
 }

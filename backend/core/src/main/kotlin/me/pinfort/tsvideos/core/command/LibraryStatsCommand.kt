@@ -1,14 +1,14 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.catalog.CatalogStatistics
+import me.pinfort.tsvideos.core.catalog.FileStatsRow
+import me.pinfort.tsvideos.core.catalog.ProgramStatsRow
 import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.LibraryStats
 import me.pinfort.tsvideos.core.domain.LibraryStatsGroup
 import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
 import me.pinfort.tsvideos.core.domain.LibraryStatsTotals
 import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.external.database.dto.StatsFileDto
-import me.pinfort.tsvideos.core.external.database.dto.StatsProgramDto
-import me.pinfort.tsvideos.core.external.database.mapper.LibraryStatsMapper
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
@@ -16,15 +16,15 @@ import java.time.YearMonth
 
 @Component
 class LibraryStatsCommand(
-    private val mapper: LibraryStatsMapper,
+    private val catalog: CatalogStatistics,
 ) {
     // Rows are aggregated in Kotlin rather than SQL GROUP BY: each row is small at personal-library scale,
     // and the dedup/classification rules stay in one readable, testable place.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun summarize(query: LibraryStatsQuery = LibraryStatsQuery()): LibraryStats {
         // Both queries return one row per primary key (EXISTS does not multiply rows), so no deduplication is needed.
-        val programs = mapper.programs(query)
-        val files = mapper.files(query)
+        val programs = catalog.programs(query.recordedFrom, query.recordedTo)
+        val files = catalog.files(query.recordedFrom, query.recordedTo)
         val filesByExecuted = files.groupBy { it.executedFileId }
         val groupBy = query.groupBy
         val groups =
@@ -49,8 +49,8 @@ class LibraryStatsCommand(
     }
 
     private fun totals(
-        programs: List<StatsProgramDto>,
-        files: List<StatsFileDto>,
+        programs: List<ProgramStatsRow>,
+        files: List<FileStatsRow>,
     ): LibraryStatsTotals {
         val (original, rest) = files.partition { it.mime.equals(TS_MIME, ignoreCase = true) && it.encoding.equals(GZIP, ignoreCase = true) }
         val (encoded, other) =

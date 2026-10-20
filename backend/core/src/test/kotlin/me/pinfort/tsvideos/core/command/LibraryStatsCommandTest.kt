@@ -4,6 +4,7 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
+import me.pinfort.tsvideos.core.catalog.CatalogStatistics
 import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
 import me.pinfort.tsvideos.core.domain.LibraryStatsQuery.Group
 import me.pinfort.tsvideos.core.external.database.mapper.LibraryStatsMapper
@@ -29,7 +30,7 @@ import javax.sql.DataSource
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @MybatisTest
-@Import(LibraryStatsCommand::class, LibraryStatsCommandTest.ObservedMapper::class)
+@Import(LibraryStatsCommand::class, CatalogStatistics::class, LibraryStatsCommandTest.ObservedMapper::class)
 @SpringJUnitConfig
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
@@ -47,7 +48,10 @@ class LibraryStatsCommandTest : ExpectSpec() {
             @Qualifier("libraryStatsMapper") delegate: LibraryStatsMapper,
         ): LibraryStatsMapper =
             object : LibraryStatsMapper by delegate {
-                override fun programs(query: LibraryStatsQuery) = delegate.programs(query).also { afterPrograms() }
+                override fun programs(
+                    recordedFrom: LocalDateTime?,
+                    recordedTo: LocalDateTime?,
+                ) = delegate.programs(recordedFrom, recordedTo).also { afterPrograms() }
             }
     }
 

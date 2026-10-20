@@ -1,5 +1,8 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.catalog.CreatedFileSnapshot
+import me.pinfort.tsvideos.core.catalog.LedgerLocks
+import me.pinfort.tsvideos.core.catalog.LedgerSnapshots
 import me.pinfort.tsvideos.core.component.DirectoryNameComponent
 import me.pinfort.tsvideos.core.component.NormalizeComponent
 import me.pinfort.tsvideos.core.domain.BulkAction
@@ -12,13 +15,9 @@ import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.domain.BulkResult
 import me.pinfort.tsvideos.core.domain.BulkSnapshot
 import me.pinfort.tsvideos.core.domain.BulkTarget
+import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.InvalidBulkRequestException
 import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
-import me.pinfort.tsvideos.core.external.database.mapper.BulkLibraryMapper
-import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
-import me.pinfort.tsvideos.core.external.database.mapper.ExecutedFileMapper
-import me.pinfort.tsvideos.core.external.database.mapper.SplittedFileMapper
 import org.slf4j.Logger
 import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.stereotype.Component
@@ -36,10 +35,8 @@ import java.util.Locale
 @Component
 class BulkLibraryCommand(
     private val programs: ProgramCommand,
-    private val executed: ExecutedFileMapper,
-    private val splits: SplittedFileMapper,
-    private val created: CreatedFileMapper,
-    private val bulk: BulkLibraryMapper,
+    private val snapshots: LedgerSnapshots,
+    private val locks: LedgerLocks,
     private val directories: DirectoryNameComponent,
     private val normalize: NormalizeComponent,
     transactionManager: PlatformTransactionManager,
@@ -64,7 +61,7 @@ class BulkLibraryCommand(
     fun preview(input: BulkRequest): BulkPlan {
         val request = validate(input)
         return read.execute {
-            val context = Context(bulk.allFiles(), proposed(request))
+            val context = Context(snapshots.allCreatedFiles(), proposed(request))
             BulkPlan(request, request.ids.map { target(it, request, context) })
         }
     }
@@ -120,22 +117,15 @@ class BulkLibraryCommand(
         var mutating = false
         return try {
             write.execute {
-                // Same lock order for every bulk operation. Do not hold locks across targets.
-                val all = bulk.lockFiles()
+                // Same lock order for every bulk operation (see LedgerLocks). Do not hold locks across targets.
+                val all = locks.lockCreatedFiles()
                 if (guard != null) {
-                    bulk.lockAllPrograms()
-                    bulk.lockAllExecuted()
-                    bulk.lockAllSplits()
+                    locks.lockWholeLedger()
                     guard(id, successful)?.let { return@execute it }
                 }
-                val locked = bulk.lockProgram(id)
-                val program = locked?.let { programs.find(it) }
-                if (program == null) {
-                    return@execute BulkOutcome(id, BulkOutcomeStatus.NOT_FOUND, "Recording no longer exists")
-                }
-                bulk.lockExecuted(program.executedFileId)
-                bulk.lockSplits(program.executedFileId)
-                bulk.lockReferences(program.executedFileId)
+                val program =
+                    locks.lockProgramGraph(id)
+                        ?: return@execute BulkOutcome(id, BulkOutcomeStatus.NOT_FOUND, "Recording no longer exists")
                 val current = target(id, request, Context(all, proposed))
                 when {
                     current.fingerprint != fingerprint ->
@@ -246,7 +236,7 @@ class BulkLibraryCommand(
 
     /** Per-request data shared by every target, so each target costs a constant number of queries instead of O(N). */
     private inner class Context(
-        all: List<CreatedFileDto>,
+        all: List<CreatedFileSnapshot>,
         val proposed: Map<String, Int>,
     ) {
         // Normalized path key -> created_file ids registered at that path (not program ids).
@@ -255,7 +245,7 @@ class BulkLibraryCommand(
 
     private fun proposed(request: BulkRequest): Map<String, Int> =
         if (request.action == BulkAction.MOVE) {
-            bulk
+            snapshots
                 .createdFilesOfPrograms(request.ids)
                 .filter { safePath(it.file) }
                 .map { key(destination(it, requireNotNull(request.directory) { "MOVE requires a directory" })) }
@@ -266,7 +256,7 @@ class BulkLibraryCommand(
         }
 
     private fun destination(
-        file: CreatedFileDto,
+        file: CreatedFileSnapshot,
         directory: String,
     ): String =
         directories
@@ -279,16 +269,8 @@ class BulkLibraryCommand(
         request: BulkRequest,
         context: Context,
     ): BulkTarget {
-        val program = programs.find(id)
-        val snapshot =
-            program?.let {
-                BulkSnapshot(
-                    it,
-                    executed.find(it.executedFileId),
-                    splits.selectByExecutedFileId(it.executedFileId).sortedBy { f -> f.id },
-                    created.selectByExecutedFileId(it.executedFileId).sortedBy { f -> f.id },
-                )
-            }
+        val snapshot = snapshots.programSnapshot(id)?.let { BulkSnapshot(it) }
+        val program = snapshot?.program
         val files = snapshot?.createdFiles.orEmpty()
         val destinations =
             if (request.action == BulkAction.MOVE && files.all { safePath(it.file) }) {
@@ -296,7 +278,7 @@ class BulkLibraryCommand(
             } else {
                 emptyMap()
             }
-        val refs = program?.let { bulk.references(it.executedFileId) }.orEmpty()
+        val refs = program?.let { snapshots.referencingPrograms(it.executedFileId) }.orEmpty()
         val ownIds = files.map { it.id }.toSet()
         val shared = files.any { file -> context.owners[key(file.file)].orEmpty().any { it !in ownIds } }
         val duplicate = files.map { key(it.file) }.distinct().size != files.size
@@ -308,11 +290,11 @@ class BulkLibraryCommand(
         val reason =
             when {
                 snapshot == null -> "Recording not found"
-                program.status != Program.Status.COMPLETED -> "Only COMPLETED recordings can be changed"
+                snapshot.program.status != Program.Status.COMPLETED -> "Only COMPLETED recordings can be changed"
                 snapshot.executed == null -> "Original recording metadata missing"
                 refs.any { it != id } || shared || duplicate -> "Shared file paths or recording metadata; operation refused"
                 files.isEmpty() && request.action == BulkAction.MOVE -> "No generated files to move"
-                files.any { it.status != CreatedFileDto.Status.FILE_MOVED } -> "Unfinished generated files; operation refused"
+                files.any { it.status != CreatedFile.Status.FILE_MOVED } -> "Unfinished generated files; operation refused"
                 files.any { !safePath(it.file) || it.size < 0 } -> "Unsafe NAS path; operation refused"
                 collision -> "Destination is already referenced or duplicated"
                 unchanged -> "Destination is unchanged"
@@ -326,7 +308,7 @@ class BulkLibraryCommand(
     }
 
     /**
-     * Explicit field-by-field serialization: adding a field to a DTO must be reflected here
+     * Explicit field-by-field serialization: adding a field to a snapshot type must be reflected here
      * deliberately, and no value relies on an implementation-defined toString().
      * Values are length-prefixed so user text cannot forge delimiters.
      */

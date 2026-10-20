@@ -7,10 +7,13 @@ import org.apache.ibatis.annotations.InsertProvider
 import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Options
 import org.apache.ibatis.annotations.Param
-import org.apache.ibatis.annotations.Select
 import org.apache.ibatis.annotations.SelectProvider
 import org.apache.ibatis.annotations.UpdateProvider
 
+/**
+ * Library-owned labels and associations. The `program` joins in [LibraryOrganizationSql] (counts and per-program
+ * lists) are read-only reference queries; program existence checks and row locks go through catalog.
+ */
 @Mapper
 interface LibraryOrganizationMapper {
     @SelectProvider(type = LibraryOrganizationSql::class, method = "list")
@@ -27,16 +30,6 @@ interface LibraryOrganizationMapper {
     @SelectProvider(type = LibraryOrganizationSql::class, method = "lock")
     fun lock(
         @Param("kind") kind: LibraryKind,
-        @Param("id") id: Long,
-    ): Long?
-
-    @Select("SELECT id FROM program WHERE id=#{id} FOR UPDATE")
-    fun lockProgram(
-        @Param("id") id: Long,
-    ): Long?
-
-    @Select("SELECT id FROM program WHERE id=#{id}")
-    fun findProgram(
         @Param("id") id: Long,
     ): Long?
 

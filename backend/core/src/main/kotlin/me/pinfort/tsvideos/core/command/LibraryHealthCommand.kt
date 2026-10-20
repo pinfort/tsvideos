@@ -1,7 +1,11 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
+import me.pinfort.tsvideos.core.catalog.ProgramSummary
 import me.pinfort.tsvideos.core.domain.HealthFinding
+import me.pinfort.tsvideos.core.domain.HealthProgram
 import me.pinfort.tsvideos.core.domain.LibraryHealth
+import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.VerificationStatus
 import me.pinfort.tsvideos.core.external.database.mapper.LibraryHealthMapper
 import org.slf4j.LoggerFactory
@@ -15,25 +19,31 @@ class HealthScanAlreadyRunning : RuntimeException("Verification is already runni
 @Component
 class LibraryHealthCommand(
     private val mapper: LibraryHealthMapper,
+    private val programs: ProgramInventory,
 ) {
+    // The catalog reads join this transaction, so findings and program names come from one snapshot.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     fun read(): LibraryHealth {
         val completed = mapper.completed()?.toDomain()
         val findings =
             completed
                 ?.let { run ->
-                    val names = mapper.findingPrograms(run.id).associate { it.id to it.name }
-                    mapper.findings(run.id).map { HealthFinding(it.toDomain(), names[it.programId], it.programId !in names) }
+                    val rows = mapper.findings(run.id)
+                    // A finding whose program is absent from the catalog refers to a deleted program.
+                    val names = programs.summaries(rows.map { it.programId }).associate { it.id to it.name }
+                    rows.map { HealthFinding(it.toDomain(), names[it.programId], it.programId !in names) }
                 }.orEmpty()
         return LibraryHealth(
-            mapper.failedPrograms(),
-            mapper.droppedPrograms(),
+            programs.withStatus(Program.Status.ERROR).map { it.toHealthProgram() },
+            programs.withDrops().map { it.toHealthProgram() },
             mapper.latest()?.toDomain(),
             completed,
             findings,
             completed?.let { VerificationStatus.entries.associateWith { status -> findings.count { it.finding.status == status } } },
         )
     }
+
+    private fun ProgramSummary.toHealthProgram() = HealthProgram(id, name, status, drops)
 }
 
 @Component

@@ -1,16 +1,16 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.core.catalog.ProgramInventory
 import me.pinfort.tsvideos.core.domain.DuplicateGroup
 import me.pinfort.tsvideos.core.domain.DuplicateKeepCriterion
 import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import org.springframework.stereotype.Component
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 
 @Component
 class DuplicateProgramCommand(
-    private val programMapper: ProgramMapper,
+    private val programs: ProgramInventory,
 ) {
     companion object {
         // 0.5 以下だと、長時間の録画とそれに含まれる別々の番組がまとめてひとつのグループになりうる
@@ -47,7 +47,7 @@ class DuplicateProgramCommand(
 
     // 全件をメモリに載せて判定する。program が数万件規模である前提
     fun detect(minOverlapRatio: Double = DEFAULT_MIN_OVERLAP_RATIO): List<DuplicateGroup> =
-        group(programMapper.selectAll().map { it.toDomain() }, minOverlapRatio)
+        group(programs.recordedPrograms(), minOverlapRatio)
 
     /**
      * 同一チャンネルで、録画時間帯の重なりが長い方の録画の [minOverlapRatio] 以上ある番組同士をまとめる。

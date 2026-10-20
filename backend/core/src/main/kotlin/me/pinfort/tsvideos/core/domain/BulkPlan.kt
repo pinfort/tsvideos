@@ -1,8 +1,7 @@
 package me.pinfort.tsvideos.core.domain
 
-import me.pinfort.tsvideos.core.external.database.dto.CreatedFileDto
-import me.pinfort.tsvideos.core.external.database.dto.ExecutedFileDto
-import me.pinfort.tsvideos.core.external.database.dto.SplittedFileDto
+import me.pinfort.tsvideos.core.catalog.CreatedFileSnapshot
+import me.pinfort.tsvideos.core.catalog.ProgramSnapshot
 
 enum class BulkAction { DELETE, MOVE }
 
@@ -33,12 +32,18 @@ data class BulkApplyRequest(
     val fingerprints: Map<Long, String>,
 )
 
+/**
+ * Published as-is by `POST /api/v1/programs/bulk/preview`: the property names, values and enum names must stay those
+ * of the stored rows. Built from catalog's [ProgramSnapshot].
+ */
 data class BulkSnapshot(
     val program: Program,
-    val executed: ExecutedFileDto?,
-    val splitFiles: List<SplittedFileDto>,
-    val createdFiles: List<CreatedFileDto>,
-)
+    val executed: ExecutedFile?,
+    val splitFiles: List<SplittedFile>,
+    val createdFiles: List<CreatedFileSnapshot>,
+) {
+    constructor(snapshot: ProgramSnapshot) : this(snapshot.program, snapshot.executed, snapshot.splitFiles, snapshot.createdFiles)
+}
 
 data class BulkTarget(
     val id: Long,
