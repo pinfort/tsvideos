@@ -35,7 +35,7 @@ try:
     else:
         raise AssertionError("MariaDB did not become ready")
     docker("exec", "-i", container, "mariadb", "-uroot", "-psmoke", "test",
-           input=(root / "core/src/test/resources/ddl/01_create_database.sql").read_text())
+           input="\n".join(p.read_text() for p in sorted((root / "database-schema/src/main/resources/db/migrations").glob("*.sql"))))
     port = docker("port", container, "3306/tcp").split(":")[-1]
     with tempfile.TemporaryDirectory(prefix="tsvideos-shutdown-") as directory:
         folder = Path(directory)

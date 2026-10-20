@@ -1,6 +1,6 @@
 # ライブラリの状態と保存済みの検証結果
 
-このバージョンをデプロイする前に (新規・既存のどちらの環境でも)、アプリケーションデータベースへ `core/src/main/resources/db/migrations/051_library_health.sql` を適用する。このリポジトリはスキーマのマイグレーションを自動では実行しない。このマイグレーションが作るのは名前空間付きの `health_verification_run` と `health_verification_finding` だけで、録画には手を加えない。
+このバージョンをデプロイする前に (新規・既存のどちらの環境でも)、アプリケーションデータベースへ `database-schema/src/main/resources/db/migrations/051_library_health.sql` を適用する。このリポジトリはスキーマのマイグレーションを自動では実行しない。このマイグレーションが作るのは名前空間付きの `health_verification_run` と `health_verification_finding` だけで、録画には手を加えない。
 
 `GET /api/v1/health/library` は、処理失敗 (`ERROR`) の番組、既知の正のドロップ数を持つ番組、保存済みの検証状態を読む。孤立した番組 (録画が見つからない番組) も表示する。NAS にはアクセスしない。`POST /api/v1/health/library/verify` は CLI の verify と同じ `LibraryVerificationCommand` を明示的に呼び、更新後の状態を返す。web の `/health` ページはブラウザからのリクエストに同一オリジンの Next ルートを使い、バックエンドへのリクエストは `frontend/lib/api/health` に残す。広い CORS 許可は追加しない。
 

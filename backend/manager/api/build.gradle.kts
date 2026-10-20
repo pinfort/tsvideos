@@ -6,6 +6,9 @@ plugins {
     alias(libs.plugins.ktlint)
 }
 
+// 実行時クラスパスに database-schema が入らないことの検査 (checkDatabaseSchemaRuntimeIsolation、check に含まれる)
+apply(from = rootDir.resolve("database-schema/runtime-isolation.gradle.kts"))
+
 kotlin {
     jvmToolchain(24)
 
@@ -38,6 +41,8 @@ dependencies {
     testImplementation(libs.testcontainers.junit5)
     testImplementation(libs.testcontainers.mariadb)
     testImplementation(libs.testcontainers.spring.boot)
+    // DATABASE_CONNECTION=jdbc:tc:...?TC_INITSCRIPT=ddl/01_create_database.sql (CI) の初期化スクリプト
+    testImplementation(testFixtures(project(":database-schema")))
 }
 
 tasks.test {

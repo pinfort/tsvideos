@@ -29,7 +29,7 @@ try:
             break
         except (subprocess.CalledProcessError, OSError): time.sleep(1)
     else: raise RuntimeError('Fixtures did not start')
-    sql((root / 'core/src/test/resources/ddl/01_create_database.sql').read_text())
+    sql('\n'.join(p.read_text() for p in sorted((root / 'database-schema/src/main/resources/db/migrations').glob('*.sql'))))
     with tempfile.TemporaryDirectory(prefix=prefix) as directory, socket.socket() as listener:
         listener.bind(('127.0.0.1', 0)); listener.listen(32)
         work = Path(directory)

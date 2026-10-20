@@ -55,23 +55,6 @@ tasks.processResources {
     }
 }
 
-// DDLの単一の情報源は db/migrations。Testcontainers(TC_INITSCRIPT=ddl/01_create_database.sql)用に連結して生成する
-val generateTestDdl by tasks.registering {
-    val migrations = fileTree("src/main/resources/db/migrations") { include("*.sql") }
-    val output = layout.buildDirectory.file("generated/test-ddl/ddl/01_create_database.sql")
-    inputs.files(migrations)
-    outputs.file(output)
-    doLast {
-        val file = output.get().asFile
-        file.parentFile.mkdirs()
-        file.writeText(migrations.sortedBy { it.name }.joinToString("\n") { it.readText() })
-    }
-}
-
-sourceSets.test {
-    resources.srcDir(generateTestDdl.map { layout.buildDirectory.dir("generated/test-ddl") })
-}
-
 dependencies {
     // storage の公開型 (NasStore など) は core の公開シグネチャにも出る。利用側も storage へ明示的に依存する
     implementation(project(":storage"))
@@ -90,6 +73,8 @@ dependencies {
     testImplementation(libs.kotest.extensions.spring)
     testImplementation(libs.mockk)
     testImplementation(libs.mybatis.spring.test)
+    // Testcontainers の初期化スクリプト ddl/01_create_database.sql、シードデータ、保守用 SQL (database-schema)
+    testImplementation(testFixtures(project(":database-schema")))
 
     // testcontainers
     testImplementation(libs.testcontainers.core)

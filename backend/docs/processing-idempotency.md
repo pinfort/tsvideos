@@ -1,7 +1,7 @@
 # 処理の同一性と整合 (#64)
 
 既存の環境をアップグレードする前に、processor のコマンドを停止し、アプリケーションデータベースへ
-`core/src/main/resources/db/migrations/064_processing_job.sql` を適用する。
+`database-schema/src/main/resources/db/migrations/064_processing_job.sql` を適用する。
 このスクリプトは新しいテーブルを作成するだけで、既存の登録は変更しない。
 新規のデプロイでも、元のテーブルを作成した後にこれを適用する必要がある。Testcontainers は
 初期化スクリプトで同じテーブル定義を使う。
