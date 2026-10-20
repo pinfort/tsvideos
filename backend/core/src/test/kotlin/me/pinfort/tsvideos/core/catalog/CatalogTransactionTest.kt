@@ -268,6 +268,13 @@ class CatalogTransactionTest : ExpectSpec() {
         context("reads") {
             expect("join the caller's repeatable-read snapshot") {
                 seed()
+                sql(
+                    listOf(
+                        "INSERT INTO library_collection(id,name,name_key) VALUES(900,'all','all')",
+                        "INSERT INTO library_collection_program(label_id,program_id) VALUES(900,4)",
+                    ),
+                )
+                val collection = LibraryProgramFilter(collectionId = 900)
                 snapshotRead.execute {
                     inventory.allIds() shouldBe listOf(4L)
                     sql(
@@ -275,6 +282,7 @@ class CatalogTransactionTest : ExpectSpec() {
                             "INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) " +
                                 "VALUES(5,'late.m2ts',0,1,'2026-01-02','1','late','channel',1,'SPLITTED')",
                             "INSERT INTO program(id,name,executed_file_id,status) VALUES(6,'late',5,'COMPLETED')",
+                            "INSERT INTO library_collection_program(label_id,program_id) VALUES(900,6)",
                         ),
                     )
                     inventory.allIds() shouldBe listOf(4L)
@@ -282,8 +290,14 @@ class CatalogTransactionTest : ExpectSpec() {
                     inventory.summaries(listOf(4, 6)).map { it.id } shouldBe listOf(4L)
                     snapshots.programSnapshot(6) shouldBe null
                     librarySearch.search(ProgramSearchQuery()).total shouldBe 1
+                    // The filtered library query joins the same snapshot for both its page and its count.
+                    librarySearch.search(ProgramSearchQuery(), collection).let { page ->
+                        page.items.map { it.id } shouldBe listOf(4L)
+                        page.total shouldBe 1
+                    }
                 }
                 inventory.allIds() shouldBe listOf(4L, 6L)
+                librarySearch.search(ProgramSearchQuery(), collection).total shouldBe 2
             }
         }
 
@@ -319,6 +333,8 @@ class CatalogTransactionTest : ExpectSpec() {
                         "INSERT INTO library_collection_program(label_id,program_id) SELECT 900, id FROM program",
                         "INSERT INTO library_tag(id,name,name_key) VALUES(901,'pick','pick')",
                         "INSERT INTO library_tag_program(label_id,program_id) VALUES(901,2),(901,4),(901,6)",
+                        "INSERT INTO library_collection(id,name,name_key) VALUES(902,'subset','subset')",
+                        "INSERT INTO library_collection_program(label_id,program_id) VALUES(902,1),(902,2),(902,3),(902,5)",
                     ),
                 )
             }
@@ -334,28 +350,64 @@ class CatalogTransactionTest : ExpectSpec() {
                         ProgramSearchQuery(recordedFrom = LocalDateTime.parse("2026-10-02T00:00:00")),
                         ProgramSearchQuery(recordedTo = LocalDateTime.parse("2026-10-03T00:00:00")),
                         ProgramSearchQuery(minDrops = 0, maxDrops = 5),
+                        ProgramSearchQuery(minDrops = 2),
+                        ProgramSearchQuery(maxDrops = 2),
                         ProgramSearchQuery(fileType = ProgramSearchQuery.FileType.TS),
                         ProgramSearchQuery(fileType = ProgramSearchQuery.FileType.ENCODED),
+                        // Every ledger condition at once, with a non-default order.
+                        ProgramSearchQuery(
+                            name = "news",
+                            channel = "BS1",
+                            recordedFrom = LocalDateTime.parse("2026-10-01T00:00:00"),
+                            recordedTo = LocalDateTime.parse("2026-10-05T00:00:00"),
+                            status = Program.Status.COMPLETED,
+                            minDrops = 0,
+                            maxDrops = 9,
+                            fileType = ProgramSearchQuery.FileType.TS,
+                            sort = ProgramSearchQuery.Sort.SIZE,
+                            direction = ProgramSearchQuery.Direction.ASC,
+                        ),
                     )
 
             expect("with a collection holding every program equals the catalog search, including order, total and paging") {
                 seedSearch()
                 for (query in queries) {
-                    for (page in listOf(query, query.copy(limit = 2, offset = 1))) {
+                    val total = programs.search(query).total.toInt()
+                    val pages =
+                        listOf(
+                            query,
+                            query.copy(limit = 2, offset = 1),
+                            query.copy(limit = 2, offset = total),
+                            query.copy(limit = 2, offset = total + 3),
+                        )
+                    for (page in pages) {
                         librarySearch.search(page, LibraryProgramFilter(collectionId = 900)) shouldBe programs.search(page)
                     }
                 }
             }
 
-            expect("narrows the catalog result to tagged programs and keeps its order and paging") {
+            expect("narrows the catalog result to each collection/tag combination and keeps its order, total and paging") {
                 seedSearch()
-                val tagged = setOf(2L, 4L, 6L)
-                for (query in queries) {
-                    val full = programs.search(query.copy(limit = 500, offset = 0)).items.filter { it.id in tagged }
-                    val filter = LibraryProgramFilter(collectionId = 900, libraryTagId = 901)
-                    librarySearch.search(query, filter).items shouldBe full
-                    librarySearch.search(query, filter).total shouldBe full.size.toLong()
-                    librarySearch.search(query.copy(limit = 1, offset = 1), filter).items shouldBe full.drop(1).take(1)
+                val filters =
+                    mapOf(
+                        LibraryProgramFilter(collectionId = 902) to setOf(1L, 2L, 3L, 5L),
+                        LibraryProgramFilter(libraryTagId = 901) to setOf(2L, 4L, 6L),
+                        LibraryProgramFilter(collectionId = 900, libraryTagId = 901) to setOf(2L, 4L, 6L),
+                        LibraryProgramFilter(collectionId = 902, libraryTagId = 901) to setOf(2L),
+                    )
+                for ((filter, members) in filters) {
+                    for (query in queries) {
+                        val full = programs.search(query.copy(limit = 500, offset = 0)).items.filter { it.id in members }
+                        librarySearch.search(query, filter).items shouldBe full
+                        // Interior, last, at-end and beyond-end pages; total stays the full filtered count throughout.
+                        for (offset in listOf(1, full.size - 1, full.size, full.size + 3).filter { it >= 0 }.distinct()) {
+                            val page = librarySearch.search(query.copy(limit = 1, offset = offset), filter)
+                            page.items shouldBe full.drop(offset).take(1)
+                            page.total shouldBe full.size.toLong()
+                            page.limit shouldBe 1
+                            page.offset shouldBe offset
+                        }
+                    }
                 }
                 librarySearch.search(ProgramSearchQuery(), LibraryProgramFilter(libraryTagId = 999)).total shouldBe 0
             }
