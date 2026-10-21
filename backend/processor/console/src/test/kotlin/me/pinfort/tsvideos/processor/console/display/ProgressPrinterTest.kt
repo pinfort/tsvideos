@@ -25,12 +25,12 @@ class ProgressPrinterTest :
         }
 
         context("render") {
-            expect("prints the label, progress bar and percent for the current ratio") {
+            expect("starts the first frame of a transfer on its own line, without a leading carriage return") {
                 val printer = ProgressPrinter("Compressing")
 
                 printer.render(500, 1000)
 
-                captured.toString() shouldBe "\rCompressing [${bar(50)}] 50%"
+                captured.toString() shouldBe "Compressing [${bar(50)}] 50%"
             }
 
             expect("emits nothing when the total size is not positive") {
@@ -67,17 +67,37 @@ class ProgressPrinterTest :
 
                 printer.render(1000, 1000)
 
+                captured.toString() shouldBe "Compressing [${bar(100)}] 100%" + System.lineSeparator()
+            }
+
+            expect("overwrites the open bar line once the transfer reaches 100%") {
+                val printer = ProgressPrinter("Compressing")
+                printer.render(500, 1000)
+                captured.reset()
+
+                printer.render(1000, 1000)
+
                 captured.toString() shouldBe "\rCompressing [${bar(100)}] 100%" + System.lineSeparator()
             }
 
-            expect("re-renders after the total size changes even if the percent matches") {
+            expect("starts the next transfer on a new line instead of overwriting the previous line") {
+                val printer = ProgressPrinter("Uploading")
+                printer.render(1000, 1000)
+                captured.reset()
+
+                printer.render(0, 1000)
+
+                captured.toString() shouldBe "Uploading [${bar(0)}] 0%"
+            }
+
+            expect("ends an unfinished bar before re-rendering for a new total size even if the percent matches") {
                 val printer = ProgressPrinter("Compressing")
                 printer.render(500, 1000)
                 captured.reset()
 
                 printer.render(1, 2)
 
-                captured.toString() shouldBe "\rCompressing [${bar(50)}] 50%"
+                captured.toString() shouldBe System.lineSeparator() + "Compressing [${bar(50)}] 50%"
             }
 
             expect("clamps the percent to 100 when bytesTransferred exceeds totalBytes") {
@@ -85,7 +105,7 @@ class ProgressPrinterTest :
 
                 printer.render(1500, 1000)
 
-                captured.toString() shouldBe "\rCompressing [${bar(100)}] 100%" + System.lineSeparator()
+                captured.toString() shouldBe "Compressing [${bar(100)}] 100%" + System.lineSeparator()
             }
         }
     })
