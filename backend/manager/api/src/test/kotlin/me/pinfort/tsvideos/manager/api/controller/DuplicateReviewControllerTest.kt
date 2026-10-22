@@ -5,15 +5,15 @@ import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.mockk.every
 import io.mockk.verify
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.core.command.DuplicateReviewCommand
-import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.DuplicateGroup
 import me.pinfort.tsvideos.core.domain.DuplicateKeepCriterion
 import me.pinfort.tsvideos.core.domain.DuplicateRecommendation
 import me.pinfort.tsvideos.core.domain.DuplicateReview
 import me.pinfort.tsvideos.core.domain.DuplicateReviewGroup
 import me.pinfort.tsvideos.core.domain.DuplicateReviewMember
-import me.pinfort.tsvideos.core.domain.Program
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
 import org.springframework.test.web.servlet.MockMvc

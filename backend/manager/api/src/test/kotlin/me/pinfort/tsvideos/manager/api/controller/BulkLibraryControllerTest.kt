@@ -6,7 +6,11 @@ import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.mockk.every
 import jakarta.servlet.ServletException
-import me.pinfort.tsvideos.core.catalog.CreatedFileSnapshot
+import me.pinfort.tsvideos.catalog.api.CreatedFileSnapshot
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.ExecutedFile
+import me.pinfort.tsvideos.catalog.domain.Program
+import me.pinfort.tsvideos.catalog.domain.SplittedFile
 import me.pinfort.tsvideos.core.command.BulkLibraryCommand
 import me.pinfort.tsvideos.core.domain.BulkAction
 import me.pinfort.tsvideos.core.domain.BulkOutcome
@@ -16,11 +20,7 @@ import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.domain.BulkResult
 import me.pinfort.tsvideos.core.domain.BulkSnapshot
 import me.pinfort.tsvideos.core.domain.BulkTarget
-import me.pinfort.tsvideos.core.domain.CreatedFile
-import me.pinfort.tsvideos.core.domain.ExecutedFile
 import me.pinfort.tsvideos.core.domain.InvalidBulkRequestException
-import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.domain.SplittedFile
 import org.hamcrest.Matchers.aMapWithSize
 import org.hamcrest.Matchers.hasKey
 import org.hamcrest.Matchers.not

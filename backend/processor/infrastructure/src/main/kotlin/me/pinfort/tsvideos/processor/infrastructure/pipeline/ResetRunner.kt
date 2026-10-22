@@ -1,11 +1,11 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
-import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
+import me.pinfort.tsvideos.catalog.api.ProgramCommand
+import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
+import me.pinfort.tsvideos.catalog.domain.SplittedFile
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
-import me.pinfort.tsvideos.core.command.ProgramCommand
-import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
-import me.pinfort.tsvideos.core.domain.SplittedFile
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 import java.io.File

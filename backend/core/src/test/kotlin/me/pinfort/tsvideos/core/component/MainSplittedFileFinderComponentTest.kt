@@ -3,8 +3,8 @@ package me.pinfort.tsvideos.core.component
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.domain.ExecutedFile
-import me.pinfort.tsvideos.core.domain.SplittedFile
+import me.pinfort.tsvideos.catalog.domain.ExecutedFile
+import me.pinfort.tsvideos.catalog.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import java.time.LocalDateTime
 

@@ -1,7 +1,10 @@
 package me.pinfort.tsvideos.core.domain
 
-import me.pinfort.tsvideos.core.catalog.CreatedFileSnapshot
-import me.pinfort.tsvideos.core.catalog.ProgramSnapshot
+import me.pinfort.tsvideos.catalog.api.CreatedFileSnapshot
+import me.pinfort.tsvideos.catalog.api.ProgramSnapshot
+import me.pinfort.tsvideos.catalog.domain.ExecutedFile
+import me.pinfort.tsvideos.catalog.domain.Program
+import me.pinfort.tsvideos.catalog.domain.SplittedFile
 
 enum class BulkAction { DELETE, MOVE }
 

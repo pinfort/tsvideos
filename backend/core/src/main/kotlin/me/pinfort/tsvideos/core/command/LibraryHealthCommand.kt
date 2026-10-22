@@ -1,11 +1,11 @@
 package me.pinfort.tsvideos.core.command
 
-import me.pinfort.tsvideos.core.catalog.ProgramInventory
-import me.pinfort.tsvideos.core.catalog.ProgramSummary
+import me.pinfort.tsvideos.catalog.api.ProgramInventory
+import me.pinfort.tsvideos.catalog.api.ProgramSummary
+import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.core.domain.HealthFinding
 import me.pinfort.tsvideos.core.domain.HealthProgram
 import me.pinfort.tsvideos.core.domain.LibraryHealth
-import me.pinfort.tsvideos.core.domain.Program
 import me.pinfort.tsvideos.core.domain.VerificationStatus
 import me.pinfort.tsvideos.core.external.database.mapper.LibraryHealthMapper
 import org.slf4j.LoggerFactory

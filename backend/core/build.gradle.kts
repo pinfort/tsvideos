@@ -58,6 +58,8 @@ tasks.processResources {
 dependencies {
     // storage の公開型 (NasStore など) は core の公開シグネチャにも出る。利用側も storage へ明示的に依存する
     implementation(project(":storage"))
+    // catalog の公開型 (Program など) も core の公開シグネチャに出る。利用側も catalog へ明示的に依存する
+    implementation(project(":catalog"))
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.core:jackson-databind")

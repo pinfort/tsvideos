@@ -6,8 +6,8 @@ import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.long
 import com.github.ajalt.clikt.parameters.types.restrictTo
-import me.pinfort.tsvideos.core.command.ExecutedFileCommand
-import me.pinfort.tsvideos.core.command.ProgramCommand
+import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
+import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.manager.console.component.ProgramDetailToTextComponent
 import me.pinfort.tsvideos.manager.console.component.ReadJson
 import org.springframework.stereotype.Component

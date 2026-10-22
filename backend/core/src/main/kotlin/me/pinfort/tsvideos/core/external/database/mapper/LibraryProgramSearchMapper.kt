@@ -1,9 +1,9 @@
 package me.pinfort.tsvideos.core.external.database.mapper
 
-import me.pinfort.tsvideos.core.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.Program
+import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
-import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Param
 import org.apache.ibatis.annotations.SelectProvider
@@ -105,9 +105,10 @@ class LibraryProgramSearchSql {
         if (query.minDrops != null || query.maxDrops != null) conditions += "ex.drops >= 0"
         if (query.minDrops != null) conditions += "ex.drops >= #{query.minDrops}"
         if (query.maxDrops != null) conditions += "ex.drops <= #{query.maxDrops}"
-        if (query.fileType != null) {
+        val fileType = query.fileType
+        if (fileType != null) {
             val mime =
-                when (query.fileType) {
+                when (fileType) {
                     ProgramSearchQuery.FileType.TS -> "cf.mime = '${CreatedFile.TS_MIME}'"
                     ProgramSearchQuery.FileType.ENCODED -> "cf.mime LIKE 'video/%' AND cf.mime <> '${CreatedFile.TS_MIME}'"
                 }

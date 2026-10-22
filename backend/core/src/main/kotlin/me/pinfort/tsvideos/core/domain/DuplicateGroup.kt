@@ -1,5 +1,7 @@
 package me.pinfort.tsvideos.core.domain
 
+import me.pinfort.tsvideos.catalog.domain.Program
+
 /**
  * 同じ放送を録画したと判定された番組のまとまり
  *

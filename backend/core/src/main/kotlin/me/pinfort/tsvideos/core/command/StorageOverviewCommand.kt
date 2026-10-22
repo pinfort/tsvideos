@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
-import me.pinfort.tsvideos.core.catalog.CatalogStatistics
+import me.pinfort.tsvideos.catalog.api.CatalogStatistics
 import me.pinfort.tsvideos.core.domain.StorageDuplicateCandidate
 import me.pinfort.tsvideos.core.domain.StorageOverview
 import me.pinfort.tsvideos.core.domain.StorageRecording

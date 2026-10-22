@@ -1,14 +1,14 @@
 package me.pinfort.tsvideos.core.command
 
-import me.pinfort.tsvideos.core.catalog.CatalogStatistics
-import me.pinfort.tsvideos.core.catalog.FileStatsRow
-import me.pinfort.tsvideos.core.catalog.ProgramStatsRow
-import me.pinfort.tsvideos.core.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.api.CatalogStatistics
+import me.pinfort.tsvideos.catalog.api.FileStatsRow
+import me.pinfort.tsvideos.catalog.api.ProgramStatsRow
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.core.domain.LibraryStats
 import me.pinfort.tsvideos.core.domain.LibraryStatsGroup
 import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
 import me.pinfort.tsvideos.core.domain.LibraryStatsTotals
-import me.pinfort.tsvideos.core.domain.Program
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
@@ -65,7 +65,11 @@ class LibraryStatsCommand(
             // Drops are per program (like the program count), so programs sharing a recording each add its drops.
             // Negative drops (and a missing executed_file row) mean "unknown" and are counted separately, not summed.
             programs.sumOf { it.drops?.coerceAtLeast(0)?.toLong() ?: 0L },
-            programs.count { it.drops == null || it.drops < 0 }.toLong(),
+            programs
+                .count {
+                    val drops = it.drops
+                    drops == null || drops < 0
+                }.toLong(),
             files.size.toLong(),
             files.sumOf { it.size },
             original.sumOf { it.size },

@@ -1,8 +1,9 @@
 package me.pinfort.tsvideos.core.command
 
+import me.pinfort.tsvideos.catalog.api.ProgramCommand
+import me.pinfort.tsvideos.catalog.domain.ProgramSearchPage
+import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
-import me.pinfort.tsvideos.core.domain.ProgramSearchPage
-import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.external.database.mapper.LibraryProgramSearchMapper
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation

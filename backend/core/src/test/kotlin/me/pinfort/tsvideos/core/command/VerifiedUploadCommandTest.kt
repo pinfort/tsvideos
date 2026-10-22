@@ -11,15 +11,15 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.domain.VideoResolution
 import me.pinfort.tsvideos.core.component.ProcessingRetry
 import me.pinfort.tsvideos.core.component.ProcessingRetryRuntime
 import me.pinfort.tsvideos.core.component.RetryRefusedException
+import me.pinfort.tsvideos.core.config.LoggerConfig
 import me.pinfort.tsvideos.core.config.ProcessingRetryConfigurationProperties
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest.State
-import me.pinfort.tsvideos.core.domain.VideoResolution
-import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
 import me.pinfort.tsvideos.storage.api.NasStore
 import me.pinfort.tsvideos.storage.api.VerifiedUploadNas
@@ -56,8 +56,6 @@ import java.util.UUID
 class VerifiedUploadCommandTest : ExpectSpec() {
     @Autowired private lateinit var manifests: UploadManifestMapper
 
-    @Autowired private lateinit var files: CreatedFileMapper
-
     @Autowired private lateinit var catalog: CreatedFileCatalog
 
     @Autowired private lateinit var transactions: PlatformTransactionManager
@@ -67,6 +65,33 @@ class VerifiedUploadCommandTest : ExpectSpec() {
     @Autowired private lateinit var springNas: VerifiedUploadNas
 
     @Autowired private lateinit var dataSource: javax.sql.DataSource
+
+    // created_file rows are catalog's; the test reads and removes them directly rather than through catalog's mapper.
+    private fun createdFiles(
+        splittedFileId: Long,
+        file: String? = null,
+    ): Long =
+        dataSource.connection.use { connection ->
+            val sql = "SELECT COUNT(*) FROM created_file WHERE splitted_file_id = ?" + if (file != null) " AND file = ?" else ""
+            connection.prepareStatement(sql).use { statement ->
+                statement.setLong(1, splittedFileId)
+                if (file != null) statement.setString(2, file)
+                statement.executeQuery().use {
+                    it.next()
+                    it.getLong(1)
+                }
+            }
+        }
+
+    private fun deleteCreatedFile(id: Long) {
+        dataSource.connection.use { connection ->
+            connection.autoCommit = true
+            connection.prepareStatement("DELETE FROM created_file WHERE id = ?").use {
+                it.setLong(1, id)
+                it.executeUpdate()
+            }
+        }
+    }
 
     init {
         data class Fixture(
@@ -239,7 +264,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 val registered = f.command.register(receipt, 876545, "video/mp4", null)
                 registrations shouldBe 2
                 f.command.register(receipt, 876545, "video/mp4", null).id shouldBe registered.id
-                files.selectBySplittedFileId(876545).count { it.file == f.target } shouldBe 1
+                createdFiles(876545, f.target) shouldBe 1
                 f.manifest().claimToken shouldBe null
                 f.source.exists() shouldBe true
             } finally {
@@ -258,7 +283,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 }
                 f.command.verifyRegistered(f.job, "output") shouldBe receipt
                 reads shouldBe 2
-                files.find(registered.id)?.id shouldBe registered.id
+                catalog.find(registered.id)?.id shouldBe registered.id
                 f.source.exists() shouldBe true
             } finally {
                 f.source.delete()
@@ -532,7 +557,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 first.width shouldBe 1920
                 first.height shouldBe 1080
                 f.command.register(receipt, 876543, "video/mp4", null).id shouldBe first.id
-                files.find(first.id)?.toDomain()?.let { it.width to it.height } shouldBe (1920 to 1080)
+                catalog.find(first.id)?.let { it.width to it.height } shouldBe (1920 to 1080)
             } finally {
                 f.source.delete()
             }
@@ -547,7 +572,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 rerun.id shouldBe first.id
                 (rerun.width to rerun.height) shouldBe (1280 to 720)
                 f.command.register(receipt, 876543, "video/mp4", null, VideoResolution(1920, 1080)).width shouldBe 1280
-                files.find(first.id)?.toDomain()?.let { it.width to it.height } shouldBe (1280 to 720)
+                catalog.find(first.id)?.let { it.width to it.height } shouldBe (1280 to 720)
             } finally {
                 f.source.delete()
             }
@@ -561,10 +586,10 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 val rerun = f.command.register(receipt, 876543, "text/x-ssa", null)
                 rerun.id shouldBe first.id
                 rerun.mime shouldBe "text/x-ssa"
-                files.find(first.id)?.toDomain()?.mime shouldBe "text/x-ssa"
+                catalog.find(first.id)?.mime shouldBe "text/x-ssa"
                 shouldThrow<IllegalStateException> { f.command.register(receipt, 876543, "text/plain", null) }
                 shouldThrow<IllegalStateException> { f.command.register(receipt, 876543, null, null) }
-                files.find(first.id)?.toDomain()?.mime shouldBe "text/x-ssa"
+                catalog.find(first.id)?.mime shouldBe "text/x-ssa"
             } finally {
                 f.source.delete()
             }
@@ -950,7 +975,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 f.command.validateReset(f.job)
                 shouldThrow<IllegalStateException> { f.command.retireAfterReset(f.job) }
                 f.remote.remove(f.target)
-                files.delete(checkNotNull(f.manifest().createdFileId))
+                deleteCreatedFile(checkNotNull(f.manifest().createdFileId))
                 f.command.retireAfterReset(f.job)
                 manifests.get(receipt.manifestId) shouldBe null
                 f.source.exists() shouldBe true
@@ -991,11 +1016,11 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 val command = VerifiedUploadCommand(failing, f.nas, created, transactions)
                 val splitId = f.job
                 shouldThrow<IllegalStateException> { command.register(receipt, splitId, "video/mp4", null) }
-                files.selectBySplittedFileId(splitId).size shouldBe 0
+                createdFiles(splitId) shouldBe 0
                 f.manifest().state shouldBe State.FINALIZED
                 f.source.exists() shouldBe true
                 f.command.register(receipt, splitId, "video/mp4", null)
-                files.selectBySplittedFileId(splitId).size shouldBe 1
+                createdFiles(splitId) shouldBe 1
             } finally {
                 Thread.interrupted()
                 f.source.delete()
@@ -1028,14 +1053,12 @@ class VerifiedUploadCommandTest : ExpectSpec() {
     }
 }
 
+// The catalog is imported as a bean, so its MANDATORY registration is enforced by the transaction proxy as in production.
 @org.springframework.boot.test.context.TestConfiguration
+@org.springframework.context.annotation.Import(CreatedFileCatalog::class, LoggerConfig::class)
 class VerifiedUploadSpringConfiguration {
     @org.springframework.context.annotation.Bean
     fun uploadNas(): VerifiedUploadNas = mockk()
-
-    // A bean, so the catalog's MANDATORY registration is enforced by the transaction proxy as in production.
-    @org.springframework.context.annotation.Bean
-    fun createdFileCatalog(files: CreatedFileMapper): CreatedFileCatalog = CreatedFileCatalog(files, mockk(relaxed = true))
 
     @org.springframework.context.annotation.Bean
     fun uploadCommand(

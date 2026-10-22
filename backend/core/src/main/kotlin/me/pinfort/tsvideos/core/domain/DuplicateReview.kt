@@ -1,5 +1,8 @@
 package me.pinfort.tsvideos.core.domain
 
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.Program
+
 enum class DuplicateKeepCriterion { DROPS, STATUS, DURATION, SIZE, ID }
 
 data class DuplicateRecommendation(

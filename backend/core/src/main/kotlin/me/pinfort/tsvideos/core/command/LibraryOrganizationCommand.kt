@@ -1,7 +1,7 @@
 package me.pinfort.tsvideos.core.command
 
-import me.pinfort.tsvideos.core.catalog.LedgerLocks
-import me.pinfort.tsvideos.core.catalog.ProgramInventory
+import me.pinfort.tsvideos.catalog.api.LedgerLocks
+import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.core.domain.DuplicateLibraryNameException
 import me.pinfort.tsvideos.core.domain.LibraryItemNotFoundException
 import me.pinfort.tsvideos.core.domain.LibraryKind

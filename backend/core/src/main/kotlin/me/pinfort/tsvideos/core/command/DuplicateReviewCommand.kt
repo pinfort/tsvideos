@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
-import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.core.domain.DuplicateRecommendation
 import me.pinfort.tsvideos.core.domain.DuplicateReview
 import me.pinfort.tsvideos.core.domain.DuplicateReviewGroup

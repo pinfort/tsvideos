@@ -1,7 +1,7 @@
 package me.pinfort.tsvideos.core.component
 
-import me.pinfort.tsvideos.core.domain.ExecutedFile
-import me.pinfort.tsvideos.core.domain.SplittedFile
+import me.pinfort.tsvideos.catalog.domain.ExecutedFile
+import me.pinfort.tsvideos.catalog.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import org.springframework.stereotype.Component
 
