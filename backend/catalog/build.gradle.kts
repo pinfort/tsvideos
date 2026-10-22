@@ -62,8 +62,9 @@ tasks.withType<Test> {
  * - catalog のソース (テストを含む) は catalog と storage 以外の `me.pinfort.tsvideos` パッケージを参照しない
  * - catalog 以外のソースと資源 (テスト、MyBatis の XML、YAML、properties を含む) は catalog の公開パッケージ
  *   (`api`、`domain`) だけを参照し、`persistence` と今後の内部パッケージ (`application` など) を参照しない
- * - persistence のトップレベル宣言はすべて internal (または private)
+ * - persistence のトップレベル宣言はすべて internal (または private)。同じ行の注釈や字下げされた宣言も含める
  *
+ * Kotlin・Java のコメントと文字列は SourceScanner で区別する (`*` で始まる行を一律にコメントとはみなさない)。
  * パッケージ名そのもの (`"me.pinfort.tsvideos.catalog"`) はコンポーネントスキャン対象として許可する。Mapper の登録先は
  * `CatalogPersistence.MAPPER_PACKAGE` で受け取るので、persistence のパッケージ名を catalog の外に書く必要はない。
  */
@@ -73,14 +74,93 @@ object CatalogBoundaryRules {
     private val allowedDependencies = setOf(":storage")
     private val foreignPackage = Regex("""\bme\.pinfort\.tsvideos\.(?!catalog\b|storage\b)\w+""")
     private val internals = Regex("""\bme\.pinfort\.tsvideos\.catalog\.(?!api\b|domain\b)\w+""")
-    private val publicDeclaration =
-        Regex(
-            """^(?:public\s+)?(?:(?:data|enum|sealed|abstract|open|annotation|value|const|lateinit)\s+)*""" +
-                """(?:class|interface|object|fun|val|var|typealias)\b""",
-        )
-    private val commentStarts = listOf("//", "*", "/*", "#", "<!--")
 
-    private fun comment(line: String): Boolean = line.trimStart().let { text -> commentStarts.any { text.startsWith(it) } }
+    // 宣言の前の注釈 (同じ行の引数と、1 段の入れ子の括弧を含む)。文字列は SourceScanner が取り除いてから当てる
+    private val annotations = Regex("""^(?:@[\w.:]+(?:\((?:[^()]|\([^()]*\))*\))?\s*)*""")
+
+    // 修飾子 (グループ 1) と宣言のキーワード。名前が続くものだけを宣言とみなす (式の続きの `object : Foo {` などは除く)
+    private val declaration =
+        Regex(
+            """^((?:(?:public|internal|private|data|enum|sealed|abstract|open|annotation|value|const|lateinit|inline|fun|""" +
+                """expect|actual|external|operator|infix|suspend|tailrec)\s+)*)""" +
+                """(?:class|interface|object|fun|val|var|typealias)\s+[\w<`]""",
+        )
+    private val hidden = Regex("""\b(?:internal|private)\b""")
+    private val sourceExtensions = setOf("kt", "java")
+
+    // Kotlin・Java 以外の資源の行コメント。Kotlin・Java のコメントは SourceScanner が取り除く
+    private val resourceCommentStarts =
+        mapOf("xml" to listOf("<!--"), "yaml" to listOf("#"), "yml" to listOf("#"), "properties" to listOf("#", "!"))
+
+    /**
+     * Kotlin・Java のソースを 1 行ずつ読み、コメントを取り除いた行を返す。複数行のブロックコメントと raw 文字列の状態、
+     * 括弧の深さ ([depth]) を行をまたいで持ち越す。構文解析器ではなく、境界検査に足りるだけの字句の区別しかしない
+     * (入れ子のブロックコメントや、文字列テンプレートの中の引用符は正しく扱わない)。
+     */
+    private class SourceScanner(
+        private val keepStrings: Boolean,
+    ) {
+        private var blockComment = false
+        private var rawString = false
+        var depth = 0
+            private set
+
+        fun code(line: String): String {
+            val code = StringBuilder()
+            var i = 0
+            while (i < line.length) {
+                when {
+                    blockComment -> {
+                        if (line.startsWith("*/", i)) blockComment = false
+                        i += if (blockComment) 1 else 2
+                    }
+                    rawString -> {
+                        if (line.startsWith("\"\"\"", i)) {
+                            rawString = false
+                            code.append(' ')
+                            i += 3
+                        } else {
+                            if (keepStrings) code.append(line[i])
+                            i++
+                        }
+                    }
+                    line.startsWith("//", i) -> i = line.length
+                    line.startsWith("/*", i) -> {
+                        blockComment = true
+                        i += 2
+                    }
+                    line.startsWith("\"\"\"", i) -> {
+                        rawString = true
+                        i += 3
+                    }
+                    line[i] == '"' || line[i] == '\'' -> {
+                        val quote = line[i++]
+                        while (i < line.length && line[i] != quote) {
+                            if (line[i] == '\\') i++
+                            if (keepStrings && i < line.length) code.append(line[i])
+                            i++
+                        }
+                        code.append(' ')
+                        i++
+                    }
+                    else -> {
+                        when (line[i]) {
+                            '{', '(', '[' -> depth++
+                            '}', ')', ']' -> depth--
+                        }
+                        code.append(line[i++])
+                    }
+                }
+            }
+            return code.toString()
+        }
+    }
+
+    // 注釈を外した先頭が internal・private の付かない宣言なら公開されている
+    private fun exposed(code: String): Boolean {
+        val match = declaration.find(code.trim().replaceFirst(annotations, "")) ?: return false
+        return !hidden.containsMatchIn(match.groupValues[1])
+    }
 
     fun violations(
         projectDependencies: List<String>,
@@ -105,16 +185,27 @@ object CatalogBoundaryRules {
                 }
             }
         }
+        // 括弧の外 (トップレベル) で始まる行だけを見る。internal なクラスのメンバーや引数は対象外
         persistenceSources.forEach { file ->
+            val scanner = SourceScanner(keepStrings = false)
             file.readLines().forEachIndexed { index, line ->
-                if (publicDeclaration.containsMatchIn(line)) {
+                val topLevel = scanner.depth <= 0
+                if (exposed(scanner.code(line)) && topLevel) {
                     violations += "${file.relativeTo(root).invariantSeparatorsPath}:${index + 1} must be internal: ${line.trim()}"
                 }
             }
         }
         otherSources.forEach { file ->
+            val scanner = if (file.extension in sourceExtensions) SourceScanner(keepStrings = true) else null
+            val commentStarts = resourceCommentStarts[file.extension].orEmpty()
             file.readLines().forEachIndexed { index, line ->
-                if (!comment(line) && internals.containsMatchIn(line)) {
+                val code =
+                    when {
+                        scanner != null -> scanner.code(line)
+                        commentStarts.any { line.trimStart().startsWith(it) } -> ""
+                        else -> line
+                    }
+                if (internals.containsMatchIn(code)) {
                     violations += "${file.relativeTo(root).invariantSeparatorsPath}:${index + 1} reaches a catalog internal: ${line.trim()}"
                 }
             }
@@ -173,6 +264,31 @@ val checkCatalogBoundaryRules by tasks.registering {
             listOf(
                 fixture("catalog/src/main/kotlin/persistence/LeakedMapper.kt", "@Mapper", "interface LeakedMapper {", "}"),
                 fixture("catalog/src/main/kotlin/persistence/LeakedDto.kt", "public data class LeakedDto(", "    val id: Long,", ")"),
+                fixture("catalog/src/main/kotlin/persistence/SameLineMapper.kt", "@Mapper interface SameLineMapper {", "}"),
+                fixture(
+                    "catalog/src/main/kotlin/persistence/AnnotatedPublic.kt",
+                    "@Suppress(\"unused\") @JvmInline public value class Id(val id: Long)",
+                ),
+                fixture("catalog/src/main/kotlin/persistence/Indented.kt", "    data class IndentedDto(val id: Long)"),
+                fixture(
+                    "catalog/src/main/kotlin/persistence/MultilineAnnotation.kt",
+                    "@file:Suppress(\"unused\")",
+                    "@Deprecated(",
+                    "    \"use (another) { mapper\",",
+                    ")",
+                    "fun interface LeakedQuery {",
+                    "    fun run(): Int",
+                    "}",
+                ),
+                // 文字列やコメントの中の括弧で深さがずれない
+                fixture(
+                    "catalog/src/main/kotlin/persistence/AfterRawString.kt",
+                    "internal const val SQL = \"\"\"",
+                    "    SELECT '{' FROM x",
+                    "\"\"\"",
+                    "/* ( */ internal val brace = '{'",
+                    "object LeakedObject",
+                ),
             )
         val persistenceAllowed =
             fixture(
@@ -184,10 +300,31 @@ val checkCatalogBoundaryRules by tasks.registering {
                 "    fun find(id: Long): HiddenDto?",
                 "}",
                 "",
+                "@Mapper internal interface SameLineMapper {",
+                "    @Select(\"SELECT * FROM x WHERE id = #{id}\") fun select(@Param(\"id\") id: Long): Int",
+                "",
+                "    @Select(",
+                "        \"\"\"",
+                "        SELECT '}' FROM x",
+                "        \"\"\",",
+                "    )",
+                "    fun raw(): Int",
+                "}",
+                "",
                 "internal data class HiddenDto(",
                 "    val id: Long,",
                 ")",
                 "",
+                "@Suppress(\"unused\") private fun helper() = Unit",
+                "",
+                "@JvmField internal val anonymous =",
+                "    object : Runnable {",
+                "        override fun run() = Unit",
+                "    }",
+                "",
+                "/*",
+                "public class InComment",
+                " */",
                 "private const val LIMIT = 1000",
             )
         val otherRejected =
@@ -204,17 +341,40 @@ val checkCatalogBoundaryRules by tasks.registering {
                     "  type-aliases-package: me.pinfort.tsvideos.catalog.persistence",
                 ),
                 fixture("manager/api/src/main/kotlin/Scan.kt", "@MapperScan(\"me.pinfort.tsvideos.catalog.persistence\")"),
+                // `*` で始まっても、ブロックコメントの外ならコードとして読む
+                fixture(
+                    "core/src/main/kotlin/Multiplied.kt",
+                    "val size = base",
+                    "    * me.pinfort.tsvideos.catalog.persistence.Limits.FACTOR",
+                ),
+                fixture("core/src/main/kotlin/AfterComment.kt", "/* ok */ import me.pinfort.tsvideos.catalog.persistence.ProgramMapper"),
+                fixture(
+                    "core/src/main/java/QuotedMarker.java",
+                    "String marker = \"/*\";",
+                    "import me.pinfort.tsvideos.catalog.persistence.ProgramMapper;",
+                ),
             )
         val otherAllowed =
-            fixture(
-                "manager/api/src/main/kotlin/Allowed.kt",
-                "import me.pinfort.tsvideos.catalog.api.CatalogPersistence",
-                "import me.pinfort.tsvideos.catalog.api.ProgramCommand",
-                "import me.pinfort.tsvideos.catalog.domain.Program",
-                "@MapperScan(basePackages = [\"me.pinfort.tsvideos.core.external.database.mapper\", CatalogPersistence.MAPPER_PACKAGE])",
-                "@SpringBootApplication(scanBasePackages = [\"me.pinfort.tsvideos.catalog\", \"me.pinfort.tsvideos.core\"])",
-                "// catalog's mappers (me.pinfort.tsvideos.catalog.persistence) stay internal",
-                " * [me.pinfort.tsvideos.catalog.persistence.ProgramMapper] is never named outside catalog",
+            listOf(
+                fixture(
+                    "manager/api/src/main/kotlin/Allowed.kt",
+                    "import me.pinfort.tsvideos.catalog.api.CatalogPersistence",
+                    "import me.pinfort.tsvideos.catalog.api.ProgramCommand",
+                    "import me.pinfort.tsvideos.catalog.domain.Program",
+                    "@MapperScan(basePackages = [\"me.pinfort.tsvideos.core.external.database.mapper\", CatalogPersistence.MAPPER_PACKAGE])",
+                    "@SpringBootApplication(scanBasePackages = [\"me.pinfort.tsvideos.catalog\", \"me.pinfort.tsvideos.core\"])",
+                    "// catalog's mappers (me.pinfort.tsvideos.catalog.persistence) stay internal",
+                    "/**",
+                    " * [me.pinfort.tsvideos.catalog.persistence.ProgramMapper] is never named outside catalog",
+                    "   me.pinfort.tsvideos.catalog.persistence is internal",
+                    " */",
+                    "val url = \"http://example.com\" // me.pinfort.tsvideos.catalog.persistence",
+                ),
+                fixture(
+                    "manager/api/src/main/resources/application.yaml",
+                    "# me.pinfort.tsvideos.catalog.persistence is registered through CatalogPersistence.MAPPER_PACKAGE",
+                ),
+                fixture("manager/api/src/main/resources/mapper/Comment.xml", "<!-- me.pinfort.tsvideos.catalog.persistence -->"),
             )
 
         val violations =
@@ -237,7 +397,7 @@ val checkCatalogBoundaryRules by tasks.registering {
         (catalogRejected + persistenceRejected + otherRejected).filterNot(::reported).forEach {
             problems += "${it.relativeTo(fixtureRoot).invariantSeparatorsPath} was not reported"
         }
-        listOf(catalogAllowed, persistenceAllowed, otherAllowed).filter(::reported).forEach {
+        (listOf(catalogAllowed, persistenceAllowed) + otherAllowed).filter(::reported).forEach {
             problems += "${it.relativeTo(fixtureRoot).invariantSeparatorsPath} was reported but is allowed"
         }
         if (problems.isNotEmpty()) {
