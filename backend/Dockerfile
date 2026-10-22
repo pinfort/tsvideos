@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
-# Build context must be backend/ (this module depends on :storage, :core and
-# :manager:infrastructure, and settings.gradle.kts includes every module,
+# Build context must be backend/ (this module depends on :storage, :catalog, :core
+# and :manager:infrastructure, and settings.gradle.kts includes every module,
 # so the whole multi-project build needs to be present to configure).
 
 FROM eclipse-temurin:24-jdk-alpine AS deps
@@ -11,6 +11,7 @@ COPY gradlew settings.gradle.kts ./
 COPY gradle gradle
 COPY storage/build.gradle.kts storage/build.gradle.kts
 COPY database-schema/build.gradle.kts database-schema/runtime-isolation.gradle.kts database-schema/
+COPY catalog/build.gradle.kts catalog/build.gradle.kts
 COPY core/build.gradle.kts core/build.gradle.kts
 COPY console-common/build.gradle.kts console-common/build.gradle.kts
 COPY manager/infrastructure/build.gradle.kts manager/infrastructure/build.gradle.kts

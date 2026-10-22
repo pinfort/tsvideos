@@ -6,9 +6,9 @@ import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldStartWith
-import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
-import me.pinfort.tsvideos.core.catalog.StreamableVideo
-import me.pinfort.tsvideos.core.command.CreatedFileCommand
+import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.api.CreatedFileCommand
+import me.pinfort.tsvideos.catalog.api.StreamableVideo
 import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.NasDestinationResolver

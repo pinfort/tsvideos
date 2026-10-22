@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.manager.api.response
 
-import me.pinfort.tsvideos.core.domain.Program
+import me.pinfort.tsvideos.catalog.domain.Program
 
 data class SearchResponse(
     val programs: List<Program>,

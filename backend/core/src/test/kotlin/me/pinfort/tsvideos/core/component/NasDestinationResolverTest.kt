@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
+import me.pinfort.tsvideos.catalog.api.NormalizeComponent
 import me.pinfort.tsvideos.storage.api.NasPaths
 import me.pinfort.tsvideos.storage.api.NasStore
 import java.nio.file.Path

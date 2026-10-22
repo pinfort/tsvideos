@@ -1,12 +1,15 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
-import me.pinfort.tsvideos.core.command.ExecutedFileCommand
-import me.pinfort.tsvideos.core.command.ExecutedFileTagCommand
+import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
+import me.pinfort.tsvideos.catalog.api.ExecutedFileTagCommand
+import me.pinfort.tsvideos.catalog.api.ProgramCommand
+import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
+import me.pinfort.tsvideos.catalog.domain.ExecutedFile
+import me.pinfort.tsvideos.catalog.domain.ExecutedFileCheck
+import me.pinfort.tsvideos.catalog.domain.SplittedFile
 import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
-import me.pinfort.tsvideos.core.command.ProgramCommand
 import me.pinfort.tsvideos.core.command.RecordingQualityCommand
-import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.CompressComponent
 import me.pinfort.tsvideos.core.component.MainSplittedFileFinderComponent
@@ -14,8 +17,6 @@ import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.component.RecordingQualityInspector
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
-import me.pinfort.tsvideos.core.domain.ExecutedFile
-import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.core.domain.FileName
 import me.pinfort.tsvideos.core.domain.ProcessingArtifact
 import me.pinfort.tsvideos.core.domain.ProcessingArtifactType
@@ -26,7 +27,6 @@ import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.ProcessingStage
 import me.pinfort.tsvideos.core.domain.QualityAction
-import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import me.pinfort.tsvideos.core.external.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.core.external.tool.DurationProbeClient

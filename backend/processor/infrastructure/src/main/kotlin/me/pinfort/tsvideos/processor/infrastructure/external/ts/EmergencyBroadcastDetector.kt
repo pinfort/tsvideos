@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.processor.infrastructure.external.ts
 
-import me.pinfort.tsvideos.core.domain.ExecutedFileTag
+import me.pinfort.tsvideos.catalog.domain.ExecutedFileTag
 import me.pinfort.tsvideos.core.exception.TsVideosException
 import org.springframework.stereotype.Component
 import java.io.ByteArrayOutputStream

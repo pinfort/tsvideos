@@ -1,10 +1,13 @@
 package me.pinfort.tsvideos.core.command
 
-import me.pinfort.tsvideos.core.catalog.CreatedFileSnapshot
-import me.pinfort.tsvideos.core.catalog.LedgerLocks
-import me.pinfort.tsvideos.core.catalog.LedgerSnapshots
-import me.pinfort.tsvideos.core.component.DirectoryNameComponent
-import me.pinfort.tsvideos.core.component.NormalizeComponent
+import me.pinfort.tsvideos.catalog.api.CreatedFileSnapshot
+import me.pinfort.tsvideos.catalog.api.DirectoryNameComponent
+import me.pinfort.tsvideos.catalog.api.LedgerLocks
+import me.pinfort.tsvideos.catalog.api.LedgerSnapshots
+import me.pinfort.tsvideos.catalog.api.NormalizeComponent
+import me.pinfort.tsvideos.catalog.api.ProgramCommand
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.core.domain.BulkAction
 import me.pinfort.tsvideos.core.domain.BulkApplyRequest
 import me.pinfort.tsvideos.core.domain.BulkInterruptedException
@@ -15,9 +18,7 @@ import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.domain.BulkResult
 import me.pinfort.tsvideos.core.domain.BulkSnapshot
 import me.pinfort.tsvideos.core.domain.BulkTarget
-import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.InvalidBulkRequestException
-import me.pinfort.tsvideos.core.domain.Program
 import org.slf4j.Logger
 import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.stereotype.Component

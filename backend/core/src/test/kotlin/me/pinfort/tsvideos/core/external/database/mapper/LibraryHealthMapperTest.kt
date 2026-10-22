@@ -9,7 +9,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import me.pinfort.tsvideos.core.catalog.ProgramInventory
+import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.core.command.HealthScanAlreadyRunning
 import me.pinfort.tsvideos.core.command.HealthVerificationStore
 import me.pinfort.tsvideos.core.command.LibraryHealthCommand

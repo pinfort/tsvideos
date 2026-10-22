@@ -4,19 +4,18 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.catalog.CatalogStatistics
+import io.mockk.every
+import io.mockk.spyk
+import me.pinfort.tsvideos.catalog.api.CatalogStatistics
 import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
 import me.pinfort.tsvideos.core.domain.LibraryStatsQuery.Group
-import me.pinfort.tsvideos.core.external.database.mapper.LibraryStatsMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.testcontainers.context.ImportTestcontainers
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
-import org.springframework.context.annotation.Primary
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig
 import org.springframework.transaction.annotation.Isolation
@@ -30,7 +29,7 @@ import javax.sql.DataSource
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @MybatisTest
-@Import(LibraryStatsCommand::class, CatalogStatistics::class, LibraryStatsCommandTest.ObservedMapper::class)
+@Import(CatalogStatistics::class, LibraryStatsCommandTest.ObservedCatalog::class)
 @SpringJUnitConfig
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
@@ -39,20 +38,19 @@ class LibraryStatsCommandTest : ExpectSpec() {
 
     @Autowired private lateinit var command: LibraryStatsCommand
 
-    /** Wraps the MyBatis mapper so a test can act between the two queries of one summarize call. */
+    /**
+     * The command (still a transactional proxy) over a spy of catalog's statistics, so a test can act between the two
+     * reads of one summarize call.
+     */
     @TestConfiguration
-    class ObservedMapper {
+    class ObservedCatalog {
         @Bean
-        @Primary
-        fun observedLibraryStatsMapper(
-            @Qualifier("libraryStatsMapper") delegate: LibraryStatsMapper,
-        ): LibraryStatsMapper =
-            object : LibraryStatsMapper by delegate {
-                override fun programs(
-                    recordedFrom: LocalDateTime?,
-                    recordedTo: LocalDateTime?,
-                ) = delegate.programs(recordedFrom, recordedTo).also { afterPrograms() }
-            }
+        fun libraryStatsCommand(catalog: CatalogStatistics): LibraryStatsCommand =
+            LibraryStatsCommand(
+                spyk(catalog) {
+                    every { programs(any(), any()) } answers { callOriginal().also { afterPrograms() } }
+                },
+            )
     }
 
     init {

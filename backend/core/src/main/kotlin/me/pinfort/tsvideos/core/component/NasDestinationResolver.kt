@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.component
 
+import me.pinfort.tsvideos.catalog.api.NormalizeComponent
 import me.pinfort.tsvideos.storage.api.NasPaths
 import me.pinfort.tsvideos.storage.api.NasStore
 import org.springframework.stereotype.Component

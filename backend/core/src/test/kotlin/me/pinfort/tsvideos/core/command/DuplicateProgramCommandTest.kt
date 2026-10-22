@@ -7,22 +7,20 @@ import io.kotest.matchers.shouldBe
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
-import me.pinfort.tsvideos.core.catalog.ProgramInventory
+import me.pinfort.tsvideos.catalog.api.ProgramInventory
+import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.core.domain.DuplicateGroup
-import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.external.database.dto.ProgramDto
-import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import java.time.LocalDateTime
 
 class DuplicateProgramCommandTest :
     ExpectSpec({
-        lateinit var programMapper: ProgramMapper
+        lateinit var inventory: ProgramInventory
         lateinit var duplicateProgramCommand: DuplicateProgramCommand
 
         beforeTest {
             clearAllMocks()
-            programMapper = mockk()
-            duplicateProgramCommand = DuplicateProgramCommand(ProgramInventory(programMapper))
+            inventory = mockk()
+            duplicateProgramCommand = DuplicateProgramCommand(inventory)
         }
 
         val base = LocalDateTime.of(2025, 10, 5, 21, 0, 0)
@@ -51,12 +49,8 @@ class DuplicateProgramCommandTest :
             )
 
         context("detect") {
-            expect("loads all programs from mapper") {
-                every { programMapper.selectAll() } returns
-                    listOf(
-                        ProgramDto(1, "a", 1, ProgramDto.Status.COMPLETED, 0, 1, base, "GR27", "t", "c", 1800.0),
-                        ProgramDto(2, "b", 2, ProgramDto.Status.COMPLETED, 0, 1, base, "GR27", "t", "c", 1800.0),
-                    )
+            expect("loads the recorded programs from the catalog") {
+                every { inventory.recordedPrograms() } returns listOf(program(1), program(2))
 
                 val actual = duplicateProgramCommand.detect()
 

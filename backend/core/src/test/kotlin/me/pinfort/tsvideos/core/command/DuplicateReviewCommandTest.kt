@@ -4,16 +4,15 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
-import me.pinfort.tsvideos.core.catalog.ProgramInventory
+import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.api.ProgramInventory
+import me.pinfort.tsvideos.core.config.LoggerConfig
 import me.pinfort.tsvideos.core.domain.DuplicateKeepCriterion
-import me.pinfort.tsvideos.core.external.database.mapper.CreatedFileMapper
-import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
-import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
 import org.springframework.boot.testcontainers.context.ImportTestcontainers
+import org.springframework.context.annotation.Import
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig
 import org.springframework.transaction.annotation.Propagation
@@ -24,21 +23,18 @@ import javax.sql.DataSource
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @MybatisTest
 @SpringJUnitConfig
+@Import(ProgramInventory::class, CreatedFileCatalog::class, LoggerConfig::class)
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class DuplicateReviewCommandTest : ExpectSpec() {
     @Autowired private lateinit var dataSource: DataSource
 
-    @Autowired private lateinit var programs: ProgramMapper
+    @Autowired private lateinit var programs: ProgramInventory
 
-    @Autowired private lateinit var files: CreatedFileMapper
+    @Autowired private lateinit var files: CreatedFileCatalog
 
-    private fun command() =
-        DuplicateReviewCommand(
-            DuplicateProgramCommand(ProgramInventory(programs)),
-            CreatedFileCatalog(files, LoggerFactory.getLogger(DuplicateReviewCommandTest::class.java)),
-        )
+    private fun command() = DuplicateReviewCommand(DuplicateProgramCommand(programs), files)
 
     init {
         beforeTest { clear() }
@@ -60,7 +56,7 @@ class DuplicateReviewCommandTest : ExpectSpec() {
             )
             val result = command().review().groups.single()
             result.members.map { it.program.id } shouldBe
-                DuplicateProgramCommand(ProgramInventory(programs))
+                DuplicateProgramCommand(programs)
                     .detect()
                     .single()
                     .programs

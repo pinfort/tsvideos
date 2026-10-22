@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.core.command
 
-import me.pinfort.tsvideos.core.catalog.ProgramInventory
+import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.core.domain.BulkAction
 import me.pinfort.tsvideos.core.domain.BulkApplyRequest
 import me.pinfort.tsvideos.core.domain.BulkOutcome

@@ -1,7 +1,7 @@
 package me.pinfort.tsvideos.manager.console.component
 
-import me.pinfort.tsvideos.core.domain.ExecutedFileTag
-import me.pinfort.tsvideos.core.domain.ProgramDetail
+import me.pinfort.tsvideos.catalog.domain.ExecutedFileTag
+import me.pinfort.tsvideos.catalog.domain.ProgramDetail
 import org.springframework.stereotype.Component
 import java.time.format.DateTimeFormatter
 import kotlin.time.Duration.Companion.seconds

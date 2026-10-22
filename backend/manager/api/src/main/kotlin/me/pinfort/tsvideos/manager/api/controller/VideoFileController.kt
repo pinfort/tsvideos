@@ -1,7 +1,7 @@
 package me.pinfort.tsvideos.manager.api.controller
 
 import jakarta.servlet.http.HttpServletRequest
-import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.manager.api.stream.NasVideoResource
 import me.pinfort.tsvideos.manager.api.stream.ResponseResources
 import me.pinfort.tsvideos.storage.api.NasComponent

@@ -3,11 +3,11 @@ package me.pinfort.tsvideos.manager.console.component
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.domain.CreatedFile
-import me.pinfort.tsvideos.core.domain.ExecutedFileCheck
-import me.pinfort.tsvideos.core.domain.ExecutedFileTag
-import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.domain.ProgramDetail
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.ExecutedFileCheck
+import me.pinfort.tsvideos.catalog.domain.ExecutedFileTag
+import me.pinfort.tsvideos.catalog.domain.Program
+import me.pinfort.tsvideos.catalog.domain.ProgramDetail
 import java.time.LocalDateTime
 
 class ProgramDetailToTextComponentTest :

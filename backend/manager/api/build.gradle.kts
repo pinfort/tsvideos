@@ -19,6 +19,7 @@ kotlin {
 
 dependencies {
     implementation(project(":storage"))
+    implementation(project(":catalog"))
     implementation(project(":core"))
     implementation(project(":manager:infrastructure"))
     implementation("org.springframework.boot:spring-boot-starter")

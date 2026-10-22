@@ -5,10 +5,10 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
+import me.pinfort.tsvideos.catalog.api.ProgramCommand
+import me.pinfort.tsvideos.catalog.domain.Program
+import me.pinfort.tsvideos.catalog.domain.ProgramSearchPage
 import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
-import me.pinfort.tsvideos.core.command.ProgramCommand
-import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.domain.ProgramSearchPage
 import java.time.LocalDateTime
 
 class SearchTest :

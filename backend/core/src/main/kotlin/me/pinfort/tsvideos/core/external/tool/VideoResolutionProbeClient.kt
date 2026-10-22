@@ -1,8 +1,8 @@
 package me.pinfort.tsvideos.core.external.tool
 
+import me.pinfort.tsvideos.catalog.domain.VideoResolution
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.config.ProcessorToolConfigurationProperties
-import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.shell.ShellClient
 import org.slf4j.Logger
 import org.springframework.stereotype.Component

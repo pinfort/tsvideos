@@ -7,11 +7,11 @@ import io.kotest.matchers.shouldBe
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
-import me.pinfort.tsvideos.core.command.ExecutedFileCommand
-import me.pinfort.tsvideos.core.command.ProgramCommand
-import me.pinfort.tsvideos.core.domain.ExecutedFile
-import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.domain.ProgramDetail
+import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
+import me.pinfort.tsvideos.catalog.api.ProgramCommand
+import me.pinfort.tsvideos.catalog.domain.ExecutedFile
+import me.pinfort.tsvideos.catalog.domain.Program
+import me.pinfort.tsvideos.catalog.domain.ProgramDetail
 import me.pinfort.tsvideos.manager.console.component.ProgramDetailToTextComponent
 import java.time.LocalDateTime
 

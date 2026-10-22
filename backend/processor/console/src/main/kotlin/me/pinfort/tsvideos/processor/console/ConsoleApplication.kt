@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.processor.console
 
+import me.pinfort.tsvideos.catalog.api.CatalogPersistence
 import me.pinfort.tsvideos.console.common.charset.ConsoleCharset
 import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
 import org.mybatis.spring.annotation.MapperScan
@@ -8,10 +9,11 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan
 import org.springframework.boot.runApplication
 import kotlin.system.exitProcess
 
-@MapperScan("me.pinfort.tsvideos.core.external.database.mapper")
+@MapperScan(basePackages = ["me.pinfort.tsvideos.core.external.database.mapper", CatalogPersistence.MAPPER_PACKAGE])
 @SpringBootApplication(
     scanBasePackages = [
         "me.pinfort.tsvideos.storage",
+        "me.pinfort.tsvideos.catalog",
         "me.pinfort.tsvideos.core",
         "me.pinfort.tsvideos.console.common",
         "me.pinfort.tsvideos.processor",

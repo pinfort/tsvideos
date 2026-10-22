@@ -6,10 +6,10 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
-import me.pinfort.tsvideos.core.command.ProgramCommand
-import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.domain.ProgramSearchPage
-import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
+import me.pinfort.tsvideos.catalog.api.ProgramCommand
+import me.pinfort.tsvideos.catalog.domain.Program
+import me.pinfort.tsvideos.catalog.domain.ProgramSearchPage
+import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.manager.console.parseManager
 import tools.jackson.databind.json.JsonMapper
 import java.time.LocalDateTime

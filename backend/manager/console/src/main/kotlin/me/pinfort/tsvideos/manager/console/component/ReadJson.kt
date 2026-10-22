@@ -1,9 +1,9 @@
 package me.pinfort.tsvideos.manager.console.component
 
-import me.pinfort.tsvideos.core.domain.CreatedFile
-import me.pinfort.tsvideos.core.domain.ExecutedFile
-import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.domain.ProgramDetail
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.ExecutedFile
+import me.pinfort.tsvideos.catalog.domain.Program
+import me.pinfort.tsvideos.catalog.domain.ProgramDetail
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 

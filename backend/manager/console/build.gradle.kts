@@ -23,6 +23,7 @@ tasks.test {
 
 dependencies {
     implementation(project(":storage"))
+    implementation(project(":catalog"))
     implementation(project(":core"))
     implementation(project(":console-common"))
     implementation(project(":manager:infrastructure"))

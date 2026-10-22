@@ -1,16 +1,16 @@
 package me.pinfort.tsvideos.core.command
 
-import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.VideoResolution
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.component.ProcessingRetry
 import me.pinfort.tsvideos.core.component.RetryOperation
 import me.pinfort.tsvideos.core.component.RetryRefusedException
-import me.pinfort.tsvideos.core.domain.CreatedFile
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.UploadManifest
 import me.pinfort.tsvideos.core.domain.UploadManifest.State
 import me.pinfort.tsvideos.core.domain.VerifiedUploadReceipt
-import me.pinfort.tsvideos.core.domain.VideoResolution
 import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
 import me.pinfort.tsvideos.storage.api.NasStore
 import me.pinfort.tsvideos.storage.api.VerifiedUploadNas

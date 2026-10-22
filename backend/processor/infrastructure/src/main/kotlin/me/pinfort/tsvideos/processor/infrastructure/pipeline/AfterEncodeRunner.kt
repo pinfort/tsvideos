@@ -1,10 +1,12 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
-import me.pinfort.tsvideos.core.command.ExecutedFileCommand
+import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
+import me.pinfort.tsvideos.catalog.api.ProgramCommand
+import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
+import me.pinfort.tsvideos.catalog.domain.Program
+import me.pinfort.tsvideos.catalog.domain.SplittedFile
 import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
 import me.pinfort.tsvideos.core.command.ProcessingJobCommand
-import me.pinfort.tsvideos.core.command.ProgramCommand
-import me.pinfort.tsvideos.core.command.SplittedFileCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.MimeTypeComponent
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
@@ -18,8 +20,6 @@ import me.pinfort.tsvideos.core.domain.ProcessingErrorCode
 import me.pinfort.tsvideos.core.domain.ProcessingIdentity
 import me.pinfort.tsvideos.core.domain.ProcessingOutcome
 import me.pinfort.tsvideos.core.domain.ProcessingStage
-import me.pinfort.tsvideos.core.domain.Program
-import me.pinfort.tsvideos.core.domain.SplittedFile
 import me.pinfort.tsvideos.core.external.tool.VideoResolutionProbeClient
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
 import me.pinfort.tsvideos.storage.api.NasStore

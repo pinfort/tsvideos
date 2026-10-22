@@ -13,8 +13,8 @@ import jakarta.servlet.WriteListener
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import jakarta.servlet.http.HttpServletResponseWrapper
-import me.pinfort.tsvideos.core.catalog.CreatedFileCatalog
-import me.pinfort.tsvideos.core.catalog.StreamableVideo
+import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.api.StreamableVideo
 import me.pinfort.tsvideos.manager.api.stream.FakeReadHandle
 import me.pinfort.tsvideos.manager.api.stream.ResponseResourcesFilter
 import me.pinfort.tsvideos.storage.api.NasAccessException

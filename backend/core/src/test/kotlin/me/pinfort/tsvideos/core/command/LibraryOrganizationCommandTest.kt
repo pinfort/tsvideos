@@ -5,16 +5,15 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.catalog.LedgerLocks
-import me.pinfort.tsvideos.core.catalog.ProgramInventory
+import me.pinfort.tsvideos.catalog.api.LedgerLocks
+import me.pinfort.tsvideos.catalog.api.ProgramInventory
+import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.domain.DuplicateLibraryNameException
 import me.pinfort.tsvideos.core.domain.LibraryItemNotFoundException
 import me.pinfort.tsvideos.core.domain.LibraryKind
 import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
-import me.pinfort.tsvideos.core.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.core.external.database.mapper.LibraryOrganizationMapper
 import me.pinfort.tsvideos.core.external.database.mapper.LibraryProgramSearchMapper
-import me.pinfort.tsvideos.core.external.database.mapper.ProgramMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -42,8 +41,6 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
     @Autowired private lateinit var command: LibraryOrganizationCommand
 
     @Autowired private lateinit var mapper: LibraryOrganizationMapper
-
-    @Autowired private lateinit var programs: ProgramMapper
 
     @Autowired private lateinit var inventory: ProgramInventory
 
@@ -108,7 +105,7 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
             val tag = command.assignTag(1, "ews")
             command.forProgram(1).tags.map { it.name } shouldBe listOf("ews")
             command.delete(LibraryKind.TAG, tag.id)
-            programs.deleteById(1)
+            sql("DELETE FROM program WHERE id=1")
             count("SELECT COUNT(*) FROM executed_file_tag WHERE executed_file_id=1 AND tag='ews'") shouldBe 1
         }
         expect("blank control oversized names and unknown IDs are rejected without creating orphan tags") {
@@ -158,7 +155,7 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
             search.count(query, filter.copy(collectionId = 9999)) shouldBe 0
             command.delete(LibraryKind.COLLECTION, collection.id)
             search.count(query, filter) shouldBe 0
-            programs.find(2)?.id shouldBe 2
+            inventory.exists(2) shouldBe true
             command
                 .forProgram(2)
                 .tags
@@ -172,14 +169,15 @@ class LibraryOrganizationCommandTest : ExpectSpec() {
                 command.assign(LibraryKind.COLLECTION, collection.id, it, true)
                 command.assignTag(it, "tag")
             }
-            programs.deleteById(1)
-            programs.deleteByExecutedFileId(2)
+            // catalog's program deletes (by id and by recording) rely on the FK cascade to drop the associations.
+            sql("DELETE FROM program WHERE id=1")
+            sql("DELETE FROM program WHERE executed_file_id=2")
             command.find(LibraryKind.COLLECTION, collection.id).programCount shouldBe 1
             mapper.forProgram(LibraryKind.COLLECTION, 1).size shouldBe 0
             mapper.forProgram(LibraryKind.TAG, 2).size shouldBe 0
             command.list(LibraryKind.TAG).single().programCount shouldBe 1
             command.delete(LibraryKind.TAG, command.list(LibraryKind.TAG).single().id)
-            programs.find(3)?.id shouldBe 3
+            inventory.exists(3) shouldBe true
             command
                 .forProgram(3)
                 .collections
