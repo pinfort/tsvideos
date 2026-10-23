@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.component
+package me.pinfort.tsvideos.diagnostics.api
 
 /** Preserve cancellation through libraries that wrap InterruptedException or only set the flag. */
 fun diagnosticCancellation(error: Throwable? = null) {

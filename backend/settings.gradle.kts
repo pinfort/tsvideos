@@ -7,6 +7,7 @@ include(
     "storage",
     "database-schema",
     "catalog",
+    "diagnostics",
     "core",
     "console-common",
     "manager:infrastructure",

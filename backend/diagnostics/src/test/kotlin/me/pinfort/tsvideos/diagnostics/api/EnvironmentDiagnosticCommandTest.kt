@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.diagnostics.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
@@ -7,10 +7,8 @@ import io.kotest.matchers.string.shouldNotContain
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import me.pinfort.tsvideos.core.component.DatabaseDiagnosticProbe
-import me.pinfort.tsvideos.core.component.NasDiagnosticProbe
-import me.pinfort.tsvideos.core.domain.DiagnosticCheck
-import me.pinfort.tsvideos.core.domain.DiagnosticStatus
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticCheck
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticStatus
 import org.springframework.mock.env.MockEnvironment
 
 class EnvironmentDiagnosticCommandTest :

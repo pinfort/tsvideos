@@ -1,7 +1,7 @@
-package me.pinfort.tsvideos.core.component
+package me.pinfort.tsvideos.diagnostics.api
 
-import me.pinfort.tsvideos.core.domain.DiagnosticCheck
-import me.pinfort.tsvideos.core.domain.DiagnosticStatus
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticCheck
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticStatus
 import me.pinfort.tsvideos.storage.api.DiagnosticNasClient
 import org.springframework.stereotype.Component
 import java.util.UUID

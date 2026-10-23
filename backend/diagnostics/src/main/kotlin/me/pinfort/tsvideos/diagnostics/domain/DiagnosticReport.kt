@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.domain
+package me.pinfort.tsvideos.diagnostics.domain
 
 enum class DiagnosticStatus {
     PASS,

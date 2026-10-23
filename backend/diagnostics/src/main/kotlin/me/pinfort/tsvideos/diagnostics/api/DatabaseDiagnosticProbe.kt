@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.component
+package me.pinfort.tsvideos.diagnostics.api
 
 import org.springframework.stereotype.Component
 import java.sql.DriverManager

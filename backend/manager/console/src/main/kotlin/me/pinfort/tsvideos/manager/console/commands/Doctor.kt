@@ -5,7 +5,7 @@ import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.core.ProgramResult
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
-import me.pinfort.tsvideos.core.command.EnvironmentDiagnosticCommand
+import me.pinfort.tsvideos.diagnostics.api.EnvironmentDiagnosticCommand
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
 

@@ -60,6 +60,8 @@ dependencies {
     implementation(project(":storage"))
     // catalog の公開型 (Program など) も core の公開シグネチャに出る。利用側も catalog へ明示的に依存する
     implementation(project(":catalog"))
+    // ProcessingPreflightCommand が diagnostics の EnvironmentDiagnosticCommand と診断結果の型を使う (片方向)
+    implementation(project(":diagnostics"))
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.core:jackson-databind")

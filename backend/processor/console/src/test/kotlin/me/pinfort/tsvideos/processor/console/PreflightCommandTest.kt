@@ -7,10 +7,10 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.core.command.ProcessingPreflightCommand
-import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
-import me.pinfort.tsvideos.core.domain.DiagnosticCheck
-import me.pinfort.tsvideos.core.domain.DiagnosticReport
-import me.pinfort.tsvideos.core.domain.DiagnosticStatus
+import me.pinfort.tsvideos.diagnostics.api.DiagnosticEnvironment
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticCheck
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticReport
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticStatus
 import me.pinfort.tsvideos.storage.api.NasComponent
 import me.pinfort.tsvideos.storage.api.VerifiedUploadNas
 import org.springframework.context.annotation.AnnotationConfigApplicationContext

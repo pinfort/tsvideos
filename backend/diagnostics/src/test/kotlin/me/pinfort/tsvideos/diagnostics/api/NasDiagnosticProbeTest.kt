@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.component
+package me.pinfort.tsvideos.diagnostics.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
@@ -11,7 +11,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
-import me.pinfort.tsvideos.core.domain.DiagnosticStatus
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticStatus
 import me.pinfort.tsvideos.storage.api.DiagnosticNasClient
 import me.pinfort.tsvideos.storage.api.NasAccessException
 import java.io.ByteArrayInputStream

@@ -12,12 +12,11 @@ import me.pinfort.tsvideos.catalog.api.StreamableVideo
 import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
-import me.pinfort.tsvideos.core.component.NasDiagnosticProbe
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
 import me.pinfort.tsvideos.core.component.ProcessingRetry
 import me.pinfort.tsvideos.core.component.TransientProcessingFailure
-import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
 import me.pinfort.tsvideos.core.domain.UploadManifest
+import me.pinfort.tsvideos.diagnostics.api.DiagnosticEnvironment
 import me.pinfort.tsvideos.storage.api.NasAccessException
 import me.pinfort.tsvideos.storage.api.NasAuthenticationException
 import java.io.File
@@ -68,7 +67,6 @@ class StorageCallerBoundaryTest :
         context("public signatures of storage callers") {
             val callers: List<KClass<*>> =
                 listOf(
-                    NasDiagnosticProbe::class,
                     NasDestinationResolver::class,
                     CreatedFileCommand::class,
                     CreatedFileCatalog::class,

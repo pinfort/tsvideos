@@ -6,10 +6,10 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.mockk.every
 import io.mockk.mockk
-import me.pinfort.tsvideos.core.command.EnvironmentDiagnosticCommand
-import me.pinfort.tsvideos.core.domain.DiagnosticCheck
-import me.pinfort.tsvideos.core.domain.DiagnosticReport
-import me.pinfort.tsvideos.core.domain.DiagnosticStatus
+import me.pinfort.tsvideos.diagnostics.api.EnvironmentDiagnosticCommand
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticCheck
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticReport
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticStatus
 import me.pinfort.tsvideos.manager.console.parseManager
 import tools.jackson.databind.json.JsonMapper
 

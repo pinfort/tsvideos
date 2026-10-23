@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.core.component
 
+import me.pinfort.tsvideos.diagnostics.api.diagnosticCancellation
 import org.springframework.stereotype.Component
 import java.net.InetSocketAddress
 import java.net.Socket

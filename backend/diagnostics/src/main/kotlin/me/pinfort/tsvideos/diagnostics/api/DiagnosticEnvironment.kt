@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.config
+package me.pinfort.tsvideos.diagnostics.api
 
 import org.springframework.boot.context.config.ConfigDataEnvironmentPostProcessor
 import org.springframework.core.env.SimpleCommandLinePropertySource

@@ -1,11 +1,8 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.diagnostics.api
 
-import me.pinfort.tsvideos.core.component.DatabaseDiagnosticProbe
-import me.pinfort.tsvideos.core.component.NasDiagnosticProbe
-import me.pinfort.tsvideos.core.component.diagnosticCancellation
-import me.pinfort.tsvideos.core.domain.DiagnosticCheck
-import me.pinfort.tsvideos.core.domain.DiagnosticReport
-import me.pinfort.tsvideos.core.domain.DiagnosticStatus
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticCheck
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticReport
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticStatus
 import org.springframework.core.env.Environment
 import org.springframework.stereotype.Component
 import java.net.URI
