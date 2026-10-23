@@ -1,9 +1,9 @@
-package me.pinfort.tsvideos.core.external.database.mapper
+package me.pinfort.tsvideos.library.persistence
 
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
-import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
+import me.pinfort.tsvideos.library.domain.LibraryProgramFilter
 import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Param
 import org.apache.ibatis.annotations.SelectProvider
@@ -14,7 +14,7 @@ import java.time.LocalDateTime
  * It reads ledger tables (backend/docs/module-boundaries.md §5.2) and takes no lock.
  */
 @Mapper
-interface LibraryProgramSearchMapper {
+internal interface LibraryProgramSearchMapper {
     @SelectProvider(type = LibraryProgramSearchSql::class, method = "search")
     fun search(
         @Param("query") query: ProgramSearchQuery,
@@ -29,7 +29,7 @@ interface LibraryProgramSearchMapper {
 }
 
 /** One search result row; converted to a [Program] the same way catalog's search converts its rows. */
-data class LibraryProgramRow(
+internal data class LibraryProgramRow(
     val id: Long,
     val name: String,
     val executedFileId: Long,
@@ -60,10 +60,10 @@ data class LibraryProgramRow(
 
 /**
  * Only fixed SQL fragments are interpolated. All user values remain bound parameters.
- * The ledger conditions, order and paging repeat catalog's program search exactly (LibraryProgramSearchCommandTest
+ * The ledger conditions, order and paging repeat catalog's program search exactly (LibraryCatalogTransactionTest
  * compares the two); keep them in step when the catalog search changes.
  */
-class LibraryProgramSearchSql {
+internal class LibraryProgramSearchSql {
     fun search(parameters: Map<String, Any>): String {
         val query = query(parameters)
         val column =

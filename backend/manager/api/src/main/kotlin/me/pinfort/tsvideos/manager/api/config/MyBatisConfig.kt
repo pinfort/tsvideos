@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.manager.api.config
 
 import me.pinfort.tsvideos.catalog.api.CatalogPersistence
+import me.pinfort.tsvideos.library.api.LibraryPersistence
 import org.mybatis.spring.annotation.MapperScan
 import org.springframework.context.annotation.Configuration
 
@@ -12,5 +13,11 @@ import org.springframework.context.annotation.Configuration
 // when the full application context loads.
 // Every module's mappers share the application's single SqlSessionFactory and transaction manager.
 @Configuration
-@MapperScan(basePackages = ["me.pinfort.tsvideos.core.external.database.mapper", CatalogPersistence.MAPPER_PACKAGE])
+@MapperScan(
+    basePackages = [
+        "me.pinfort.tsvideos.core.external.database.mapper",
+        CatalogPersistence.MAPPER_PACKAGE,
+        LibraryPersistence.MAPPER_PACKAGE,
+    ],
+)
 class MyBatisConfig

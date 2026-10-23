@@ -1,18 +1,14 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
-import io.mockk.clearMocks
-import io.mockk.every
 import io.mockk.mockk
-import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.catalog.api.CreatedFileCommand
 import me.pinfort.tsvideos.catalog.api.DirectoryNameComponent
 import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
 import me.pinfort.tsvideos.catalog.api.ExecutedFileTagCommand
-import me.pinfort.tsvideos.catalog.api.LedgerLocks
 import me.pinfort.tsvideos.catalog.api.LedgerSnapshots
 import me.pinfort.tsvideos.catalog.api.NormalizeComponent
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
@@ -20,14 +16,9 @@ import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
-import me.pinfort.tsvideos.core.config.LoggerConfig
-import me.pinfort.tsvideos.core.domain.BulkAction
-import me.pinfort.tsvideos.core.domain.BulkApplyRequest
-import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
-import me.pinfort.tsvideos.core.domain.BulkRequest
-import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
+import me.pinfort.tsvideos.library.TestLoggerConfig
+import me.pinfort.tsvideos.library.domain.LibraryProgramFilter
 import me.pinfort.tsvideos.storage.api.NasComponent
-import me.pinfort.tsvideos.storage.api.NasStore
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -46,10 +37,10 @@ import java.time.LocalDateTime
 import javax.sql.DataSource
 
 /**
- * Library callers over catalog's public operations as Spring wires them (one shared transaction manager): bulk apply
- * running catalog's MANDATORY locks in its per-target transaction, library reads joining the caller's snapshot, and
- * library search compatibility with the catalog search. Catalog's own transaction contracts are covered by catalog's
- * CatalogTransactionTest.
+ * Library reads over catalog's public operations as Spring wires them (one shared transaction manager): library reads
+ * joining the caller's snapshot, and library search compatibility with the catalog search. Catalog's own transaction
+ * contracts are covered by catalog's CatalogTransactionTest; the bulk apply still in core by core's
+ * BulkCatalogTransactionTest.
  */
 @ImportTestcontainers
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -57,10 +48,8 @@ import javax.sql.DataSource
 @MybatisTest
 @SpringJUnitConfig
 @Import(
-    LedgerLocks::class,
     LedgerSnapshots::class,
     ProgramInventory::class,
-    CreatedFileCatalog::class,
     ProgramCommand::class,
     ExecutedFileCommand::class,
     CreatedFileCommand::class,
@@ -68,8 +57,7 @@ import javax.sql.DataSource
     ExecutedFileTagCommand::class,
     DirectoryNameComponent::class,
     NormalizeComponent::class,
-    LoggerConfig::class,
-    BulkLibraryCommand::class,
+    TestLoggerConfig::class,
     LibraryProgramSearchCommand::class,
     LibraryCatalogTransactionTest.Nas::class,
 )
@@ -92,11 +80,7 @@ class LibraryCatalogTransactionTest : ExpectSpec() {
 
     @Autowired private lateinit var programs: ProgramCommand
 
-    @Autowired private lateinit var bulk: BulkLibraryCommand
-
     @Autowired private lateinit var librarySearch: LibraryProgramSearchCommand
-
-    @Autowired private lateinit var nas: NasComponent
 
     private fun sql(statements: List<String>) {
         dataSource.connection.use { connection ->
@@ -119,7 +103,7 @@ class LibraryCatalogTransactionTest : ExpectSpec() {
             ).map { "DELETE FROM $it" },
         )
 
-    // Program 4 on recording 3 with one split and one created file, all eligible for a bulk change.
+    // Program 4 on recording 3 with one split and one created file.
     private fun seed() =
         sql(
             listOf(
@@ -131,16 +115,6 @@ class LibraryCatalogTransactionTest : ExpectSpec() {
             ),
         )
 
-    private fun count(table: String): Long =
-        dataSource.connection.use { connection ->
-            connection.createStatement().use { statement ->
-                statement.executeQuery("SELECT COUNT(*) FROM $table").use {
-                    it.next()
-                    it.getLong(1)
-                }
-            }
-        }
-
     init {
         // Built on use: the transaction manager is injected only after this spec body has run.
         val snapshotRead by lazy {
@@ -150,36 +124,9 @@ class LibraryCatalogTransactionTest : ExpectSpec() {
             }
         }
 
-        beforeTest {
-            clear()
-            clearMocks(nas)
-            every { nas.deleteResource(any()) } returns NasStore.VIDEO_STORE_NAS
-        }
+        beforeTest { clear() }
         // Leave the shared container empty so later specs' fixed IDs don't collide.
         afterTest { clear() }
-
-        context("coordinated changes") {
-            expect("bulk apply runs the MANDATORY locks inside its per-target transaction and commits the change") {
-                seed()
-                val request = BulkRequest(listOf(4), BulkAction.DELETE)
-                val plan = bulk.preview(request)
-                val result = bulk.apply(BulkApplyRequest(request, plan.targets.associate { it.id to it.fingerprint }))
-                result.outcomes.single().status shouldBe BulkOutcomeStatus.SUCCESS
-                count("program") shouldBe 0
-                count("created_file") shouldBe 0
-            }
-
-            expect("a NAS failure during bulk apply rolls the target's rows back") {
-                seed()
-                every { nas.deleteResource(any()) } throws IllegalStateException("unavailable")
-                val request = BulkRequest(listOf(4), BulkAction.DELETE)
-                val plan = bulk.preview(request)
-                val result = bulk.apply(BulkApplyRequest(request, plan.targets.associate { it.id to it.fingerprint }))
-                result.outcomes.single().status shouldBe BulkOutcomeStatus.FAILED
-                count("program") shouldBe 1
-                count("created_file") shouldBe 1
-            }
-        }
 
         context("reads") {
             expect("join the caller's repeatable-read snapshot") {

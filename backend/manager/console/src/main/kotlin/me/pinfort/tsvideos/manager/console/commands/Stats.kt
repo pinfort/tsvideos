@@ -4,9 +4,9 @@ import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.option
-import me.pinfort.tsvideos.core.command.LibraryStatsCommand
-import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
-import me.pinfort.tsvideos.core.domain.LibraryStatsTotals
+import me.pinfort.tsvideos.library.api.LibraryStatsCommand
+import me.pinfort.tsvideos.library.domain.LibraryStatsQuery
+import me.pinfort.tsvideos.library.domain.LibraryStatsTotals
 import org.springframework.stereotype.Component
 import java.time.LocalDate
 import java.time.LocalDateTime

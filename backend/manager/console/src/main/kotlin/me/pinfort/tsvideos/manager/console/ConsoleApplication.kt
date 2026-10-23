@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.manager.console
 
 import me.pinfort.tsvideos.catalog.api.CatalogPersistence
 import me.pinfort.tsvideos.console.common.charset.ConsoleCharset
+import me.pinfort.tsvideos.library.api.LibraryPersistence
 import org.mybatis.spring.annotation.MapperScan
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
@@ -12,11 +13,18 @@ import java.io.PrintStream
 import java.nio.charset.StandardCharsets
 import kotlin.system.exitProcess
 
-@MapperScan(basePackages = ["me.pinfort.tsvideos.core.external.database.mapper", CatalogPersistence.MAPPER_PACKAGE])
+@MapperScan(
+    basePackages = [
+        "me.pinfort.tsvideos.core.external.database.mapper",
+        CatalogPersistence.MAPPER_PACKAGE,
+        LibraryPersistence.MAPPER_PACKAGE,
+    ],
+)
 @SpringBootApplication(
     scanBasePackages = [
         "me.pinfort.tsvideos.storage",
         "me.pinfort.tsvideos.catalog",
+        "me.pinfort.tsvideos.library",
         "me.pinfort.tsvideos.diagnostics",
         "me.pinfort.tsvideos.core",
         "me.pinfort.tsvideos.console.common",

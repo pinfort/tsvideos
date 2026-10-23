@@ -20,6 +20,7 @@ kotlin {
 dependencies {
     implementation(project(":storage"))
     implementation(project(":catalog"))
+    implementation(project(":library"))
     implementation(project(":diagnostics"))
     implementation(project(":core"))
     implementation(project(":manager:infrastructure"))

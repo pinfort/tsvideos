@@ -60,6 +60,9 @@ dependencies {
     implementation(project(":storage"))
     // catalog の公開型 (Program など) も core の公開シグネチャに出る。利用側も catalog へ明示的に依存する
     implementation(project(":catalog"))
+    // 移行中だけの片方向の依存 (#157)。core に残る library の呼び出し元 (CleanupPlanCommand) が
+    // library の公開操作と結果型を使う。#158/#159 でそれが library に移ったら外す。library から core への依存は禁止
+    implementation(project(":library"))
     // ProcessingPreflightCommand が diagnostics の EnvironmentDiagnosticCommand と診断結果の型を使う (片方向)
     implementation(project(":diagnostics"))
     implementation("org.springframework.boot:spring-boot-starter")

@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
@@ -7,8 +7,8 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.spyk
 import me.pinfort.tsvideos.catalog.api.CatalogStatistics
-import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
-import me.pinfort.tsvideos.core.domain.LibraryStatsQuery.Group
+import me.pinfort.tsvideos.library.domain.LibraryStatsQuery
+import me.pinfort.tsvideos.library.domain.LibraryStatsQuery.Group
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase

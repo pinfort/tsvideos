@@ -6,11 +6,11 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import me.pinfort.tsvideos.core.command.LibraryStatsCommand
-import me.pinfort.tsvideos.core.domain.LibraryStats
-import me.pinfort.tsvideos.core.domain.LibraryStatsGroup
-import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
-import me.pinfort.tsvideos.core.domain.LibraryStatsTotals
+import me.pinfort.tsvideos.library.api.LibraryStatsCommand
+import me.pinfort.tsvideos.library.domain.LibraryStats
+import me.pinfort.tsvideos.library.domain.LibraryStatsGroup
+import me.pinfort.tsvideos.library.domain.LibraryStatsQuery
+import me.pinfort.tsvideos.library.domain.LibraryStatsTotals
 import me.pinfort.tsvideos.manager.console.parseManager
 import tools.jackson.databind.json.JsonMapper
 import java.time.LocalDateTime

@@ -1,9 +1,9 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.catalog.domain.Program
-import me.pinfort.tsvideos.core.domain.DuplicateGroup
-import me.pinfort.tsvideos.core.domain.DuplicateKeepCriterion
+import me.pinfort.tsvideos.library.domain.DuplicateGroup
+import me.pinfort.tsvideos.library.domain.DuplicateKeepCriterion
 import org.springframework.stereotype.Component
 import java.time.LocalDateTime
 import java.time.ZoneOffset

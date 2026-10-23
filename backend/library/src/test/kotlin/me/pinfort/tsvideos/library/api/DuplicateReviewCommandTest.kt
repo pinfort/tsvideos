@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
@@ -6,8 +6,8 @@ import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
-import me.pinfort.tsvideos.core.config.LoggerConfig
-import me.pinfort.tsvideos.core.domain.DuplicateKeepCriterion
+import me.pinfort.tsvideos.library.TestLoggerConfig
+import me.pinfort.tsvideos.library.domain.DuplicateKeepCriterion
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -23,7 +23,7 @@ import javax.sql.DataSource
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @MybatisTest
 @SpringJUnitConfig
-@Import(ProgramInventory::class, CreatedFileCatalog::class, LoggerConfig::class)
+@Import(ProgramInventory::class, CreatedFileCatalog::class, TestLoggerConfig::class)
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)

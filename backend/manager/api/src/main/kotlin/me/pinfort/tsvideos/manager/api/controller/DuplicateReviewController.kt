@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.manager.api.controller
 
-import me.pinfort.tsvideos.core.command.DuplicateReviewCommand
+import me.pinfort.tsvideos.library.api.DuplicateReviewCommand
 import me.pinfort.tsvideos.manager.api.response.DuplicateReviewResponse
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController

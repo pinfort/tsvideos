@@ -1,9 +1,9 @@
 package me.pinfort.tsvideos.manager.api.response
 
-import me.pinfort.tsvideos.core.domain.LibraryStatsTotals
-import me.pinfort.tsvideos.core.domain.StorageDuplicateCandidate
-import me.pinfort.tsvideos.core.domain.StorageOverview
-import me.pinfort.tsvideos.core.domain.StorageRecording
+import me.pinfort.tsvideos.library.domain.LibraryStatsTotals
+import me.pinfort.tsvideos.library.domain.StorageDuplicateCandidate
+import me.pinfort.tsvideos.library.domain.StorageOverview
+import me.pinfort.tsvideos.library.domain.StorageRecording
 
 data class StorageOverviewResponse(
     val totals: LibraryStatsTotals,

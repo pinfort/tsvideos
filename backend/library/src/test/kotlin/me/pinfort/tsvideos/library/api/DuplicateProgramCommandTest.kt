@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -9,7 +9,7 @@ import io.mockk.every
 import io.mockk.mockk
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.catalog.domain.Program
-import me.pinfort.tsvideos.core.domain.DuplicateGroup
+import me.pinfort.tsvideos.library.domain.DuplicateGroup
 import java.time.LocalDateTime
 
 class DuplicateProgramCommandTest :
