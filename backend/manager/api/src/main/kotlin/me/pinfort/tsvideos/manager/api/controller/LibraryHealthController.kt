@@ -1,9 +1,9 @@
 package me.pinfort.tsvideos.manager.api.controller
 
-import me.pinfort.tsvideos.core.command.HealthScanAlreadyRunning
-import me.pinfort.tsvideos.core.command.LibraryHealthCommand
-import me.pinfort.tsvideos.core.command.LibraryHealthScanCommand
-import me.pinfort.tsvideos.core.domain.LibraryHealth
+import me.pinfort.tsvideos.library.api.HealthScanAlreadyRunning
+import me.pinfort.tsvideos.library.api.LibraryHealthCommand
+import me.pinfort.tsvideos.library.api.LibraryHealthScanCommand
+import me.pinfort.tsvideos.library.domain.LibraryHealth
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping

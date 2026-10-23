@@ -1,9 +1,9 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.command.HealthVerificationStore.Companion.REASON_MAX_CHARS
-import me.pinfort.tsvideos.core.command.HealthVerificationStore.Companion.truncateReason
+import me.pinfort.tsvideos.library.api.HealthVerificationStore.Companion.REASON_MAX_CHARS
+import me.pinfort.tsvideos.library.api.HealthVerificationStore.Companion.truncateReason
 
 class HealthVerificationStoreTest :
     ExpectSpec({

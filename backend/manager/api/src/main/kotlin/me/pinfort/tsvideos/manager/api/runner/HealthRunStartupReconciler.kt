@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.manager.api.runner
 
-import me.pinfort.tsvideos.core.command.HealthVerificationStore
+import me.pinfort.tsvideos.library.api.HealthVerificationStore
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner

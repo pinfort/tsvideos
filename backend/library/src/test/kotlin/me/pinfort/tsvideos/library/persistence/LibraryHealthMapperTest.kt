@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.external.database.mapper
+package me.pinfort.tsvideos.library.persistence
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.extensions.ApplyExtension
@@ -10,15 +10,15 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
-import me.pinfort.tsvideos.core.command.HealthScanAlreadyRunning
-import me.pinfort.tsvideos.core.command.HealthVerificationStore
-import me.pinfort.tsvideos.core.command.LibraryHealthCommand
-import me.pinfort.tsvideos.core.command.LibraryHealthScanCommand
-import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
-import me.pinfort.tsvideos.core.domain.FileFinding
-import me.pinfort.tsvideos.core.domain.HealthRun
-import me.pinfort.tsvideos.core.domain.VerificationReport
-import me.pinfort.tsvideos.core.domain.VerificationStatus
+import me.pinfort.tsvideos.library.api.HealthScanAlreadyRunning
+import me.pinfort.tsvideos.library.api.HealthVerificationStore
+import me.pinfort.tsvideos.library.api.LibraryHealthCommand
+import me.pinfort.tsvideos.library.api.LibraryHealthScanCommand
+import me.pinfort.tsvideos.library.api.LibraryVerificationCommand
+import me.pinfort.tsvideos.library.domain.FileFinding
+import me.pinfort.tsvideos.library.domain.HealthRun
+import me.pinfort.tsvideos.library.domain.VerificationReport
+import me.pinfort.tsvideos.library.domain.VerificationStatus
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase

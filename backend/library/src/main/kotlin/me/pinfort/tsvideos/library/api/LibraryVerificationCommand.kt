@@ -1,12 +1,12 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
-import me.pinfort.tsvideos.core.domain.FileFinding
-import me.pinfort.tsvideos.core.domain.VerificationReport
-import me.pinfort.tsvideos.core.domain.VerificationStatus
+import me.pinfort.tsvideos.library.domain.FileFinding
+import me.pinfort.tsvideos.library.domain.VerificationReport
+import me.pinfort.tsvideos.library.domain.VerificationStatus
 import me.pinfort.tsvideos.storage.api.NasFileVerifier
 import org.springframework.stereotype.Component
 import java.time.Instant

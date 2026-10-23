@@ -9,7 +9,6 @@ import io.kotest.matchers.string.shouldStartWith
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.catalog.api.CreatedFileCommand
 import me.pinfort.tsvideos.catalog.api.StreamableVideo
-import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.core.component.NasDestinationResolver
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
@@ -71,7 +70,6 @@ class StorageCallerBoundaryTest :
                     CreatedFileCommand::class,
                     CreatedFileCatalog::class,
                     StreamableVideo::class,
-                    LibraryVerificationCommand::class,
                     VerifiedUploadCommand::class,
                     UploadManifest::class,
                     ProcessingRetry::class,

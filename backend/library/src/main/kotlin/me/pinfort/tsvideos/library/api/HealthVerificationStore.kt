@@ -1,10 +1,10 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
-import me.pinfort.tsvideos.core.domain.HealthRun
-import me.pinfort.tsvideos.core.domain.VerificationReport
-import me.pinfort.tsvideos.core.external.database.dto.HealthFindingDto
-import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
-import me.pinfort.tsvideos.core.external.database.mapper.LibraryHealthMapper
+import me.pinfort.tsvideos.library.domain.HealthRun
+import me.pinfort.tsvideos.library.domain.VerificationReport
+import me.pinfort.tsvideos.library.persistence.GeneratedKeyHolder
+import me.pinfort.tsvideos.library.persistence.HealthFindingDto
+import me.pinfort.tsvideos.library.persistence.LibraryHealthMapper
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Propagation
@@ -14,7 +14,7 @@ import java.time.ZoneOffset
 
 /** Short database transactions: NAS I/O is deliberately outside this component. */
 @Component
-class HealthVerificationStore(
+class HealthVerificationStore internal constructor(
     private val mapper: LibraryHealthMapper,
 ) {
     @Transactional(propagation = Propagation.REQUIRES_NEW)

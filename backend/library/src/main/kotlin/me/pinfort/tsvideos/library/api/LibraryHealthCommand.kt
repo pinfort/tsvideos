@@ -1,13 +1,13 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.catalog.api.ProgramSummary
 import me.pinfort.tsvideos.catalog.domain.Program
-import me.pinfort.tsvideos.core.domain.HealthFinding
-import me.pinfort.tsvideos.core.domain.HealthProgram
-import me.pinfort.tsvideos.core.domain.LibraryHealth
-import me.pinfort.tsvideos.core.domain.VerificationStatus
-import me.pinfort.tsvideos.core.external.database.mapper.LibraryHealthMapper
+import me.pinfort.tsvideos.library.domain.HealthFinding
+import me.pinfort.tsvideos.library.domain.HealthProgram
+import me.pinfort.tsvideos.library.domain.LibraryHealth
+import me.pinfort.tsvideos.library.domain.VerificationStatus
+import me.pinfort.tsvideos.library.persistence.LibraryHealthMapper
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.stereotype.Component
@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional
 class HealthScanAlreadyRunning : RuntimeException("Verification is already running")
 
 @Component
-class LibraryHealthCommand(
+class LibraryHealthCommand internal constructor(
     private val mapper: LibraryHealthMapper,
     private val programs: ProgramInventory,
 ) {

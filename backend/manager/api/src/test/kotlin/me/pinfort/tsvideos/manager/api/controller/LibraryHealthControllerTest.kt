@@ -7,10 +7,10 @@ import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.verify
-import me.pinfort.tsvideos.core.command.HealthScanAlreadyRunning
-import me.pinfort.tsvideos.core.command.LibraryHealthCommand
-import me.pinfort.tsvideos.core.command.LibraryHealthScanCommand
-import me.pinfort.tsvideos.core.domain.LibraryHealth
+import me.pinfort.tsvideos.library.api.HealthScanAlreadyRunning
+import me.pinfort.tsvideos.library.api.LibraryHealthCommand
+import me.pinfort.tsvideos.library.api.LibraryHealthScanCommand
+import me.pinfort.tsvideos.library.domain.LibraryHealth
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
 import org.springframework.test.web.servlet.MockMvc

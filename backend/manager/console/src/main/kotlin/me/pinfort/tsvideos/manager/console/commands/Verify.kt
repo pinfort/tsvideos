@@ -8,7 +8,7 @@ import com.github.ajalt.clikt.parameters.options.check
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.long
-import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
+import me.pinfort.tsvideos.library.api.LibraryVerificationCommand
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
