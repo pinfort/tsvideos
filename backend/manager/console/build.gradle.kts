@@ -26,6 +26,9 @@ dependencies {
     implementation(project(":catalog"))
     implementation(project(":library"))
     implementation(project(":diagnostics"))
+    // 移行中だけ (#164)。core の VerifiedUploadCommand が processing の Bean を使うので、スキャンと Mapper 登録の定数
+    // (ProcessingPersistence.MAPPER_PACKAGE) のために依存する。#165 で外す
+    implementation(project(":processing"))
     implementation(project(":core"))
     implementation(project(":console-common"))
     implementation(project(":manager:infrastructure"))

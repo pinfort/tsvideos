@@ -9,10 +9,10 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.long
 import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
-import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
-import me.pinfort.tsvideos.core.command.RecordingQualityCommand
-import me.pinfort.tsvideos.core.domain.QualityAction
-import me.pinfort.tsvideos.core.exception.QualityReleaseRefusedException
+import me.pinfort.tsvideos.processing.api.ProcessingHistoryCommand
+import me.pinfort.tsvideos.processing.api.RecordingQualityCommand
+import me.pinfort.tsvideos.processing.domain.QualityAction
+import me.pinfort.tsvideos.processing.domain.QualityReleaseRefusedException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component

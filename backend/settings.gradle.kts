@@ -9,6 +9,7 @@ include(
     "catalog",
     "library",
     "diagnostics",
+    "processing",
     "core",
     "console-common",
     "manager:infrastructure",

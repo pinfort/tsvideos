@@ -3,7 +3,7 @@ package me.pinfort.tsvideos.processor.console
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.component.ProcessingCancellation
+import me.pinfort.tsvideos.processing.api.ProcessingCancellation
 import java.util.concurrent.CountDownLatch
 
 class ProcessorShutdownTest :

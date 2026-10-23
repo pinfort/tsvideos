@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.manager.api.config
 
 import me.pinfort.tsvideos.catalog.api.CatalogPersistence
 import me.pinfort.tsvideos.library.api.LibraryPersistence
+import me.pinfort.tsvideos.processing.api.ProcessingPersistence
 import org.mybatis.spring.annotation.MapperScan
 import org.springframework.context.annotation.Configuration
 
@@ -12,12 +13,14 @@ import org.springframework.context.annotation.Configuration
 // @Configuration class is excluded by @WebMvcTest's default filtering, so it only takes effect
 // when the full application context loads.
 // Every module's mappers share the application's single SqlSessionFactory and transaction manager.
+// processing's mappers are registered only while core's VerifiedUploadCommand pulls processing in (#164, removed in #165).
 @Configuration
 @MapperScan(
     basePackages = [
         "me.pinfort.tsvideos.core.external.database.mapper",
         CatalogPersistence.MAPPER_PACKAGE,
         LibraryPersistence.MAPPER_PACKAGE,
+        ProcessingPersistence.MAPPER_PACKAGE,
     ],
 )
 class MyBatisConfig

@@ -1,0 +1,12 @@
+processor-tool:
+  ts-splitter-path: ${TS_SPLITTER_PATH:C:\tools\TsSplitter\TsSplitter.exe}
+  amatsukaze-add-task-path: ${AMATSUKAZE_ADD_TASK_PATH:C:\tools\Amatsukaze\exe_files\AmatsukazeAddTask.exe}
+  ffprobe-path: ${FFPROBE_PATH:ffprobe}
+  amatsukaze:
+    host: ${AMATSUKAZE_HOST:localhost}
+    port: ${AMATSUKAZE_PORT:32768}
+    default-profile: ${AMATSUKAZE_DEFAULT_PROFILE:30fps_light}
+    atx-div-profile: ${AMATSUKAZE_ATX_DIV_PROFILE:30fps_light_atx_div}
+
+processor-preflight:
+  space-multiplier: ${PROCESSOR_PREFLIGHT_SPACE_MULTIPLIER:3}

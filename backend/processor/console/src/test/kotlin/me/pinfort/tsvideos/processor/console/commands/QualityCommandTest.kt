@@ -9,12 +9,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
-import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
-import me.pinfort.tsvideos.core.command.RecordingQualityCommand
-import me.pinfort.tsvideos.core.domain.ProcessingStatus
-import me.pinfort.tsvideos.core.domain.QualityAction
-import me.pinfort.tsvideos.core.domain.RecordingQualityReport
-import me.pinfort.tsvideos.core.exception.QualityReleaseRefusedException
+import me.pinfort.tsvideos.processing.api.ProcessingHistoryCommand
+import me.pinfort.tsvideos.processing.api.RecordingQualityCommand
+import me.pinfort.tsvideos.processing.domain.ProcessingStatus
+import me.pinfort.tsvideos.processing.domain.QualityAction
+import me.pinfort.tsvideos.processing.domain.QualityReleaseRefusedException
+import me.pinfort.tsvideos.processing.domain.RecordingQualityReport
 import me.pinfort.tsvideos.processor.console.parseProcessor
 import tools.jackson.databind.json.JsonMapper
 

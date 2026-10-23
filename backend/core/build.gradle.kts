@@ -60,11 +60,11 @@ dependencies {
     implementation(project(":storage"))
     // catalog の公開型 (Program など) も core の公開シグネチャに出る。利用側も catalog へ明示的に依存する
     implementation(project(":catalog"))
-    // ProcessingPreflightCommand が diagnostics の EnvironmentDiagnosticCommand と診断結果の型を使う (片方向)
-    implementation(project(":diagnostics"))
+    // 移行中だけの core → processing (#164)。core に残る VerifiedUploadCommand が processing の ProcessingRetry /
+    // ProcessingCancellation / ProcessingIdentity を使う。#165 でアップロードを processing へ移すときに外す。processing → core は禁止
+    implementation(project(":processing"))
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
-    implementation("tools.jackson.core:jackson-databind")
     implementation(libs.mybatis.spring.boot)
 
     runtimeOnly("org.mariadb.jdbc:mariadb-java-client")
@@ -77,7 +77,9 @@ dependencies {
     testImplementation(libs.kotest.extensions.spring)
     testImplementation(libs.mockk)
     testImplementation(libs.mybatis.spring.test)
-    // Testcontainers の初期化スクリプト ddl/01_create_database.sql、シードデータ、保守用 SQL (database-schema)
+    // StorageCallerBoundaryTest が core の設定の合成を diagnostics の DiagnosticEnvironment で読む
+    testImplementation(project(":diagnostics"))
+    // Testcontainers の初期化スクリプト ddl/01_create_database.sql とシードデータ (database-schema)
     testImplementation(testFixtures(project(":database-schema")))
 
     // testcontainers

@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.processor.console
 
-import me.pinfort.tsvideos.core.component.ProcessingCancellation
+import me.pinfort.tsvideos.processing.api.ProcessingCancellation
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.util.concurrent.TimeUnit

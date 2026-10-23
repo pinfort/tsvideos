@@ -1,0 +1,17 @@
+# processing has no DataSource configuration of its own: the applications provide it (core's application-core.yaml).
+# The tests use the same connection settings, so statement-level commits and the tests' explicit commit() behave as
+# they did in core (auto-commit off).
+spring:
+  datasource:
+    url: ${DATABASE_CONNECTION:jdbc:tc:mariadb:11.8:///?TC_INITSCRIPT=ddl/01_create_database.sql}
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+    username: ${DATABASE_USER_NAME:test}
+    password: ${DATABASE_PASSWORD:test}
+    type: com.zaxxer.hikari.HikariDataSource
+    hikari:
+      pool-name: ConnectionPool
+      leakDetectionThreshold: 5000
+      connection-test-query: SELECT 1
+      minimum-idle: 5
+      maximum-pool-size: 10
+      auto-commit: false

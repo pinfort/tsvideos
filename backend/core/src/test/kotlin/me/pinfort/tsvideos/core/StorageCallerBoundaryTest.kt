@@ -10,49 +10,20 @@ import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.catalog.api.CreatedFileCommand
 import me.pinfort.tsvideos.catalog.api.StreamableVideo
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
-import me.pinfort.tsvideos.core.component.NasDestinationResolver
-import me.pinfort.tsvideos.core.component.ProcessingCancellation
-import me.pinfort.tsvideos.core.component.ProcessingRetry
-import me.pinfort.tsvideos.core.component.TransientProcessingFailure
 import me.pinfort.tsvideos.core.domain.UploadManifest
 import me.pinfort.tsvideos.diagnostics.api.DiagnosticEnvironment
-import me.pinfort.tsvideos.storage.api.NasAccessException
-import me.pinfort.tsvideos.storage.api.NasAuthenticationException
 import java.io.File
-import java.io.IOException
-import java.net.SocketTimeoutException
 import kotlin.reflect.KClass
 import kotlin.reflect.KVisibility
 
 /**
- * core's side of the storage boundary: how callers classify storage exceptions, and that the public signatures of the
- * callers do not expose implementation or HTTP types. Storage's own contracts are checked by storage's
- * StorageContractTest and its `checkStorageBoundaries` task.
+ * core's side of the storage boundary: that the public signatures of the callers do not expose implementation or HTTP
+ * types. Storage's own contracts are checked by storage's StorageContractTest and its `checkStorageBoundaries` task; the
+ * retry and cancellation classification of storage exceptions moved with ProcessingRetry to processing's
+ * ProcessingStorageCallerTest (#164).
  */
 class StorageCallerBoundaryTest :
     ExpectSpec({
-        context("retry and cancellation classification of storage exceptions") {
-            expect("an authentication failure stays non-retryable even under a network timeout") {
-                TransientProcessingFailure.reason(NasAuthenticationException("NAS upload failed", SocketTimeoutException())) shouldBe null
-                TransientProcessingFailure.reason(IOException("wrapped", NasAuthenticationException("denied"))) shouldBe null
-            }
-
-            // Storage keeps the implementation exception (and its own causes) as the cause of the translated one.
-            expect("an access failure caused by a network timeout stays retryable") {
-                TransientProcessingFailure.reason(NasAccessException("NAS upload failed", SocketTimeoutException())) shouldBe
-                    "NETWORK_UNAVAILABLE"
-                TransientProcessingFailure.reason(
-                    NasAccessException("NAS upload failed", IOException("write failed", SocketTimeoutException())),
-                ) shouldBe "NETWORK_UNAVAILABLE"
-            }
-
-            expect("interruption stays visible through a translated storage failure") {
-                ProcessingCancellation.isInterrupted(
-                    NasAccessException("NAS upload failed", IOException("interrupted", InterruptedException())),
-                ) shouldBe true
-            }
-        }
-
         // core's application.yaml is what core's own tests (and any application without its own include list) load.
         context("configuration composition") {
             expect("core's configuration includes the storage profile and its packaged NAS settings") {
@@ -66,14 +37,11 @@ class StorageCallerBoundaryTest :
         context("public signatures of storage callers") {
             val callers: List<KClass<*>> =
                 listOf(
-                    NasDestinationResolver::class,
                     CreatedFileCommand::class,
                     CreatedFileCatalog::class,
                     StreamableVideo::class,
                     VerifiedUploadCommand::class,
                     UploadManifest::class,
-                    ProcessingRetry::class,
-                    TransientProcessingFailure::class,
                 )
 
             fun signatures(type: KClass<*>): List<String> {

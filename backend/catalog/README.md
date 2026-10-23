@@ -18,7 +18,7 @@
 
 ## 組み立て
 
-- catalog は DataSource・`PlatformTransactionManager`・`SqlSessionFactory` を定義しない。3 つの実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.catalog` を含め、`@MapperScan(basePackages = ["me.pinfort.tsvideos.core.external.database.mapper", CatalogPersistence.MAPPER_PACKAGE])` で catalog の Mapper も自分の 1 組の `SqlSessionFactory` とトランザクションマネージャに登録する。`persistence` のパッケージ名は catalog の外に書かない。
+- catalog は DataSource・`PlatformTransactionManager`・`SqlSessionFactory` を定義しない。3 つの実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.catalog` を含め、`@MapperScan` に `CatalogPersistence.MAPPER_PACKAGE` を (core の `me.pinfort.tsvideos.core.external.database.mapper` や `LibraryPersistence.MAPPER_PACKAGE` / `ProcessingPersistence.MAPPER_PACKAGE` と並べて) 加え、catalog の Mapper も自分の 1 組の `SqlSessionFactory` とトランザクションマネージャに登録する。`persistence` のパッケージ名は catalog の外に書かない。
 - 注入先ごとの slf4j `Logger` は実行アプリ (現状は `core` の `LoggerConfig`) が提供する。catalog は `Logger` 型の注入だけを要求する。
 - 設定ファイルとプロファイルを持たない。DB 接続の設定は実行アプリ (現状は `core` の `application-core.yaml`) のもの。
 - NAS は storage の公開操作 (`NasComponent`) を使う。協調削除/移動は「DB の行を変更してから NAS を変更する」順序を保つ (module-boundaries.md §7.4)。

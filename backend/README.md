@@ -7,13 +7,14 @@ This is the backend for tsvideos, built with Kotlin, Spring Boot, and Gradle.
 - `catalog`: 録画・番組・分割ファイル・作成ファイルの台帳と検出タグ/実施記録。公開操作 (`me.pinfort.tsvideos.catalog.api` / `domain`) と internal の Mapper・DTO。`storage` にだけ依存する（[catalog/README.md](catalog/README.md)）
 - `library`: ライブラリ管理のうち、番組検索 (手動コレクション/タグの絞り込み)、統計、保存領域の概要、手動コレクション/タグ、重複検出/重複レビュー、一括操作、クリーンアップ、健全性・検証。公開操作 (`me.pinfort.tsvideos.library.api` / `domain`) と internal の Mapper。`catalog` と `storage` にだけ依存する（[library/README.md](library/README.md)）
 - `diagnostics`: DB/NAS の環境診断 (`EnvironmentDiagnosticCommand` など) と診断結果 (`DiagnosticReport`)。Spring コンテキストなしで組み立てられ、`doctor` / `preflight` が使う。`storage` にだけ依存する（[diagnostics/README.md](diagnostics/README.md)）
-- `core`: 共通コンポーネント（DB 接続、業務ロジックなど）。NAS は `storage`、台帳は `catalog`、ライブラリ管理は `library`、環境診断は `diagnostics` の公開契約を通して使う
+- `processing`: 録画処理のうち、ジョブ所有権、処理履歴、録画品質、再試行、中断、preflight、外部ツール (TsSplitter・Amatsukaze・ffprobe)/shell、処理補助と `processor-tool.*` / `processor-preflight.*` 設定 (`application-processing.yaml`)。公開操作 (`me.pinfort.tsvideos.processing.api` / `domain`) と internal の Mapper。`catalog`・`storage`・`diagnostics` にだけ依存する（[processing/README.md](processing/README.md)）
+- `core`: 移行中の残り（検証付きアップロード `VerifiedUploadCommand` (#165 で processing へ)、`ApplicationVersion`・`LoggerConfig`・DB 接続の設定 (#139 まで)）。NAS は `storage`、台帳は `catalog`、処理の再試行・中断は `processing` の公開契約を通して使う（core → processing は移行中だけ）
 - `manager:infrastructure` / `manager:console` / `manager:api`: 処理済みの録画データを管理するためのツール（`manager:api` が Web API）
 - `processor:infrastructure` / `processor:console`: 録画データを処理して管理ツールで管理できる状態にするためのアプリケーション
 
 ## ローカルでの動作確認
 
-`docker-compose.test.yml`（リポジトリルート）で MariaDB と Samba (NAS) を起動すると、`core/src/main/resources/application-core.yaml`（DB）と `storage/src/main/resources/application-storage.yaml`（NAS）のデフォルト値のまま環境変数なしで `manager:api` をローカル起動できます。
+`docker-compose.test.yml`（リポジトリルート）で MariaDB と Samba (NAS) を起動すると、`core/src/main/resources/application-core.yaml`（DB）と `storage/src/main/resources/application-storage.yaml`（NAS）のデフォルト値（#165 までは移行中のため `processing/src/main/resources/application-processing.yaml` の処理ツール設定も読み込みます）のまま環境変数なしで `manager:api` をローカル起動できます。
 
 ```bash
 docker compose -f ../docker-compose.test.yml up -d
@@ -36,6 +37,7 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 - `./gradlew catalog:checkCatalogBoundaries` - catalog の境界チェック（依存先、他モジュールからの internal パッケージの参照。`check` / `build` にも含まれる）
 - `./gradlew library:checkLibraryBoundaries` - library の境界チェック（依存先、他モジュールからの internal パッケージの参照、persistence の宣言が internal であること。`check` / `build` にも含まれる）
 - `./gradlew diagnostics:checkDiagnosticsBoundaries` - diagnostics の境界チェック（依存先、他モジュールからの公開パッケージ以外の参照。`check` / `build` にも含まれる）
+- `./gradlew processing:checkProcessingBoundaries` - processing の境界チェック（依存先、他モジュールからの internal パッケージの参照、persistence の宣言が internal であること。`check` / `build` にも含まれる）
 
 ## processor:console (`tvpcli`)
 

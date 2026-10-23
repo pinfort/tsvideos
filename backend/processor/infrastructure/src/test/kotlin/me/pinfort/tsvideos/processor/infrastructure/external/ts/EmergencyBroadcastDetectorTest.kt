@@ -3,7 +3,7 @@ package me.pinfort.tsvideos.processor.infrastructure.external.ts
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
-import me.pinfort.tsvideos.core.exception.TsVideosException
+import me.pinfort.tsvideos.processing.domain.TsVideosException
 import java.io.ByteArrayOutputStream
 import java.io.File
 

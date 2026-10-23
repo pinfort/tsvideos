@@ -1,7 +1,7 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
-import me.pinfort.tsvideos.core.component.ProcessingCancellation
-import me.pinfort.tsvideos.core.component.expandRecordingInputs
+import me.pinfort.tsvideos.processing.api.ProcessingCancellation
+import me.pinfort.tsvideos.processing.api.expandRecordingInputs
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
