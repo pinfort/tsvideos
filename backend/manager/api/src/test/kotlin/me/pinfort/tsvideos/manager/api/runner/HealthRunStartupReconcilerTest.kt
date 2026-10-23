@@ -4,7 +4,7 @@ import io.kotest.core.spec.style.DescribeSpec
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import me.pinfort.tsvideos.core.command.HealthVerificationStore
+import me.pinfort.tsvideos.library.api.HealthVerificationStore
 import org.springframework.boot.DefaultApplicationArguments
 import org.springframework.transaction.CannotCreateTransactionException
 

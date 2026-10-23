@@ -32,7 +32,7 @@ NAS (録画の保存先) へのアクセスを提供するモジュール。#132
 
 - `./gradlew storage:checkStorageBoundaries` (`check` に含まれる): storage がプロジェクト依存を持たないこと、storage のソースが他モジュールのパッケージを参照しないこと、storage 以外のソースが公開パッケージ `me.pinfort.tsvideos.storage.api` 以外の storage パッケージ (`samba` と今後の内部パッケージ) と jcifs を参照しないこと、storage 以外のビルドスクリプトが jcifs を宣言しないことを検査する。パッケージ名 `me.pinfort.tsvideos.storage` そのもの (コンポーネントスキャンの指定) は許可する。先に `checkStorageBoundaryRules` が、違反を含むフィクスチャ (逆方向のプロジェクト依存・ソース参照、外部からの内部パッケージ/jcifs の参照、jcifs の宣言) がすべて検出され、許可される参照が検出されないことを確かめる。
 - `StorageContractTest`: 公開型のシグネチャに jcifs・Samba 実装・Spring `Resource`・HTTP の型が出ないこと、jcifs を import するのが Samba 実装だけであること、Samba 実装のトップレベル宣言が `internal` であること、パッケージのスキャンと既定の設定で公開契約の Bean がそろうこと。
-- 呼び出し元の検査 (例外の再試行/中断の分類、`core` の公開シグネチャ) は `core` の `StorageCallerBoundaryTest` に置く。
+- 呼び出し元の検査 (例外の再試行/中断の分類、`core` の公開シグネチャ) は `core` の `StorageCallerBoundaryTest` に置く。library の `LibraryVerificationCommand` の公開シグネチャに jcifs の型が出ないことは library の `LibraryVerificationCommandTest` が確かめる (#159)。
 
 ## テスト
 

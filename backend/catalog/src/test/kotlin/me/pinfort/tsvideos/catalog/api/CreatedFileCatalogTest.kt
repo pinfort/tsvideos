@@ -209,7 +209,7 @@ class CreatedFileCatalogTest : ExpectSpec() {
             }
         }
 
-        // library's verification relies on these orders (core's LibraryVerificationCommandTest mocks the catalog).
+        // library's verification relies on these orders (library's LibraryVerificationCommandTest mocks the catalog).
         context("recording reads") {
             fun sql(vararg statements: String) {
                 dataSource.connection.use { connection ->

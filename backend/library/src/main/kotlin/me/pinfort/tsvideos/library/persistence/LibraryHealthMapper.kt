@@ -1,8 +1,6 @@
-package me.pinfort.tsvideos.core.external.database.mapper
+package me.pinfort.tsvideos.library.persistence
 
-import me.pinfort.tsvideos.core.domain.HealthRun
-import me.pinfort.tsvideos.core.external.database.dto.HealthFindingDto
-import me.pinfort.tsvideos.core.external.database.dto.HealthRunDto
+import me.pinfort.tsvideos.library.domain.HealthRun
 import org.apache.ibatis.annotations.Insert
 import org.apache.ibatis.annotations.Mapper
 import org.apache.ibatis.annotations.Options
@@ -15,7 +13,7 @@ import java.time.LocalDateTime
  * SQL here: this mapper reads no ledger table.
  */
 @Mapper
-interface LibraryHealthMapper {
+internal interface LibraryHealthMapper {
     @Insert("INSERT INTO health_verification_run(state,started_at,active_marker) VALUES('RUNNING',#{startedAt},1)")
     @Options(useGeneratedKeys = true, keyProperty = "keyHolder.id")
     fun start(

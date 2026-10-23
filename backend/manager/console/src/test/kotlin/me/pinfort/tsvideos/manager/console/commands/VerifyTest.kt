@@ -7,10 +7,10 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
-import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
-import me.pinfort.tsvideos.core.domain.FileFinding
-import me.pinfort.tsvideos.core.domain.VerificationReport
-import me.pinfort.tsvideos.core.domain.VerificationStatus
+import me.pinfort.tsvideos.library.api.LibraryVerificationCommand
+import me.pinfort.tsvideos.library.domain.FileFinding
+import me.pinfort.tsvideos.library.domain.VerificationReport
+import me.pinfort.tsvideos.library.domain.VerificationStatus
 import me.pinfort.tsvideos.manager.console.parseManager
 import tools.jackson.databind.json.JsonMapper
 import java.io.ByteArrayOutputStream

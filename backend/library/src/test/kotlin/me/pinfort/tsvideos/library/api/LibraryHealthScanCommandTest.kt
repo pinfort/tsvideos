@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
@@ -8,7 +8,7 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
-import me.pinfort.tsvideos.core.domain.VerificationReport
+import me.pinfort.tsvideos.library.domain.VerificationReport
 import org.springframework.dao.DataAccessResourceFailureException
 import org.springframework.dao.DuplicateKeyException
 

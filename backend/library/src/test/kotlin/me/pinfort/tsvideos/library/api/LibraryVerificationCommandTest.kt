@@ -1,6 +1,7 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.mockk.every
@@ -11,9 +12,10 @@ import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.Program
-import me.pinfort.tsvideos.core.domain.VerificationStatus
+import me.pinfort.tsvideos.library.domain.VerificationStatus
 import me.pinfort.tsvideos.storage.api.NasFileVerifier
 import java.time.LocalDateTime
+import kotlin.reflect.KVisibility
 
 class LibraryVerificationCommandTest :
     ExpectSpec({
@@ -122,5 +124,20 @@ class LibraryVerificationCommandTest :
             every { inventory.allPrograms() } returns emptyList()
             every { files.filesByRecording() } returns emptyMap()
             command.verify().shouldNotBeNull().hasIssues shouldBe false
+        }
+        // The NAS implementation stays inside storage; library reaches it only through storage's api package.
+        expect("no public member or constructor mentions a jcifs type") {
+            val type = LibraryVerificationCommand::class
+            val members = type.members.filter { it.visibility == KVisibility.PUBLIC }
+            val constructors = type.constructors.filter { it.visibility == KVisibility.PUBLIC }
+            val memberSignatures =
+                members.flatMap { member ->
+                    (member.parameters.map { it.type } + member.returnType).map { "${type.simpleName}.${member.name}: $it" }
+                }
+            val constructorSignatures =
+                constructors.flatMap { constructor ->
+                    constructor.parameters.map { "${type.simpleName}(): ${it.type}" }
+                }
+            (memberSignatures + constructorSignatures).filter { "jcifs." in it }.shouldBeEmpty()
         }
     })
