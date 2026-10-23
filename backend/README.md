@@ -7,10 +7,10 @@ This is the backend for tsvideos, built with Kotlin, Spring Boot, and Gradle.
 - `catalog`: 録画・番組・分割ファイル・作成ファイルの台帳と検出タグ/実施記録。公開操作 (`me.pinfort.tsvideos.catalog.api` / `domain`) と internal の Mapper・DTO。`storage` にだけ依存する（[catalog/README.md](catalog/README.md)）
 - `library`: ライブラリ管理のうち、番組検索 (手動コレクション/タグの絞り込み)、統計、保存領域の概要、手動コレクション/タグ、重複検出/重複レビュー、一括操作、クリーンアップ、健全性・検証。公開操作 (`me.pinfort.tsvideos.library.api` / `domain`) と internal の Mapper。`catalog` と `storage` にだけ依存する（[library/README.md](library/README.md)）
 - `diagnostics`: DB/NAS の環境診断 (`EnvironmentDiagnosticCommand` など) と診断結果 (`DiagnosticReport`)。Spring コンテキストなしで組み立てられ、`doctor` / `preflight` が使う。`storage` にだけ依存する（[diagnostics/README.md](diagnostics/README.md)）
-- `processing`: 録画処理のうち、ジョブ所有権、処理履歴、録画品質、再試行、中断、検証付きアップロード (`VerifiedUploadCommand`)、preflight、外部ツール (TsSplitter・Amatsukaze・ffprobe)/shell、処理補助と `processor-tool.*` / `processor-preflight.*` 設定 (`application-processing.yaml`)。公開操作 (`me.pinfort.tsvideos.processing.api` / `domain`) と internal の Mapper。`catalog`・`storage`・`diagnostics` にだけ依存する（[processing/README.md](processing/README.md)）
+- `processing`: 録画処理。pipeline (`process` / `after-encode` / `reset` の入口 `PathProcessingRunner` / `AfterEncodeRunner` / `ResetRunner`)、ジョブ所有権、処理履歴、録画品質、再試行、中断、検証付きアップロード (`VerifiedUploadCommand`)、preflight、外部ツール (TsSplitter・Amatsukaze・ffprobe・tsselect)/shell、TS 解析 (緊急警報放送・文字スーパー検出)、Slack 通知、処理補助と `processor-tool.*` / `processor-preflight.*` 設定 (`application-processing.yaml`)。公開操作 (`me.pinfort.tsvideos.processing.api` / `domain`) と internal の Mapper・pipeline 内部・TS 検出・Slack。`catalog`・`storage`・`diagnostics` にだけ依存する（[processing/README.md](processing/README.md)）
 - `core`: 移行中の残り（`ApplicationVersion`・`LoggerConfig`・DB 接続の設定 (#139 まで)）。業務モジュールには依存しない（検証付きアップロードは #165 で `processing` へ移した）
 - `manager:infrastructure` / `manager:console` / `manager:api`: 処理済みの録画データを管理するためのツール（`manager:api` が Web API）
-- `processor:infrastructure` / `processor:console`: 録画データを処理して管理ツールで管理できる状態にするためのアプリケーション
+- `processor:console`: 録画データを処理して管理ツールで管理できる状態にするためのアプリケーション (CLI `tvpcli`)。処理の本体は `processing` にある (#166 で旧 `processor:infrastructure` を統合した)
 
 ## ローカルでの動作確認
 

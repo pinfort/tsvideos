@@ -9,8 +9,8 @@ import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import me.pinfort.tsvideos.processing.api.PathProcessingRunner
 import me.pinfort.tsvideos.processor.console.parseProcessor
-import me.pinfort.tsvideos.processor.infrastructure.pipeline.PathProcessingRunner
 import java.nio.file.Path
 
 class ProcessCommandTest :

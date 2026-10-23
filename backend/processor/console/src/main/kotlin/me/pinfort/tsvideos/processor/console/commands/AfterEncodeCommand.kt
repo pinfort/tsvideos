@@ -8,8 +8,8 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.path
+import me.pinfort.tsvideos.processing.api.AfterEncodeRunner
 import me.pinfort.tsvideos.processor.console.display.ProgressPrinter
-import me.pinfort.tsvideos.processor.infrastructure.pipeline.AfterEncodeRunner
 import org.springframework.stereotype.Component
 import java.nio.file.Path
 

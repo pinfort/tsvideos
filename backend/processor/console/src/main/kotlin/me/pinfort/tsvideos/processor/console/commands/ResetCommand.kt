@@ -7,7 +7,7 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
 import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
-import me.pinfort.tsvideos.processor.infrastructure.pipeline.ResetRunner
+import me.pinfort.tsvideos.processing.api.ResetRunner
 import org.springframework.stereotype.Component
 
 /**

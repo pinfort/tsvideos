@@ -16,6 +16,7 @@ tasks.bootJar {
 // processing が依存してよいプロジェクトは catalog・storage・diagnostics だけ (backend/docs/module-boundaries.md §2)。
 // DB テストだけ database-schema のテストフィクスチャを使う。core・library・manager・processor には依存しない
 // (#165 で逆向きの core → processing もなくなった。manager の実行アプリは processing を実行時クラスパスに含めない)。
+// #166 で旧 processor:infrastructure の pipeline・reset・after-encode・TS 検出・Slack 通知をここへ統合した。
 dependencies {
     // catalog の公開型 (ExecutedFile、VideoResolution など) は processing の公開シグネチャにも出る。利用側も catalog へ明示的に依存する
     implementation(project(":catalog"))
@@ -26,6 +27,8 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.core:jackson-databind")
     implementation(libs.mybatis.spring.boot)
+    // ドロップ検査 (TsSelectClient) が JVM 内で TS を解析する
+    implementation("me.pinfort:tsselect:1.0.0")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(module = "mockito-core") // Kotestを使う

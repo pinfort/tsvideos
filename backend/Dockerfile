@@ -21,7 +21,6 @@ COPY console-common/build.gradle.kts console-common/build.gradle.kts
 COPY manager/infrastructure/build.gradle.kts manager/infrastructure/build.gradle.kts
 COPY manager/console/build.gradle.kts manager/console/build.gradle.kts
 COPY manager/api/build.gradle.kts manager/api/build.gradle.kts
-COPY processor/infrastructure/build.gradle.kts processor/infrastructure/build.gradle.kts
 COPY processor/console/build.gradle.kts processor/console/build.gradle.kts
 
 RUN --mount=type=cache,id=gradle-home,target=/root/.gradle \
