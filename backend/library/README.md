@@ -2,13 +2,13 @@
 
 ライブラリ管理 (台帳の上に乗る運用者向けの機能) を扱うモジュール。#157 で `core` から最初の一群を、#158 で一括操作とクリーンアップを、#159 で健全性と検証を抽出した。設計上の位置づけと契約は [module-boundaries.md](../docs/module-boundaries.md) の §2、§5.2、§5.3、§7.2、§7.3、§7.5、§11.2 を参照。
 
-現在 library にあるのは、番組検索 (手動コレクション/タグによる絞り込み)、統計、保存領域の概要、手動コレクション/タグ、重複検出と重複レビュー、一括操作 (`BulkLibraryCommand`、運用は [bulk-library.md](../docs/bulk-library.md))、クリーンアップ (`CleanupPlanCommand`)、健全性・検証 (`LibraryHealthCommand`、`LibraryHealthScanCommand`、`HealthVerificationStore`、`LibraryVerificationCommand`、運用は [library-health.md](../docs/library-health.md))。ライブラリ管理の機能はすべて library にあり、`core` には残っていない。
+現在 library にあるのは、番組検索 (手動コレクション/タグによる絞り込み)、統計、保存領域の概要、手動コレクション/タグ、重複検出と重複レビュー、一括操作 (`BulkLibraryCommand`、運用は [bulk-library.md](../docs/bulk-library.md))、クリーンアップ (`CleanupPlanCommand`)、健全性・検証 (`LibraryHealthCommand`、`LibraryHealthScanCommand`、`HealthVerificationStore`、`LibraryVerificationCommand`、運用は [library-health.md](../docs/library-health.md))。ライブラリ管理の機能はすべて library にある (旧 `core` は #139 で廃止した)。
 
-- **依存してよいプロジェクトは `catalog` と `storage` だけ。** `core`・`diagnostics`・`processor:*`・`manager:*` には依存せず、ソースは `me.pinfort.tsvideos.library`・`catalog`・`storage` 以外のパッケージを参照しない。`database-schema` は DB テストのテストフィクスチャとしてだけ使う。
+- **依存してよいプロジェクトは `catalog` と `storage` だけ。** `diagnostics`・`processing`・`processor:*`・`manager:*` (と廃止した旧モジュール) には依存せず、ソースは `me.pinfort.tsvideos.library`・`catalog`・`storage` 以外のパッケージを参照しない。`database-schema` は DB テストのテストフィクスチャとしてだけ使う。
 - NAS は storage の公開型 (`NasFileVerifier` など) だけで扱う。
 - 台帳 (`program` など) は catalog の公開操作 (`ProgramCommand`、`ProgramInventory`、`CreatedFileCatalog`、`CatalogStatistics`、`LedgerSnapshots`、`LedgerLocks`) で読み、ロックする。一括操作の削除/移動も catalog の協調操作 (`ProgramCommand.delete` / `moveCreatedFiles`) を呼ぶ。library の SQL は台帳に書き込まず、ロックもかけない。台帳との JOIN は明示的な参照クエリ (`LibraryProgramSearchSql`、`LibraryOrganizationSql` の件数/番組ごとの一覧) だけ (module-boundaries.md §5.2)。
 - 利用側 (`manager:*`) は `implementation(project(":library"))` に依存し、公開パッケージ `api` と `domain` の型だけを使う。Mapper・SQL には触れない。
-- #157 で移行中だけ入れた `core` → `library` の依存は、#158 で `CleanupPlanCommand` が library に移ったので外した。`processor:console` も library に依存しない。逆向きの `library` → `core` は禁止。
+- #157 で移行中だけ入れた `core` → `library` の依存は、#158 で `CleanupPlanCommand` が library に移ったので外した。`processor:console` は library に依存せず、実行時クラスパスにも入れない (`checkModuleGraph`、#139)。
 
 ## パッケージ
 
@@ -22,9 +22,9 @@
 
 ## 組み立て
 
-- library は DataSource・`PlatformTransactionManager`・`SqlSessionFactory` を定義しない。実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.library` を含め、`@MapperScan` に `LibraryPersistence.MAPPER_PACKAGE` を加えて、library の Mapper も catalog・core と同じ 1 組の `SqlSessionFactory` とトランザクションマネージャに登録する。`persistence` のパッケージ名は library の外に書かない。
+- library は DataSource・`PlatformTransactionManager`・`SqlSessionFactory` を定義しない。実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.library` を含め、`@MapperScan` に `LibraryPersistence.MAPPER_PACKAGE` を加えて、library の Mapper も catalog と同じ、そのアプリの 1 組の `SqlSessionFactory` とトランザクションマネージャに登録する。`persistence` のパッケージ名は library の外に書かない。
 - `manager:api` と `manager:console` は library を組み立てる。`processor:console` は #157 で移行中だけ library をスキャンしていたが、core → library の依存がなくなった #158 で外した。
-- 設定ファイルとプロファイルを持たない。DB 接続の設定は実行アプリ (現状は `core` の `application-core.yaml`) のもの。
+- 設定ファイルとプロファイルを持たない。DB 接続の設定は実行アプリ (各アプリの `application-datasource.yaml`)、注入先ごとの `Logger` も実行アプリ (各アプリの `config/LoggerConfig`) のもの。
 
 ## トランザクション
 

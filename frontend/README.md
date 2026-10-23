@@ -44,7 +44,7 @@ TS/エンコード済みの有無は、NAS の実際のチェックではなく 
 `RECORDED_AT|DURATION|SIZE`、`ASC|DESC`。API の既定は limit 100、offset 0、
 録画日時の降順で、limit は 1〜500 でなければならない。不正な値や
 逆転した範囲は HTTP 400 を返す。名前のみの既存のクエリも引き続き動作する。クエリの
-セマンティクスは、core の manager CLI の `ProgramSearchQuery` と共通である。
+セマンティクスは、manager CLI と共通の catalog の `ProgramSearchQuery` で定める。
 
 ## スクリプト
 

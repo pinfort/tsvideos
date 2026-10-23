@@ -33,9 +33,13 @@ class ApiApplicationTest : FunSpec() {
             context.getBeansOfType(ResponseResourcesFilter::class.java).size shouldBe 1
         }
 
-        // The api's own application.yml must name the storage profile; core's application.yaml is not guaranteed to load.
-        test("the core and storage profiles and the storage beans are part of the application") {
-            context.environment.activeProfiles.toList() shouldContainAll listOf("core", "storage", "api", "infrastructure")
+        // The api's own application.yml names its profiles; the DataSource settings are its own application-datasource.yaml
+        // since #139 (core and manager:infrastructure, with their core/infrastructure profiles, were removed).
+        test("the datasource and storage profiles and the storage beans are part of the application") {
+            context.environment.activeProfiles.toList() shouldContainAll listOf("datasource", "storage", "api")
+            listOf("core", "infrastructure").forEach { (it in context.environment.activeProfiles) shouldBe false }
+            context.environment.getProperty("spring.datasource.hikari.auto-commit") shouldBe "false"
+            context.environment.getProperty("spring.datasource.hikari.pool-name") shouldBe "ConnectionPool"
             context.environment.getProperty("samba.video-store-nas.url").shouldNotBeNull() shouldStartWith "smb:"
             context.getBean(NasComponent::class.java)
             context.getBean(NasFileVerifier::class.java)

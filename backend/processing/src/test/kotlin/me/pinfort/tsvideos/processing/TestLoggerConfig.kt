@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Scope
 
 /**
- * The per-injection-point `Logger` the applications define (core's LoggerConfig), for processing's slice tests:
+ * The per-injection-point `Logger` the applications define (each application's LoggerConfig), for processing's slice tests:
  * processing's components only ask for a `Logger` and do not depend on who defines it.
  */
 @TestConfiguration

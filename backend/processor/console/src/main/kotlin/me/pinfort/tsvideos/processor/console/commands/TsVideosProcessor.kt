@@ -4,7 +4,7 @@ import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.versionOption
-import me.pinfort.tsvideos.core.version.ApplicationVersion
+import me.pinfort.tsvideos.console.common.version.ApplicationVersion
 import org.springframework.stereotype.Component
 
 @Component

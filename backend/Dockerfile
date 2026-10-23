@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1
 #
-# Build context must be backend/ (this module depends on :storage, :catalog, :library,
-# :diagnostics, :core and :manager:infrastructure, and settings.gradle.kts includes every module, so the whole
-# multi-project build needs to be present to configure; the build also applies database-schema's and processing's
-# runtime-isolation.gradle.kts).
+# Build context must be backend/ (this module depends on :storage, :catalog, :library and
+# :diagnostics, and settings.gradle.kts includes every module, so the whole multi-project build needs to be present
+# to configure; the build also applies database-schema's and processing's runtime-isolation.gradle.kts and the
+# root module-graph.gradle.kts).
 
 FROM eclipse-temurin:24-jdk-alpine AS deps
 WORKDIR /app
 
-COPY gradlew settings.gradle.kts ./
+COPY gradlew settings.gradle.kts module-graph.gradle.kts ./
 COPY gradle gradle
 COPY storage/build.gradle.kts storage/build.gradle.kts
 COPY database-schema/build.gradle.kts database-schema/runtime-isolation.gradle.kts database-schema/
@@ -16,9 +16,7 @@ COPY catalog/build.gradle.kts catalog/build.gradle.kts
 COPY library/build.gradle.kts library/build.gradle.kts
 COPY diagnostics/build.gradle.kts diagnostics/build.gradle.kts
 COPY processing/build.gradle.kts processing/runtime-isolation.gradle.kts processing/
-COPY core/build.gradle.kts core/build.gradle.kts
 COPY console-common/build.gradle.kts console-common/build.gradle.kts
-COPY manager/infrastructure/build.gradle.kts manager/infrastructure/build.gradle.kts
 COPY manager/console/build.gradle.kts manager/console/build.gradle.kts
 COPY manager/api/build.gradle.kts manager/api/build.gradle.kts
 COPY processor/console/build.gradle.kts processor/console/build.gradle.kts

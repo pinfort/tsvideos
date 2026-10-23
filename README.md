@@ -2,7 +2,7 @@
 
 TS抜きした録画データを処理、管理するためのアプリケーション
 
-- backend: 録画データの処理・管理を行う Kotlin/Spring Boot バックエンド（core/manager/processor の各モジュールで構成） ([backend/README.md](backend/README.md))
+- backend: 録画データの処理・管理を行う Kotlin/Spring Boot バックエンド（storage/catalog/library/processing などの業務モジュールと manager/processor の実行アプリで構成） ([backend/README.md](backend/README.md))
 - frontend: manager 向けの Web フロントエンド ([frontend/README.md](frontend/README.md))
 
 ## ドキュメント

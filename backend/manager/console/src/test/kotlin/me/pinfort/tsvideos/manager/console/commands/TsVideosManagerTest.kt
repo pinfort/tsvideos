@@ -23,7 +23,7 @@ import me.pinfort.tsvideos.catalog.domain.ProgramSearchPage
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
 import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
-import me.pinfort.tsvideos.core.version.ApplicationVersion
+import me.pinfort.tsvideos.console.common.version.ApplicationVersion
 import me.pinfort.tsvideos.library.api.DuplicateProgramCommand
 import me.pinfort.tsvideos.library.api.LibraryVerificationCommand
 import me.pinfort.tsvideos.library.domain.VerificationReport

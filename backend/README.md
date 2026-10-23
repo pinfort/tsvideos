@@ -8,13 +8,15 @@ This is the backend for tsvideos, built with Kotlin, Spring Boot, and Gradle.
 - `library`: ライブラリ管理のうち、番組検索 (手動コレクション/タグの絞り込み)、統計、保存領域の概要、手動コレクション/タグ、重複検出/重複レビュー、一括操作、クリーンアップ、健全性・検証。公開操作 (`me.pinfort.tsvideos.library.api` / `domain`) と internal の Mapper。`catalog` と `storage` にだけ依存する（[library/README.md](library/README.md)）
 - `diagnostics`: DB/NAS の環境診断 (`EnvironmentDiagnosticCommand` など) と診断結果 (`DiagnosticReport`)。Spring コンテキストなしで組み立てられ、`doctor` / `preflight` が使う。`storage` にだけ依存する（[diagnostics/README.md](diagnostics/README.md)）
 - `processing`: 録画処理。pipeline (`process` / `after-encode` / `reset` の入口 `PathProcessingRunner` / `AfterEncodeRunner` / `ResetRunner`)、ジョブ所有権、処理履歴、録画品質、再試行、中断、検証付きアップロード (`VerifiedUploadCommand`)、preflight、外部ツール (TsSplitter・Amatsukaze・ffprobe・tsselect)/shell、TS 解析 (緊急警報放送・文字スーパー検出)、Slack 通知、処理補助と `processor-tool.*` / `processor-preflight.*` 設定 (`application-processing.yaml`)。公開操作 (`me.pinfort.tsvideos.processing.api` / `domain`) と internal の Mapper・pipeline 内部・TS 検出・Slack。`catalog`・`storage`・`diagnostics` にだけ依存する（[processing/README.md](processing/README.md)）
-- `core`: 移行中の残り（`ApplicationVersion`・`LoggerConfig`・DB 接続の設定 (#139 まで)）。業務モジュールには依存しない（検証付きアップロードは #165 で `processing` へ移した）
-- `manager:infrastructure` / `manager:console` / `manager:api`: 処理済みの録画データを管理するためのツール（`manager:api` が Web API）
+- `console-common`: 両 CLI が共有する Clikt/端末入出力の部品と `--version` の情報 (`ApplicationVersion` と、ビルド時に生成する `version.properties`)
+- `manager:console` / `manager:api`: 処理済みの録画データを管理するためのツール（`manager:api` が Web API）
 - `processor:console`: 録画データを処理して管理ツールで管理できる状態にするためのアプリケーション (CLI `tvpcli`)。処理の本体は `processing` にある (#166 で旧 `processor:infrastructure` を統合した)
+
+3 つの実行アプリ (`manager:api`・`manager:console`・`processor:console`) は、それぞれ自分の組み立てを持ちます。注入先ごとの slf4j `Logger` を作る `config/LoggerConfig`、DB 接続の設定 `src/main/resources/application-datasource.yaml` (`datasource` プロファイル。3 つのアプリで同じ内容に保つ)、実行時の MariaDB ドライバです。#139 で移行用の旧モジュール `core` と `manager:infrastructure` を廃止しました。許可されたモジュールの依存関係と各アプリの実行時クラスパスは `module-graph.gradle.kts` の `checkModuleGraph` (各アプリの `check` に含まれる) が検査します（[docs/module-boundaries.md](docs/module-boundaries.md) §2、§11.7）。
 
 ## ローカルでの動作確認
 
-`docker-compose.test.yml`（リポジトリルート）で MariaDB と Samba (NAS) を起動すると、`core/src/main/resources/application-core.yaml`（DB）と `storage/src/main/resources/application-storage.yaml`（NAS）のデフォルト値（処理ツールの設定 `processing/src/main/resources/application-processing.yaml` は読み込みません）のまま環境変数なしで `manager:api` をローカル起動できます。
+`docker-compose.test.yml`（リポジトリルート）で MariaDB と Samba (NAS) を起動すると、`manager/api/src/main/resources/application-datasource.yaml`（DB）と `storage/src/main/resources/application-storage.yaml`（NAS）のデフォルト値（処理ツールの設定 `processing/src/main/resources/application-processing.yaml` は読み込みません）のまま環境変数なしで `manager:api` をローカル起動できます。
 
 ```bash
 docker compose -f ../docker-compose.test.yml up -d
@@ -94,7 +96,7 @@ EOF 時点で未完成の PES は破棄します。長さ 0 の PES は次の開
 
 放送局が映像に焼き込んだテロップ（多くのニュース速報・地震速報）は TS のデータとしては存在しないため、検出できません。
 
-新しい検出を足すときは `core` の `ExecutedFileTag` / `ExecutedFileCheck` に定数を足し、検出処理から `ExecutedFileTagCommand.recordCheck` を呼ぶだけで、DB のスキーマ変更は不要です（画面の表示名は `frontend/lib/api/tags.ts` と `ProgramDetailToTextComponent` に追加します）。`recordCheck` はその検出処理が付けるタグ（`ExecutedFileTag.CHECKERS`）を置き換えるので、再検査で結果が変わっても古いタグは残りません。
+新しい検出を足すときは `catalog` の `ExecutedFileTag` / `ExecutedFileCheck` に定数を足し、検出処理から `ExecutedFileTagCommand.recordCheck` を呼ぶだけで、DB のスキーマ変更は不要です（画面の表示名は `frontend/lib/api/tags.ts` と `ProgramDetailToTextComponent` に追加します）。`recordCheck` はその検出処理が付けるタグ（`ExecutedFileTag.CHECKERS`）を置き換えるので、再検査で結果が変わっても古いタグは残りません。
 
 `executed_file_tag` / `executed_file_check` には外部キーや CASCADE がありません。タグと実行記録は `ExecutedFileCommand.delete`（パイプラインのロールバック・`reset`・`tvmcli delete`）でだけ一緒に消えるので、SQL を直接実行して `executed_file` の行を消した場合は、両テーブルの該当行も手で消してください。
 
@@ -145,7 +147,7 @@ DB 上のパスは SMB 共有からの相対パスであるため、`..`・`.`�
 
 ## CLI のバージョン確認
 
-`tvmcli`（`manager:console`）と `tvpcli`（`processor:console`）は `--version` でバージョンと git コミットハッシュを `tvmcli version 0.0.1-SNAPSHOT (d87cab7)` の形式で表示します。どちらもビルド時に `core` のリソース（`version.properties`）へ埋め込まれます（バージョンは Gradle プロジェクトバージョン、コミットハッシュは `git rev-parse --short HEAD`）。git リポジトリ外でビルドした場合（Docker ビルドなど）はコミットハッシュが取得できないため、バージョンのみを表示します。
+`tvmcli`（`manager:console`）と `tvpcli`（`processor:console`）は `--version` でバージョンと git コミットハッシュを `tvmcli version 0.0.1-SNAPSHOT (d87cab7)` の形式で表示します。どちらもビルド時に `console-common` のリソース（`me/pinfort/tsvideos/console/common/version.properties`、`generateVersionProperties` タスク）へ埋め込まれます（バージョンは Gradle プロジェクトバージョン、コミットハッシュは `git rev-parse --short HEAD`）。git リポジトリ外でビルドした場合（Docker ビルドなど）はコミットハッシュが取得できないため、バージョンのみを表示します。
 
 ```bash
 ./gradlew manager:console:bootRun --args="--version"
@@ -223,7 +225,7 @@ Output is JSON (the optional `--json` flag is accepted). Exit codes:
 
 `tvmcli stats [--group-by CHANNEL|MONTH] [--recorded-from 2026-01-01T00:00:00] [--recorded-to 2026-02-01T00:00:00] [--json]`
 
-The read-only core aggregation is shared with future web consumers. Bounds use the recording environment's local timezone, include the start and exclude the end; a date without a time (`2026-01-01`) means the start of that day; offsets are rejected. Month groups use local `YYYY-MM`. Missing recording metadata has a null group key (human output `(unknown)`); date filters exclude those programs. Empty libraries return zero totals and empty groups with exit 0.
+The read-only library aggregation (`LibraryStatsCommand`) is shared with future web consumers. Bounds use the recording environment's local timezone, include the start and exclude the end; a date without a time (`2026-01-01`) means the start of that day; offsets are rejected. Month groups use local `YYYY-MM`. Missing recording metadata has a null group key (human output `(unknown)`); date filters exclude those programs. Empty libraries return zero totals and empty groups with exit 0.
 
 Program counts count each program ID once, including orphan program rows; failed programs have status `ERROR`. Dropped frames sum known nonnegative counts per program; negative or absent counts contribute to `unknownDropsProgramCount`, not the sum. Two programs referring to one executed recording still count as two programs, and each adds that recording's drops to `droppedFrameCount` (drops are per program, unlike file bytes, which are deduplicated).
 

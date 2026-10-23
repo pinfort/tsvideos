@@ -11,12 +11,14 @@ import java.nio.file.Files
 
 class DoctorBootstrapTest :
     ExpectSpec({
-        expect("loads the actual application core and storage profile defaults without any application context") {
+        expect("loads the actual application datasource and storage profile defaults without any application context") {
             val environment = DoctorBootstrap.loadEnvironment(emptyArray())
-            environment.activeProfiles.toList().contains("core") shouldBe true
+            // spring.datasource.* lives in this console's own application-datasource.yaml (core's until #139)
+            environment.activeProfiles.toList().contains("datasource") shouldBe true
             // samba.* defaults live in the storage module's application-storage.yaml
             environment.activeProfiles.toList().contains("storage") shouldBe true
             environment.getProperty("spring.datasource.url").shouldNotBeNull() shouldContain "jdbc:"
+            environment.getProperty("spring.datasource.hikari.auto-commit") shouldBe "false"
             environment.getProperty("samba.video-store-nas.url").shouldNotBeNull() shouldContain "smb:"
         }
         // ConsoleApplication scans storage; its beans must assemble from this console's own configuration alone.
@@ -31,7 +33,7 @@ class DoctorBootstrapTest :
                     context.getBean(NasFileVerifier::class.java)
                 }
         }
-        expect("external profile configuration overrides normal core defaults") {
+        expect("external profile configuration overrides the packaged defaults") {
             val directory = Files.createTempDirectory("doctor-config-")
             try {
                 Files.writeString(directory.resolve("application-doctor-test.properties"), "samba.video-store-nas.base-dir=custom-base\n")

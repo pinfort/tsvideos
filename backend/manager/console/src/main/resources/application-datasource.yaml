@@ -1,0 +1,18 @@
+# The application's single DataSource (Spring Boot's auto-configured Hikari pool; one transaction manager and one
+# SqlSessionFactory shared by every module's mappers). Moved from core's application-core.yaml in #139. The three
+# applications keep identical copies; checkModuleGraph (backend/module-graph.gradle.kts) rejects drift.
+spring:
+  datasource:
+    url: ${DATABASE_CONNECTION:jdbc:mariadb://localhost:3306/test}
+    username: ${DATABASE_USER_NAME:test}
+    password: ${DATABASE_PASSWORD:test}
+    validationQuery: SELECT 1
+    testOnBorrow: true
+    type: com.zaxxer.hikari.HikariDataSource
+    hikari:
+      pool-name: ConnectionPool
+      leakDetectionThreshold: 5000
+      connection-test-query: SELECT 1
+      minimum-idle: 5
+      maximum-pool-size: 10
+      auto-commit: false

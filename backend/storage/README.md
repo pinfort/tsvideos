@@ -2,7 +2,7 @@
 
 NAS (録画の保存先) へのアクセスを提供するモジュール。#132 で `core` から抽出した。設計上の位置づけと契約は [module-boundaries.md](../docs/module-boundaries.md) の §8 を参照。
 
-- **業務モジュールに依存しない。** プロジェクト依存を持たず、ソースは `me.pinfort.tsvideos.storage` 以外のパッケージを参照しない。claim・マニフェストの状態・`created_file` の登録・健全性の判定などの業務上の意味は呼び出し元 (`core` など) が持つ。
+- **業務モジュールに依存しない。** プロジェクト依存を持たず、ソースは `me.pinfort.tsvideos.storage` 以外のパッケージを参照しない。claim・マニフェストの状態・`created_file` の登録・健全性の判定などの業務上の意味は呼び出し元 (`catalog`・`library`・`processing` など) が持つ。
 - 利用側は `implementation(project(":storage"))` に依存し、`me.pinfort.tsvideos.storage.api` の型だけを使う。jcifs を直接宣言・import しない。
 
 ## パッケージ
@@ -15,9 +15,9 @@ NAS (録画の保存先) へのアクセスを提供するモジュール。#132
 ## 組み立て
 
 - 実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.storage` を含める。`samba.*` の設定クラスは `SambaStorageConfiguration` が登録するので、`@ConfigurationPropertiesScan` の対象に加える必要はない。
-- storage は外部の Bean を必要としない。ロガーも `LoggerFactory` で自前に作り、`core` の `LoggerConfig` (注入先ごとの `Logger` Bean) には依存しない。storage だけのスキャンと `storage` プロファイルで組み立つことを `StorageContractTest` が Spring Boot で確かめる。
-- 既定値は [application-storage.yaml](src/main/resources/application-storage.yaml) にあり、`storage` プロファイルで読み込む。3 つの実行アプリ (`manager:api` の `application.yml`、`manager:console` / `processor:console` の `application.yaml`) は、それぞれ自分の設定で `spring.profiles.include` に `core` と `storage` を明示する (同名のクラスパス資源はどれか 1 つしか読まれないため、`core` の `application.yaml` に頼らない)。`core` の `application.yaml` も `core` のテスト用に `storage` を含める。設定キー (`samba.video-store-nas.*` / `samba.original-store-nas.*`) と環境変数 (`VIDEO_STORE_NAS_*` / `ORIGINAL_STORE_NAS_*`) は抽出前と同じ。
-- `tvmcli doctor` と `tvpcli preflight` は Spring コンテキストを作らずに `DiagnosticNasClient.create()` で診断用接続を作る。設定は diagnostics の `DiagnosticEnvironment` が同じプロファイル (`core`, `storage`) から読む。
+- storage は外部の Bean を必要としない。ロガーも `LoggerFactory` で自前に作り、実行アプリの `LoggerConfig` (注入先ごとの `Logger` Bean) には依存しない。storage だけのスキャンと `storage` プロファイルで組み立つことを `StorageContractTest` が Spring Boot で確かめる。
+- 既定値は [application-storage.yaml](src/main/resources/application-storage.yaml) にあり、`storage` プロファイルで読み込む。3 つの実行アプリ (`manager:api` の `application.yml`、`manager:console` / `processor:console` の `application.yaml`) は、それぞれ自分の設定で `spring.profiles.include` に `datasource` と `storage` を明示する (同名のクラスパス資源はどれか 1 つしか読まれないため、各アプリが自分の `application.yaml` / `application.yml` を持つ。#139 より前は `core` プロファイルが DB 接続の設定だった)。設定キー (`samba.video-store-nas.*` / `samba.original-store-nas.*`) と環境変数 (`VIDEO_STORE_NAS_*` / `ORIGINAL_STORE_NAS_*`) は抽出前と同じ。
+- `tvmcli doctor` と `tvpcli preflight` は Spring コンテキストを作らずに `DiagnosticNasClient.create()` で診断用接続を作る。設定は diagnostics の `DiagnosticEnvironment` が同じプロファイル (`datasource`, `storage`) から読む。
 
 ## 資源の寿命
 
@@ -32,7 +32,7 @@ NAS (録画の保存先) へのアクセスを提供するモジュール。#132
 
 - `./gradlew storage:checkStorageBoundaries` (`check` に含まれる): storage がプロジェクト依存を持たないこと、storage のソースが他モジュールのパッケージを参照しないこと、storage 以外のソースが公開パッケージ `me.pinfort.tsvideos.storage.api` 以外の storage パッケージ (`samba` と今後の内部パッケージ) と jcifs を参照しないこと、storage 以外のビルドスクリプトが jcifs を宣言しないことを検査する。パッケージ名 `me.pinfort.tsvideos.storage` そのもの (コンポーネントスキャンの指定) は許可する。先に `checkStorageBoundaryRules` が、違反を含むフィクスチャ (逆方向のプロジェクト依存・ソース参照、外部からの内部パッケージ/jcifs の参照、jcifs の宣言) がすべて検出され、許可される参照が検出されないことを確かめる。
 - `StorageContractTest`: 公開型のシグネチャに jcifs・Samba 実装・Spring `Resource`・HTTP の型が出ないこと、jcifs を import するのが Samba 実装だけであること、Samba 実装のトップレベル宣言が `internal` であること、パッケージのスキャンと既定の設定で公開契約の Bean がそろうこと。
-- 呼び出し元の検査 (例外の再試行/中断の分類、`core` の公開シグネチャ) は `core` の `StorageCallerBoundaryTest` に置く。library の `LibraryVerificationCommand` の公開シグネチャに jcifs の型が出ないことは library の `LibraryVerificationCommandTest` が確かめる (#159)。
+- 呼び出し元の検査 (例外の再試行/中断の分類、呼び出し元の公開シグネチャ) は catalog の `CatalogStorageCallerTest` と processing の `ProcessingStorageCallerTest` に置く (core の `StorageCallerBoundaryTest` は #139 で core とともに削除した)。library の `LibraryVerificationCommand` の公開シグネチャに jcifs の型が出ないことは library の `LibraryVerificationCommandTest` が確かめる (#159)。
 
 ## テスト
 

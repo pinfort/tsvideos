@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.config
+package me.pinfort.tsvideos.processor.console.config
 
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -8,6 +8,10 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Scope
 
+/**
+ * catalog・processing などのモジュールが注入を要求する slf4j `Logger` を、このアプリが組み立てる (#139 で core から移した)。
+ * 実行アプリごとに 1 つ持ち、モジュールは Bean 定義に依存しない。
+ */
 @Configuration
 class LoggerConfig {
     /**

@@ -16,7 +16,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
-import me.pinfort.tsvideos.core.version.ApplicationVersion
+import me.pinfort.tsvideos.console.common.version.ApplicationVersion
 import me.pinfort.tsvideos.processing.api.AfterEncodeRunner
 import me.pinfort.tsvideos.processing.api.PathProcessingRunner
 import me.pinfort.tsvideos.processing.api.ResetRunner
