@@ -121,7 +121,7 @@ class StorageContractTest :
         }
 
         // Assembled by Spring Boot itself from storage alone: the `storage` profile loads the packaged
-        // application-storage.yaml, and nothing from core or an application (e.g. a Logger bean) is on the classpath.
+        // application-storage.yaml, and nothing from an application (e.g. its Logger bean) is on the classpath.
         context("Spring assembly") {
             fun storageApplication(vararg profiles: String): SpringApplicationBuilder =
                 SpringApplicationBuilder(StorageOnlyConfiguration::class.java)

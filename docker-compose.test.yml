@@ -1,7 +1,9 @@
 # Local test/dev stack for the manager:api backend: MariaDB + Samba (NAS) shares.
 #
-# All values here mirror the Spring Boot defaults in
-# backend/core/src/main/resources/application-core.yaml, so
+# All values here mirror the Spring Boot defaults in each application's
+# src/main/resources/application-datasource.yaml (e.g.
+# backend/manager/api/src/main/resources/application-datasource.yaml) and
+# backend/storage/src/main/resources/application-storage.yaml, so
 #   cd backend && ./gradlew manager:api:bootRun
 # works against this stack with zero env vars set.
 #

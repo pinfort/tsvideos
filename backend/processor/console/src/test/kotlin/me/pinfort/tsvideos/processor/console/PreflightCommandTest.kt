@@ -64,13 +64,17 @@ class PreflightCommandTest :
             DiagnosticEnvironment.commandArguments(arrayOf("process", "--", "--spring.x=y")) shouldBe
                 listOf("process", "--", "--spring.x=y")
         }
-        // Standalone preflight reads the NAS settings from the storage module's application-storage.yaml and the tool
-        // settings from the processing module's application-processing.yaml.
-        expect("the standalone environment loads the core, storage and processing profile defaults") {
+        // Standalone preflight reads the DB settings from this console's own application-datasource.yaml (core's until
+        // #139), the NAS settings from the storage module's application-storage.yaml and the tool settings from the
+        // processing module's application-processing.yaml.
+        expect("the standalone environment loads the datasource, storage and processing profile defaults") {
             val environment = DiagnosticEnvironment.load(emptyArray())
-            environment.activeProfiles.toList().contains("core") shouldBe true
+            environment.activeProfiles.toList().contains("datasource") shouldBe true
             environment.activeProfiles.toList().contains("storage") shouldBe true
             environment.activeProfiles.toList().contains("processing") shouldBe true
+            environment.getProperty("spring.datasource.url")!!.startsWith("jdbc:") shouldBe true
+            environment.getProperty("spring.datasource.hikari.auto-commit") shouldBe "false"
+            environment.getProperty("spring.datasource.hikari.maximum-pool-size") shouldBe "10"
             environment.getProperty("samba.video-store-nas.url")!!.startsWith("smb:") shouldBe true
             environment.getProperty("samba.original-store-nas.url")!!.startsWith("smb:") shouldBe true
             environment.getProperty("processor-tool.ffprobe-path") shouldBe (System.getenv("FFPROBE_PATH") ?: "ffprobe")

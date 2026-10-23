@@ -2,16 +2,16 @@
 
 録画の処理 (processor 側) の業務を扱うモジュール。#164 で `core` から処理専用のコードのうち、ジョブ所有権・処理履歴・録画品質・再試行・中断・preflight・外部ツール/shell・処理補助を抽出し、#165 で検証付きアップロード (`VerifiedUploadCommand`、`UploadManifest` / `VerifiedUploadReceipt`、`UploadManifestMapper`) を移した。#166 で旧 `processor:infrastructure` (pipeline・reset・after-encode・tsselect によるドロップ検査・TS 解析による緊急警報放送/文字スーパー検出・Slack 通知) を統合し、そのモジュールを削除した。設計上の位置づけと契約は [module-boundaries.md](../docs/module-boundaries.md) の §2、§4、§7.6、§11.3、§11.7 を参照。
 
-現在 processing にないもの:
+processing にないもの:
 
-- `ApplicationVersion`、`LoggerConfig`、DataSource の設定 (`application-core.yaml`) は #139 まで `core` に残る。
+- `--version` の `ApplicationVersion` は `console-common`、注入先ごとの `Logger` (`config/LoggerConfig`) と DataSource の設定 (`application-datasource.yaml`) は実行アプリ (`processor:console`) のもの (#139 で旧 `core` から移し、`core` を廃止した)。
 
 依存の規則:
 
-- **依存してよいプロジェクトは `catalog`・`storage`・`diagnostics` だけ。** `core`・`library`・`console-common`・`processor:*`・`manager:*` には依存せず、ソースは `me.pinfort.tsvideos.processing`・`catalog`・`storage`・`diagnostics` 以外のパッケージを参照しない。`database-schema` は DB テストのテストフィクスチャとしてだけ使う。
+- **依存してよいプロジェクトは `catalog`・`storage`・`diagnostics` だけ。** `library`・`console-common`・`processor:*`・`manager:*` (と廃止した旧モジュール) には依存せず、ソースは `me.pinfort.tsvideos.processing`・`catalog`・`storage`・`diagnostics` 以外のパッケージを参照しない。`database-schema` は DB テストのテストフィクスチャとしてだけ使う。
 - 台帳は catalog の公開操作、NAS は storage の公開型、DB/NAS の環境診断は diagnostics の公開操作だけで扱う。
 - 利用側は `implementation(project(":processing"))` に依存し、公開パッケージ `api` (下位の `api.config` / `api.shell` / `api.tool` を含む) と `domain` の型だけを使う。Mapper には触れない。
-- **利用するのは processor 側だけ**: #165 で `core` → `processing` の移行中の依存をなくした。manager の 2 アプリ (`manager:api`、`manager:console`) は processing に依存せず、スキャン・Mapper 登録・`processing` プロファイルの include もしない。実行時クラスパスに processing が入らないことは各アプリの `checkProcessingRuntimeIsolation` ([runtime-isolation.gradle.kts](runtime-isolation.gradle.kts)) が検査する。`processing` → `core` は禁止。
+- **利用するのは processor 側だけ**: #165 で `core` → `processing` の移行中の依存をなくした。manager の 2 アプリ (`manager:api`、`manager:console`) は processing に依存せず、スキャン・Mapper 登録・`processing` プロファイルの include もしない。実行時クラスパスに processing が入らないことは各アプリの `checkProcessingRuntimeIsolation` ([runtime-isolation.gradle.kts](runtime-isolation.gradle.kts)) が検査し、処理専用ツールの依存 (`me.pinfort:tsselect`) も入らないことは `checkModuleGraph` ([module-graph.gradle.kts](../module-graph.gradle.kts)) が検査する。
 
 ## パッケージ
 

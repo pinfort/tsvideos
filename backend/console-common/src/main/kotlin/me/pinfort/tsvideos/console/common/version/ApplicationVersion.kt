@@ -1,12 +1,13 @@
-package me.pinfort.tsvideos.core.version
+package me.pinfort.tsvideos.console.common.version
 
 import java.util.Properties
 
 /**
  * ビルド時に生成される version.properties から読み出したアプリケーションのバージョン情報。
+ * 両 CLI の `--version` が使う (生成は console-common の generateVersionProperties)。
  */
 object ApplicationVersion {
-    private const val RESOURCE_PATH = "me/pinfort/tsvideos/core/version.properties"
+    private const val RESOURCE_PATH = "me/pinfort/tsvideos/console/common/version.properties"
     private const val UNKNOWN = "unknown"
 
     private val properties = read()

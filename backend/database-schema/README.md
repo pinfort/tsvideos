@@ -3,7 +3,7 @@
 DB スキーマの単一の情報源と、DB テスト用の資源を持つモジュール。#133 で `core` から抽出した。設計上の位置づけと契約は [module-boundaries.md](../docs/module-boundaries.md) の §11.6 を参照。
 
 - **データ操作 API を持たない。** main とテストフィクスチャに Kotlin/Java のソースを置かず、プロジェクト依存も持たない。テーブルの読み書きは所有モジュール (module-boundaries.md §5.1) が提供する。
-- **本番の依存先にならない。** 利用側は DB テストでだけ `testImplementation(testFixtures(project(":database-schema")))` を宣言する。testImplementation は推移しないので、DB テストを持つモジュールごとに宣言する (現在は `core` と `manager:api`)。
+- **本番の依存先にならない。** 利用側は DB テストでだけ `testImplementation(testFixtures(project(":database-schema")))` を宣言する。testImplementation は推移しないので、DB テストを持つモジュールごとに宣言する (現在は `catalog`・`library`・`processing`・`manager:api`)。
 
 ## 内容
 

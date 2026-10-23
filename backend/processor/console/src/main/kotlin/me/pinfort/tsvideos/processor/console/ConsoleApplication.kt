@@ -10,7 +10,8 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan
 import org.springframework.boot.runApplication
 import kotlin.system.exitProcess
 
-// core is scanned only for LoggerConfig (#139); the verified upload and its mapper are processing's since #165.
+// The per-injection-point Logger (config/LoggerConfig) and the DataSource settings (application-datasource.yaml) are
+// this application's own since #139; library is never part of the processor (backend/docs/module-boundaries.md §2).
 @MapperScan(
     basePackages = [
         CatalogPersistence.MAPPER_PACKAGE,
@@ -23,7 +24,6 @@ import kotlin.system.exitProcess
         "me.pinfort.tsvideos.catalog",
         "me.pinfort.tsvideos.diagnostics",
         "me.pinfort.tsvideos.processing",
-        "me.pinfort.tsvideos.core",
         "me.pinfort.tsvideos.console.common",
         "me.pinfort.tsvideos.processor",
     ],

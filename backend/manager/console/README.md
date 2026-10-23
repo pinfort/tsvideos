@@ -80,7 +80,7 @@ java -jar manager/console/build/libs/console.jar --spring.profiles.active=local 
 ```
 
 doctor は、接続を試みる前に、必須のデータベース/NAS の各設定を検証する。
-manager と同じ Boot のアプリケーション設定、core/console/infrastructure の
+manager と同じ Boot のアプリケーション設定、datasource/storage/console の
 プロファイル、環境変数、外部のプロファイルによる上書きを読み込むが、
 Spring のアプリケーションコンテキスト、データソースのプール、通常のコマンドグラフは作成しない。
 そのため、不正な URL や利用できないデータベースも診断できる。Spring の
@@ -195,7 +195,7 @@ java -jar manager-console.jar search --recorded-from 2026-10-01T00:00:00 --recor
 
 共有のバックエンド API は、`ProgramCommand.search(ProgramSearchQuery)` で、
 `ProgramSearchPage(items, total, limit, offset)` を返す。検証、フィルタリング、並べ替えの
-セマンティクスは core にあり、Web インターフェースが再利用する (Web の手動コレクション/タグの
+セマンティクスは catalog にあり、Web インターフェースが再利用する (Web の手動コレクション/タグの
 絞り込みは `LibraryProgramSearchCommand` が同じ条件に加える。CLI にはこの絞り込みがない)。以前の
 `selectByName` メソッドは既存の呼び出し元のために残されている。新しい検索の呼び出し元は
 共有のページング API を使うこと。

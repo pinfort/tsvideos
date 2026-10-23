@@ -41,7 +41,7 @@ import javax.sql.DataSource
  * Catalog operations as Spring wires them (transactional proxies, the one transaction manager and SqlSessionFactory
  * the application provides): MANDATORY locks, participation of locks, reads and coordinated changes in the caller's
  * transaction, and lock retention until the caller's transaction ends. The library callers of the same operations are
- * covered by core's LibraryCatalogTransactionTest.
+ * covered by library's LibraryCatalogTransactionTest.
  */
 @ImportTestcontainers
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)

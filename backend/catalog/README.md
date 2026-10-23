@@ -2,8 +2,8 @@
 
 録画・番組・分割ファイル・作成ファイルの台帳 (`executed_file` / `program` / `splitted_file` / `created_file`) と検出タグ/実施記録 (`executed_file_tag` / `executed_file_check`) を扱うモジュール。#135 で `core` から抽出した。設計上の位置づけと契約は [module-boundaries.md](../docs/module-boundaries.md) の §2、§5、§6、§7、§11.1 を参照。
 
-- **依存してよいプロジェクトは `storage` だけ。** `core`・`processor:*`・`manager:*` には依存せず、ソースは `me.pinfort.tsvideos.catalog` と `me.pinfort.tsvideos.storage` 以外のパッケージを参照しない。`database-schema` は DB テストのテストフィクスチャとしてだけ使う。
-- 利用側 (`core`、`manager:*`、`processor:*`) は `implementation(project(":catalog"))` に依存し、公開パッケージ `api` と `domain` の型だけを使う。Mapper・DTO・SQL には触れない。
+- **依存してよいプロジェクトは `storage` だけ。** `library`・`processing`・`processor:*`・`manager:*` (と廃止した旧モジュール) には依存せず、ソースは `me.pinfort.tsvideos.catalog` と `me.pinfort.tsvideos.storage` 以外のパッケージを参照しない。`database-schema` は DB テストのテストフィクスチャとしてだけ使う。
+- 利用側 (`library`、`processing`、`manager:*`、`processor:*`) は `implementation(project(":catalog"))` に依存し、公開パッケージ `api` と `domain` の型だけを使う。Mapper・DTO・SQL には触れない。
 - catalog の SQL は library/processing のテーブルを参照しない。手動コレクション/タグとの JOIN は library 側の明示的な参照クエリ (`LibraryProgramSearchMapper` など、module-boundaries.md §5.2) が持つ。
 
 ## パッケージ
@@ -19,8 +19,8 @@
 ## 組み立て
 
 - catalog は DataSource・`PlatformTransactionManager`・`SqlSessionFactory` を定義しない。3 つの実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.catalog` を含め、`@MapperScan` に `CatalogPersistence.MAPPER_PACKAGE` を (manager では `LibraryPersistence.MAPPER_PACKAGE`、processor では `ProcessingPersistence.MAPPER_PACKAGE` と並べて) 加え、catalog の Mapper も自分の 1 組の `SqlSessionFactory` とトランザクションマネージャに登録する。`persistence` のパッケージ名は catalog の外に書かない。
-- 注入先ごとの slf4j `Logger` は実行アプリ (現状は `core` の `LoggerConfig`) が提供する。catalog は `Logger` 型の注入だけを要求する。
-- 設定ファイルとプロファイルを持たない。DB 接続の設定は実行アプリ (現状は `core` の `application-core.yaml`) のもの。
+- 注入先ごとの slf4j `Logger` は実行アプリ (各アプリの `config/LoggerConfig`) が提供する。catalog は `Logger` 型の注入だけを要求する。
+- 設定ファイルとプロファイルを持たない。DB 接続の設定は実行アプリ (各アプリの `application-datasource.yaml`) のもの。
 - NAS は storage の公開操作 (`NasComponent`) を使う。協調削除/移動は「DB の行を変更してから NAS を変更する」順序を保つ (module-boundaries.md §7.4)。
 
 ## トランザクション

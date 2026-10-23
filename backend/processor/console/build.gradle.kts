@@ -8,6 +8,8 @@ plugins {
 
 // 実行時クラスパスに database-schema が入らないことの検査 (checkDatabaseSchemaRuntimeIsolation、check に含まれる)
 apply(from = rootDir.resolve("database-schema/runtime-isolation.gradle.kts"))
+// 宣言されたモジュールグラフ全体と、このアプリの実行時に入るプロジェクトの検査 (checkModuleGraph、check に含まれる)
+apply(from = rootDir.resolve("module-graph.gradle.kts"))
 
 kotlin {
     jvmToolchain(24)
@@ -26,12 +28,14 @@ dependencies {
     implementation(project(":catalog"))
     implementation(project(":diagnostics"))
     implementation(project(":processing"))
-    implementation(project(":core"))
     implementation(project(":console-common"))
     implementation("org.springframework.boot:spring-boot-starter")
+    implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation(libs.mybatis.spring.boot)
     implementation(libs.clikt)
     implementation("tools.jackson.core:jackson-databind")
+    // DataSource (application-datasource.yaml) はこのアプリのもの。#139 まで core が持っていた JDBC ドライバも明示する
+    runtimeOnly("org.mariadb.jdbc:mariadb-java-client")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(module = "mockito-core") // Kotestを使う

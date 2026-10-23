@@ -17,7 +17,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.SocketTimeoutException
 
-// Retry classification of the translated types is asserted by the callers (core's StorageCallerBoundaryTest);
+// Retry classification of the translated types is asserted by the caller (processing's ProcessingStorageCallerTest);
 // here the translation keeps the type and the causes that classification reads.
 class SambaFailuresTest :
     ExpectSpec({

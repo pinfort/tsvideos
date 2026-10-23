@@ -25,7 +25,7 @@ import java.net.SocketTimeoutException
 
 /**
  * Boundary translation over mocked jcifs handles; SMB semantics themselves are covered by VerifiedUploadNasTest.
- * Retry classification of the translated types is asserted by the callers (core's StorageCallerBoundaryTest).
+ * Retry classification of the translated types is asserted by the callers (processing's ProcessingStorageCallerTest).
  */
 class VerifiedUploadNasFailureTest :
     ExpectSpec({

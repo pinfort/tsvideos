@@ -6,7 +6,8 @@ import org.gradle.api.artifacts.result.ResolvedDependencyResult
  * processor-* 設定) が入らないことの検査 (module-boundaries.md §2、#165)。manager:api と manager:console の
  * build.gradle.kts が plugins ブロックの後で `apply(from = rootDir.resolve("processing/runtime-isolation.gradle.kts"))`
  * として適用する。database-schema の runtime-isolation.gradle.kts と同じく、宣言された依存ではなく解決後の依存グラフと
- * 成果物を見るので、推移的な依存 (core など旧モジュール経由を含む) で入った場合も検出する。
+ * 成果物を見るので、推移的な依存で入った場合も検出する。許可されたプロジェクトの全体像と処理専用ツール (me.pinfort:tsselect) の
+ * 不在は module-graph.gradle.kts の checkModuleGraph が検査する (#139)。
  */
 val processingPath = ":processing"
 val processingDir = rootDir.resolve("processing")

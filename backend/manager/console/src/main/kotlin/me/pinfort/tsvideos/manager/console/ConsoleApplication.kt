@@ -5,7 +5,6 @@ import me.pinfort.tsvideos.console.common.charset.ConsoleCharset
 import me.pinfort.tsvideos.library.api.LibraryPersistence
 import org.mybatis.spring.annotation.MapperScan
 import org.springframework.boot.autoconfigure.SpringBootApplication
-import org.springframework.boot.context.properties.ConfigurationPropertiesScan
 import org.springframework.boot.runApplication
 import java.io.FileDescriptor
 import java.io.FileOutputStream
@@ -15,6 +14,8 @@ import kotlin.system.exitProcess
 
 // processing is not part of the manager applications (backend/docs/module-boundaries.md §2): neither scanned nor on
 // the runtime classpath since #165, so no processing tool, processing bean or processor-* setting is loaded.
+// The per-injection-point Logger (config/LoggerConfig) and the DataSource settings (application-datasource.yaml) are
+// this application's own since #139; storage registers its samba.* settings itself.
 @MapperScan(
     basePackages = [
         CatalogPersistence.MAPPER_PACKAGE,
@@ -27,14 +28,8 @@ import kotlin.system.exitProcess
         "me.pinfort.tsvideos.catalog",
         "me.pinfort.tsvideos.library",
         "me.pinfort.tsvideos.diagnostics",
-        "me.pinfort.tsvideos.core",
         "me.pinfort.tsvideos.console.common",
         "me.pinfort.tsvideos.manager",
-    ],
-)
-@ConfigurationPropertiesScan(
-    basePackages = [
-        "me.pinfort.tsvideos.manager.infrastructure.config",
     ],
 )
 class ConsoleApplication

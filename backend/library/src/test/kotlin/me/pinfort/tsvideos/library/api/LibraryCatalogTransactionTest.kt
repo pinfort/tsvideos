@@ -39,8 +39,7 @@ import javax.sql.DataSource
 /**
  * Library reads over catalog's public operations as Spring wires them (one shared transaction manager): library reads
  * joining the caller's snapshot, and library search compatibility with the catalog search. Catalog's own transaction
- * contracts are covered by catalog's CatalogTransactionTest; the bulk apply still in core by core's
- * BulkCatalogTransactionTest.
+ * contracts are covered by catalog's CatalogTransactionTest; the bulk apply by library's BulkCatalogTransactionTest.
  */
 @ImportTestcontainers
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
