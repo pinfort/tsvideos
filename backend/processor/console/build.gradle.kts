@@ -24,10 +24,6 @@ tasks.test {
 dependencies {
     implementation(project(":storage"))
     implementation(project(":catalog"))
-    // 移行中だけ (#157): processor は core 全体をスキャンするので、core に残る library の呼び出し元
-    // (CleanupPlanCommand) が要求する library の Bean と Mapper も登録する。
-    // それが library に移り core → library の依存がなくなったら外す (module-boundaries.md §2 の目標では processor は library を含めない)
-    implementation(project(":library"))
     implementation(project(":diagnostics"))
     implementation(project(":core"))
     implementation(project(":console-common"))

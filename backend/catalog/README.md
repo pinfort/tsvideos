@@ -41,4 +41,4 @@ core にあったときと同じ (module-boundaries.md §7.2)。
 
 ## テスト
 
-`./gradlew catalog:test`。Mapper と公開操作の DB テスト (`*MapperTest`、`CreatedFileCatalogTest`、`CatalogTransactionTest`) は Testcontainers で MariaDB を起動するため Docker が必要 (`DATABASE_CONNECTION` で接続先を上書きできる。初期化スクリプトは `database-schema` のテストフィクスチャ `ddl/01_create_database.sql`)。テスト用の起動クラスは `TestApplication` (storage と catalog だけをスキャン)、`Logger` は `TestLoggerConfig` が提供する。library の呼び出し元と組み合わせた検査は library の `LibraryCatalogTransactionTest` と、core に残る一括適用の `BulkCatalogTransactionTest` にある。
+`./gradlew catalog:test`。Mapper と公開操作の DB テスト (`*MapperTest`、`CreatedFileCatalogTest`、`CatalogTransactionTest`) は Testcontainers で MariaDB を起動するため Docker が必要 (`DATABASE_CONNECTION` で接続先を上書きできる。初期化スクリプトは `database-schema` のテストフィクスチャ `ddl/01_create_database.sql`)。テスト用の起動クラスは `TestApplication` (storage と catalog だけをスキャン)、`Logger` は `TestLoggerConfig` が提供する。library の呼び出し元と組み合わせた検査は library の `LibraryCatalogTransactionTest` と、一括適用の `BulkCatalogTransactionTest` (#158 で core から library に移した) にある。

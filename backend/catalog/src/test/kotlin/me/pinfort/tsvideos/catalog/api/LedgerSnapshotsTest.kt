@@ -24,7 +24,7 @@ import kotlin.reflect.full.memberProperties
 
 /**
  * How a program snapshot is assembled from the ledger rows. The bulk preview publishes these snapshots as JSON and
- * fingerprints every property (core's BulkLibraryCommandTest), so they must carry exactly the stored columns.
+ * fingerprints every property (library's BulkLibraryCommandTest), so they must carry exactly the stored columns.
  */
 class LedgerSnapshotsTest :
     ExpectSpec({

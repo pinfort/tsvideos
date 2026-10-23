@@ -1,11 +1,11 @@
 package me.pinfort.tsvideos.manager.console.component
 
-import me.pinfort.tsvideos.core.domain.CleanupCriteria
-import me.pinfort.tsvideos.core.domain.CleanupFile
-import me.pinfort.tsvideos.core.domain.CleanupGroup
-import me.pinfort.tsvideos.core.domain.CleanupMode
-import me.pinfort.tsvideos.core.domain.CleanupPlan
-import me.pinfort.tsvideos.core.domain.CleanupTarget
+import me.pinfort.tsvideos.library.domain.CleanupCriteria
+import me.pinfort.tsvideos.library.domain.CleanupFile
+import me.pinfort.tsvideos.library.domain.CleanupGroup
+import me.pinfort.tsvideos.library.domain.CleanupMode
+import me.pinfort.tsvideos.library.domain.CleanupPlan
+import me.pinfort.tsvideos.library.domain.CleanupTarget
 import tools.jackson.core.StreamReadFeature
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper

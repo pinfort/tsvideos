@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import me.pinfort.tsvideos.catalog.api.CreatedFileSnapshot
 import me.pinfort.tsvideos.catalog.api.DirectoryNameComponent
@@ -8,17 +8,17 @@ import me.pinfort.tsvideos.catalog.api.NormalizeComponent
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.Program
-import me.pinfort.tsvideos.core.domain.BulkAction
-import me.pinfort.tsvideos.core.domain.BulkApplyRequest
-import me.pinfort.tsvideos.core.domain.BulkInterruptedException
-import me.pinfort.tsvideos.core.domain.BulkOutcome
-import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
-import me.pinfort.tsvideos.core.domain.BulkPlan
-import me.pinfort.tsvideos.core.domain.BulkRequest
-import me.pinfort.tsvideos.core.domain.BulkResult
-import me.pinfort.tsvideos.core.domain.BulkSnapshot
-import me.pinfort.tsvideos.core.domain.BulkTarget
-import me.pinfort.tsvideos.core.domain.InvalidBulkRequestException
+import me.pinfort.tsvideos.library.domain.BulkAction
+import me.pinfort.tsvideos.library.domain.BulkApplyRequest
+import me.pinfort.tsvideos.library.domain.BulkInterruptedException
+import me.pinfort.tsvideos.library.domain.BulkOutcome
+import me.pinfort.tsvideos.library.domain.BulkOutcomeStatus
+import me.pinfort.tsvideos.library.domain.BulkPlan
+import me.pinfort.tsvideos.library.domain.BulkRequest
+import me.pinfort.tsvideos.library.domain.BulkResult
+import me.pinfort.tsvideos.library.domain.BulkSnapshot
+import me.pinfort.tsvideos.library.domain.BulkTarget
+import me.pinfort.tsvideos.library.domain.InvalidBulkRequestException
 import org.slf4j.Logger
 import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.stereotype.Component

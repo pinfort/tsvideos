@@ -16,7 +16,7 @@ import java.time.LocalDateTime
 
 /**
  * The statement order inside each lock (backend/docs/module-boundaries.md §7.3). The MANDATORY propagation and the
- * lock retention are covered against the database by CatalogTransactionTest; core's BulkLibraryCommandTest covers the
+ * lock retention are covered against the database by CatalogTransactionTest; library's BulkLibraryCommandTest covers the
  * order in which library calls these operations.
  */
 class LedgerLocksTest :
