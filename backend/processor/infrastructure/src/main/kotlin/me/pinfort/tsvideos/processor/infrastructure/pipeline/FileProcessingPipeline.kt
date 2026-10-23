@@ -7,7 +7,6 @@ import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
 import me.pinfort.tsvideos.catalog.domain.ExecutedFile
 import me.pinfort.tsvideos.catalog.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
-import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.processing.api.CompressComponent
 import me.pinfort.tsvideos.processing.api.MainSplittedFileFinderComponent
 import me.pinfort.tsvideos.processing.api.NasDestinationResolver
@@ -16,6 +15,7 @@ import me.pinfort.tsvideos.processing.api.ProcessingHistoryCommand
 import me.pinfort.tsvideos.processing.api.ProcessingJobCommand
 import me.pinfort.tsvideos.processing.api.RecordingQualityCommand
 import me.pinfort.tsvideos.processing.api.RecordingQualityInspector
+import me.pinfort.tsvideos.processing.api.VerifiedUploadCommand
 import me.pinfort.tsvideos.processing.api.config.ProcessorToolConfigurationProperties
 import me.pinfort.tsvideos.processing.api.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.processing.api.tool.DurationProbeClient

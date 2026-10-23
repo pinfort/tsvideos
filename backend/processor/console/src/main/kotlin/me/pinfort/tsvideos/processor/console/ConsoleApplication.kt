@@ -10,9 +10,9 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan
 import org.springframework.boot.runApplication
 import kotlin.system.exitProcess
 
+// core is scanned only for LoggerConfig (#139); the verified upload and its mapper are processing's since #165.
 @MapperScan(
     basePackages = [
-        "me.pinfort.tsvideos.core.external.database.mapper",
         CatalogPersistence.MAPPER_PACKAGE,
         ProcessingPersistence.MAPPER_PACKAGE,
     ],

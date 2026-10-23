@@ -8,6 +8,8 @@ plugins {
 
 // 実行時クラスパスに database-schema が入らないことの検査 (checkDatabaseSchemaRuntimeIsolation、check に含まれる)
 apply(from = rootDir.resolve("database-schema/runtime-isolation.gradle.kts"))
+// 実行時クラスパスに processing (処理専用ツールと設定) が入らないことの検査 (checkProcessingRuntimeIsolation、check に含まれる)
+apply(from = rootDir.resolve("processing/runtime-isolation.gradle.kts"))
 
 kotlin {
     jvmToolchain(24)
@@ -26,9 +28,6 @@ dependencies {
     implementation(project(":catalog"))
     implementation(project(":library"))
     implementation(project(":diagnostics"))
-    // 移行中だけ (#164)。core の VerifiedUploadCommand が processing の Bean を使うので、スキャンと Mapper 登録の定数
-    // (ProcessingPersistence.MAPPER_PACKAGE) のために依存する。#165 で外す
-    implementation(project(":processing"))
     implementation(project(":core"))
     implementation(project(":console-common"))
     implementation(project(":manager:infrastructure"))

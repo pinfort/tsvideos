@@ -7,8 +7,8 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
 import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
-import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.processing.api.ProcessingJobCommand
+import me.pinfort.tsvideos.processing.api.VerifiedUploadCommand
 import org.springframework.stereotype.Component
 
 /**

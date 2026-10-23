@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.processing.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.extensions.ApplyExtension
@@ -13,14 +13,11 @@ import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.catalog.domain.VideoResolution
-import me.pinfort.tsvideos.core.config.LoggerConfig
-import me.pinfort.tsvideos.core.domain.UploadManifest.State
-import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
-import me.pinfort.tsvideos.processing.api.ProcessingRetry
-import me.pinfort.tsvideos.processing.api.ProcessingRetryRuntime
-import me.pinfort.tsvideos.processing.api.RetryRefusedException
+import me.pinfort.tsvideos.processing.TestLoggerConfig
 import me.pinfort.tsvideos.processing.api.config.ProcessingRetryConfigurationProperties
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
+import me.pinfort.tsvideos.processing.domain.UploadManifest.State
+import me.pinfort.tsvideos.processing.persistence.UploadManifestMapper
 import me.pinfort.tsvideos.storage.api.NasStore
 import me.pinfort.tsvideos.storage.api.VerifiedUploadNas
 import me.pinfort.tsvideos.storage.api.sha256Hex
@@ -1055,8 +1052,8 @@ class VerifiedUploadCommandTest : ExpectSpec() {
 
 // The catalog is imported as a bean, so its MANDATORY registration is enforced by the transaction proxy as in production.
 @org.springframework.boot.test.context.TestConfiguration
-@org.springframework.context.annotation.Import(CreatedFileCatalog::class, LoggerConfig::class)
-class VerifiedUploadSpringConfiguration {
+@org.springframework.context.annotation.Import(CreatedFileCatalog::class, TestLoggerConfig::class)
+internal class VerifiedUploadSpringConfiguration {
     @org.springframework.context.annotation.Bean
     fun uploadNas(): VerifiedUploadNas = mockk()
 

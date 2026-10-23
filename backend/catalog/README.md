@@ -18,7 +18,7 @@
 
 ## 組み立て
 
-- catalog は DataSource・`PlatformTransactionManager`・`SqlSessionFactory` を定義しない。3 つの実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.catalog` を含め、`@MapperScan` に `CatalogPersistence.MAPPER_PACKAGE` を (core の `me.pinfort.tsvideos.core.external.database.mapper` や `LibraryPersistence.MAPPER_PACKAGE` / `ProcessingPersistence.MAPPER_PACKAGE` と並べて) 加え、catalog の Mapper も自分の 1 組の `SqlSessionFactory` とトランザクションマネージャに登録する。`persistence` のパッケージ名は catalog の外に書かない。
+- catalog は DataSource・`PlatformTransactionManager`・`SqlSessionFactory` を定義しない。3 つの実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.catalog` を含め、`@MapperScan` に `CatalogPersistence.MAPPER_PACKAGE` を (manager では `LibraryPersistence.MAPPER_PACKAGE`、processor では `ProcessingPersistence.MAPPER_PACKAGE` と並べて) 加え、catalog の Mapper も自分の 1 組の `SqlSessionFactory` とトランザクションマネージャに登録する。`persistence` のパッケージ名は catalog の外に書かない。
 - 注入先ごとの slf4j `Logger` は実行アプリ (現状は `core` の `LoggerConfig`) が提供する。catalog は `Logger` 型の注入だけを要求する。
 - 設定ファイルとプロファイルを持たない。DB 接続の設定は実行アプリ (現状は `core` の `application-core.yaml`) のもの。
 - NAS は storage の公開操作 (`NasComponent`) を使う。協調削除/移動は「DB の行を変更してから NAS を変更する」順序を保つ (module-boundaries.md §7.4)。
@@ -38,6 +38,7 @@ core にあったときと同じ (module-boundaries.md §7.2)。
 
 - `./gradlew catalog:checkCatalogBoundaries` (`check` / `build` に含まれる): プロジェクト依存が `storage` (と test 設定からの `database-schema`) だけであること、catalog のソースが他モジュールのパッケージを参照しないこと、catalog 以外のソースと資源 (main/test の Kotlin・Java・XML・YAML・properties) が `persistence` などの内部パッケージを参照しないこと、`persistence` のトップレベル宣言が `internal` であることを検査する。先に `checkCatalogBoundaryRules` が、違反を含むフィクスチャがすべて検出され、許可される参照が検出されないことを確かめる。
 - `CatalogBoundaryTest`: catalog の SQL が library/processing のテーブルを参照しないこと、`ProgramSearchQuery` に library の条件がないこと。
+- `CatalogStorageCallerTest` (#165 で core の `StorageCallerBoundaryTest` から移した): 作成ファイル操作 (`CreatedFileCommand`、`CreatedFileCatalog`、`StreamableVideo`) の公開シグネチャに jcifs・Spring `Resource`・Web の型が出ないこと、catalog のソースが jcifs を import しないこと。
 
 ## テスト
 

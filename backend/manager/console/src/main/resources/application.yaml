@@ -1,3 +1,1 @@
-# processing is included only while core's VerifiedUploadCommand still pulls processing beans into manager (#164);
-# #165 removes it together with the manager applications' processing scan.
-spring.profiles.include: core, storage, processing, infrastructure, console
+spring.profiles.include: core, storage, infrastructure, console

@@ -3,7 +3,6 @@ package me.pinfort.tsvideos.manager.console
 import me.pinfort.tsvideos.catalog.api.CatalogPersistence
 import me.pinfort.tsvideos.console.common.charset.ConsoleCharset
 import me.pinfort.tsvideos.library.api.LibraryPersistence
-import me.pinfort.tsvideos.processing.api.ProcessingPersistence
 import org.mybatis.spring.annotation.MapperScan
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
@@ -14,14 +13,12 @@ import java.io.PrintStream
 import java.nio.charset.StandardCharsets
 import kotlin.system.exitProcess
 
-// processing (scan, mappers, configuration properties) is here only while core's VerifiedUploadCommand needs its beans;
-// #165 removes it from the manager applications (#164).
+// processing is not part of the manager applications (backend/docs/module-boundaries.md §2): neither scanned nor on
+// the runtime classpath since #165, so no processing tool, processing bean or processor-* setting is loaded.
 @MapperScan(
     basePackages = [
-        "me.pinfort.tsvideos.core.external.database.mapper",
         CatalogPersistence.MAPPER_PACKAGE,
         LibraryPersistence.MAPPER_PACKAGE,
-        ProcessingPersistence.MAPPER_PACKAGE,
     ],
 )
 @SpringBootApplication(
@@ -30,7 +27,6 @@ import kotlin.system.exitProcess
         "me.pinfort.tsvideos.catalog",
         "me.pinfort.tsvideos.library",
         "me.pinfort.tsvideos.diagnostics",
-        "me.pinfort.tsvideos.processing",
         "me.pinfort.tsvideos.core",
         "me.pinfort.tsvideos.console.common",
         "me.pinfort.tsvideos.manager",
@@ -38,7 +34,6 @@ import kotlin.system.exitProcess
 )
 @ConfigurationPropertiesScan(
     basePackages = [
-        "me.pinfort.tsvideos.processing.api.config",
         "me.pinfort.tsvideos.manager.infrastructure.config",
     ],
 )

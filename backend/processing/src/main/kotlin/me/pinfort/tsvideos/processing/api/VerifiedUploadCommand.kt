@@ -1,17 +1,13 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.processing.api
 
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.VideoResolution
-import me.pinfort.tsvideos.core.domain.UploadManifest
-import me.pinfort.tsvideos.core.domain.UploadManifest.State
-import me.pinfort.tsvideos.core.domain.VerifiedUploadReceipt
-import me.pinfort.tsvideos.core.external.database.mapper.UploadManifestMapper
-import me.pinfort.tsvideos.processing.api.ProcessingCancellation
-import me.pinfort.tsvideos.processing.api.ProcessingRetry
-import me.pinfort.tsvideos.processing.api.RetryOperation
-import me.pinfort.tsvideos.processing.api.RetryRefusedException
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
+import me.pinfort.tsvideos.processing.domain.UploadManifest
+import me.pinfort.tsvideos.processing.domain.UploadManifest.State
+import me.pinfort.tsvideos.processing.domain.VerifiedUploadReceipt
+import me.pinfort.tsvideos.processing.persistence.UploadManifestMapper
 import me.pinfort.tsvideos.storage.api.NasStore
 import me.pinfort.tsvideos.storage.api.VerifiedUploadNas
 import me.pinfort.tsvideos.storage.api.sha256Hex
@@ -29,7 +25,7 @@ import java.util.UUID
 
 @Component
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-class VerifiedUploadCommand(
+class VerifiedUploadCommand internal constructor(
     private val manifests: UploadManifestMapper,
     private val nas: VerifiedUploadNas,
     private val createdFiles: CreatedFileCatalog,

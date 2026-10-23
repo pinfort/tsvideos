@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.manager.api
 
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.extensions.spring.SpringExtension
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -38,6 +39,26 @@ class ApiApplicationTest : FunSpec() {
             context.environment.getProperty("samba.video-store-nas.url").shouldNotBeNull() shouldStartWith "smb:"
             context.getBean(NasComponent::class.java)
             context.getBean(NasFileVerifier::class.java)
+        }
+
+        // Runtime isolation from processing (#165, module-boundaries.md §2): the context above starts without the processing
+        // profile or any processor-* setting, and nothing from processing is loadable, scanned or configured. The build-time
+        // side is checkProcessingRuntimeIsolation (processing/runtime-isolation.gradle.kts).
+        test("processing is neither on the runtime classpath nor part of the application") {
+            ("processing" in context.environment.activeProfiles) shouldBe false
+            listOf("processor-tool.ts-splitter-path", "processor-preflight.space-multiplier").forEach {
+                context.environment.containsProperty(it) shouldBe false
+            }
+            val loader = ApiApplication::class.java.classLoader
+            listOf(
+                "me.pinfort.tsvideos.processing.api.ProcessingPersistence",
+                "me.pinfort.tsvideos.processing.api.VerifiedUploadCommand",
+                "me.pinfort.tsvideos.processing.api.tool.TsSplitterClient",
+            ).forEach { name -> runCatching { Class.forName(name, false, loader) }.isFailure shouldBe true }
+            context.beanDefinitionNames
+                .mapNotNull { context.getType(it)?.name }
+                .filter { it.startsWith("me.pinfort.tsvideos.processing.") }
+                .shouldBeEmpty()
         }
     }
 }
