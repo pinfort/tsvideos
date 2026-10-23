@@ -1,9 +1,9 @@
-package me.pinfort.tsvideos.core.external.database.mapper
+package me.pinfort.tsvideos.library.persistence
 
-import me.pinfort.tsvideos.core.domain.LibraryKind
+import me.pinfort.tsvideos.library.domain.LibraryKind
 
 /** Table identifiers come only from a closed enum, never from request text. */
-class LibraryOrganizationSql {
+internal class LibraryOrganizationSql {
     private fun kind(parameters: Map<String, Any>) = parameters["kind"] as LibraryKind
 
     private fun select(parameters: Map<String, Any>): String {

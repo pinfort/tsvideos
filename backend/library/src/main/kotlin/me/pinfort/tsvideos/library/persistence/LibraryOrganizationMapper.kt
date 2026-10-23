@@ -1,7 +1,7 @@
-package me.pinfort.tsvideos.core.external.database.mapper
+package me.pinfort.tsvideos.library.persistence
 
-import me.pinfort.tsvideos.core.domain.LibraryKind
-import me.pinfort.tsvideos.core.domain.LibraryLabel
+import me.pinfort.tsvideos.library.domain.LibraryKind
+import me.pinfort.tsvideos.library.domain.LibraryLabel
 import org.apache.ibatis.annotations.DeleteProvider
 import org.apache.ibatis.annotations.InsertProvider
 import org.apache.ibatis.annotations.Mapper
@@ -15,7 +15,7 @@ import org.apache.ibatis.annotations.UpdateProvider
  * lists) are read-only reference queries; program existence checks and row locks go through catalog.
  */
 @Mapper
-interface LibraryOrganizationMapper {
+internal interface LibraryOrganizationMapper {
     @SelectProvider(type = LibraryOrganizationSql::class, method = "list")
     fun list(
         @Param("kind") kind: LibraryKind,

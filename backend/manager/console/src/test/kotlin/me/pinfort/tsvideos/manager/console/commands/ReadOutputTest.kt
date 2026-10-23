@@ -14,8 +14,8 @@ import me.pinfort.tsvideos.catalog.domain.ExecutedFileTag
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.ProgramDetail
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchPage
-import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
-import me.pinfort.tsvideos.core.domain.DuplicateGroup
+import me.pinfort.tsvideos.library.api.DuplicateProgramCommand
+import me.pinfort.tsvideos.library.domain.DuplicateGroup
 import me.pinfort.tsvideos.manager.console.parseManager
 import tools.jackson.databind.json.JsonMapper
 import java.time.LocalDateTime

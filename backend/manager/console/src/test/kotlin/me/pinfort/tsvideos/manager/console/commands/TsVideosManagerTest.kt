@@ -23,10 +23,10 @@ import me.pinfort.tsvideos.catalog.domain.ProgramSearchPage
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
 import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
 import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
-import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
 import me.pinfort.tsvideos.core.command.LibraryVerificationCommand
 import me.pinfort.tsvideos.core.domain.VerificationReport
 import me.pinfort.tsvideos.core.version.ApplicationVersion
+import me.pinfort.tsvideos.library.api.DuplicateProgramCommand
 import me.pinfort.tsvideos.manager.console.component.ProgramDetailToTextComponent
 import java.nio.file.Path
 import java.time.LocalDateTime

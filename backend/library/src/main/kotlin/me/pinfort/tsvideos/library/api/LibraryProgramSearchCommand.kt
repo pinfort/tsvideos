@@ -1,10 +1,10 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchPage
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
-import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
-import me.pinfort.tsvideos.core.external.database.mapper.LibraryProgramSearchMapper
+import me.pinfort.tsvideos.library.domain.LibraryProgramFilter
+import me.pinfort.tsvideos.library.persistence.LibraryProgramSearchMapper
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional
  * which applies the same ledger conditions, order and paging.
  */
 @Component
-class LibraryProgramSearchCommand(
+class LibraryProgramSearchCommand internal constructor(
     private val programs: ProgramCommand,
     private val mapper: LibraryProgramSearchMapper,
 ) {

@@ -1,10 +1,10 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
-import me.pinfort.tsvideos.core.domain.DuplicateRecommendation
-import me.pinfort.tsvideos.core.domain.DuplicateReview
-import me.pinfort.tsvideos.core.domain.DuplicateReviewGroup
-import me.pinfort.tsvideos.core.domain.DuplicateReviewMember
+import me.pinfort.tsvideos.library.domain.DuplicateRecommendation
+import me.pinfort.tsvideos.library.domain.DuplicateReview
+import me.pinfort.tsvideos.library.domain.DuplicateReviewGroup
+import me.pinfort.tsvideos.library.domain.DuplicateReviewMember
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional

@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.manager.api.controller
 
-import me.pinfort.tsvideos.core.command.StorageOverviewCommand
+import me.pinfort.tsvideos.library.api.StorageOverviewCommand
 import me.pinfort.tsvideos.manager.api.response.StorageOverviewResponse
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController

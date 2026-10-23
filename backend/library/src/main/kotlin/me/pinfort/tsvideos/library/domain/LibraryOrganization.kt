@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.domain
+package me.pinfort.tsvideos.library.domain
 
 /** Manual organization labels. TAG is a user-managed library_tag, distinct from detector tags (ExecutedFileTag). */
 enum class LibraryKind(

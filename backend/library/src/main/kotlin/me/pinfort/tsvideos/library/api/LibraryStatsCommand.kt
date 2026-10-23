@@ -1,14 +1,14 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import me.pinfort.tsvideos.catalog.api.CatalogStatistics
 import me.pinfort.tsvideos.catalog.api.FileStatsRow
 import me.pinfort.tsvideos.catalog.api.ProgramStatsRow
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.Program
-import me.pinfort.tsvideos.core.domain.LibraryStats
-import me.pinfort.tsvideos.core.domain.LibraryStatsGroup
-import me.pinfort.tsvideos.core.domain.LibraryStatsQuery
-import me.pinfort.tsvideos.core.domain.LibraryStatsTotals
+import me.pinfort.tsvideos.library.domain.LibraryStats
+import me.pinfort.tsvideos.library.domain.LibraryStatsGroup
+import me.pinfort.tsvideos.library.domain.LibraryStatsQuery
+import me.pinfort.tsvideos.library.domain.LibraryStatsTotals
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional

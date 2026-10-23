@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.extensions.ApplyExtension
@@ -8,12 +8,12 @@ import io.kotest.matchers.shouldBe
 import me.pinfort.tsvideos.catalog.api.LedgerLocks
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
-import me.pinfort.tsvideos.core.domain.DuplicateLibraryNameException
-import me.pinfort.tsvideos.core.domain.LibraryItemNotFoundException
-import me.pinfort.tsvideos.core.domain.LibraryKind
-import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
-import me.pinfort.tsvideos.core.external.database.mapper.LibraryOrganizationMapper
-import me.pinfort.tsvideos.core.external.database.mapper.LibraryProgramSearchMapper
+import me.pinfort.tsvideos.library.domain.DuplicateLibraryNameException
+import me.pinfort.tsvideos.library.domain.LibraryItemNotFoundException
+import me.pinfort.tsvideos.library.domain.LibraryKind
+import me.pinfort.tsvideos.library.domain.LibraryProgramFilter
+import me.pinfort.tsvideos.library.persistence.LibraryOrganizationMapper
+import me.pinfort.tsvideos.library.persistence.LibraryProgramSearchMapper
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase

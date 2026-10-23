@@ -1,9 +1,9 @@
 package me.pinfort.tsvideos.manager.api.controller
 
-import me.pinfort.tsvideos.core.command.LibraryOrganizationCommand
-import me.pinfort.tsvideos.core.domain.DuplicateLibraryNameException
-import me.pinfort.tsvideos.core.domain.LibraryItemNotFoundException
-import me.pinfort.tsvideos.core.domain.LibraryKind
+import me.pinfort.tsvideos.library.api.LibraryOrganizationCommand
+import me.pinfort.tsvideos.library.domain.DuplicateLibraryNameException
+import me.pinfort.tsvideos.library.domain.LibraryItemNotFoundException
+import me.pinfort.tsvideos.library.domain.LibraryKind
 import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping

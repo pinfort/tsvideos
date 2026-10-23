@@ -30,6 +30,8 @@ import me.pinfort.tsvideos.core.domain.BulkRequest
 import me.pinfort.tsvideos.core.domain.BulkResult
 import me.pinfort.tsvideos.core.domain.CleanupCriteria
 import me.pinfort.tsvideos.core.domain.CleanupMode
+import me.pinfort.tsvideos.library.api.DuplicateProgramCommand
+import me.pinfort.tsvideos.library.api.DuplicateReviewCommand
 import me.pinfort.tsvideos.storage.api.NasComponent
 import me.pinfort.tsvideos.storage.api.NasStore
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest

@@ -8,6 +8,7 @@ import org.springframework.boot.runApplication
     scanBasePackages = [
         "me.pinfort.tsvideos.storage",
         "me.pinfort.tsvideos.catalog",
+        "me.pinfort.tsvideos.library",
         "me.pinfort.tsvideos.diagnostics",
         "me.pinfort.tsvideos.core",
         "me.pinfort.tsvideos.manager",

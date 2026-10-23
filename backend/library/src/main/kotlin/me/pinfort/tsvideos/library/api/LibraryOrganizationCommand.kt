@@ -1,14 +1,14 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import me.pinfort.tsvideos.catalog.api.LedgerLocks
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
-import me.pinfort.tsvideos.core.domain.DuplicateLibraryNameException
-import me.pinfort.tsvideos.core.domain.LibraryItemNotFoundException
-import me.pinfort.tsvideos.core.domain.LibraryKind
-import me.pinfort.tsvideos.core.domain.LibraryLabel
-import me.pinfort.tsvideos.core.domain.ProgramOrganization
-import me.pinfort.tsvideos.core.external.database.mapper.GeneratedKeyHolder
-import me.pinfort.tsvideos.core.external.database.mapper.LibraryOrganizationMapper
+import me.pinfort.tsvideos.library.domain.DuplicateLibraryNameException
+import me.pinfort.tsvideos.library.domain.LibraryItemNotFoundException
+import me.pinfort.tsvideos.library.domain.LibraryKind
+import me.pinfort.tsvideos.library.domain.LibraryLabel
+import me.pinfort.tsvideos.library.domain.ProgramOrganization
+import me.pinfort.tsvideos.library.persistence.GeneratedKeyHolder
+import me.pinfort.tsvideos.library.persistence.LibraryOrganizationMapper
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation
@@ -22,7 +22,7 @@ import java.util.Locale
  * recordings automatically and are never created, renamed or assigned here.
  */
 @Component
-class LibraryOrganizationCommand(
+class LibraryOrganizationCommand internal constructor(
     private val mapper: LibraryOrganizationMapper,
     private val programs: ProgramInventory,
     private val ledgerLocks: LedgerLocks,

@@ -8,7 +8,7 @@ import com.github.ajalt.clikt.parameters.types.double
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
-import me.pinfort.tsvideos.core.command.DuplicateProgramCommand
+import me.pinfort.tsvideos.library.api.DuplicateProgramCommand
 import me.pinfort.tsvideos.manager.console.component.ReadJson
 import org.springframework.stereotype.Component
 import java.time.format.DateTimeFormatter

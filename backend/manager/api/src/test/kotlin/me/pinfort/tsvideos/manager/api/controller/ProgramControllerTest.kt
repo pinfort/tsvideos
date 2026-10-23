@@ -10,8 +10,8 @@ import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.ProgramDetail
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchPage
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
-import me.pinfort.tsvideos.core.command.LibraryProgramSearchCommand
-import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
+import me.pinfort.tsvideos.library.api.LibraryProgramSearchCommand
+import me.pinfort.tsvideos.library.domain.LibraryProgramFilter
 import org.hamcrest.Matchers.hasKey
 import org.hamcrest.Matchers.nullValue
 import org.springframework.beans.factory.annotation.Autowired

@@ -3,8 +3,8 @@ package me.pinfort.tsvideos.manager.api.controller
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.ProgramSearchQuery
-import me.pinfort.tsvideos.core.command.LibraryProgramSearchCommand
-import me.pinfort.tsvideos.core.domain.LibraryProgramFilter
+import me.pinfort.tsvideos.library.api.LibraryProgramSearchCommand
+import me.pinfort.tsvideos.library.domain.LibraryProgramFilter
 import me.pinfort.tsvideos.manager.api.exception.ProgramNotFoundException
 import me.pinfort.tsvideos.manager.api.response.ProgramDetailResponse
 import me.pinfort.tsvideos.manager.api.response.SearchResponse

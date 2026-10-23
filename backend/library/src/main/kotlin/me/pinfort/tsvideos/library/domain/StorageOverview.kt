@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.domain
+package me.pinfort.tsvideos.library.domain
 
 data class StorageRecording(
     val id: Long,

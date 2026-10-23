@@ -1,9 +1,9 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import me.pinfort.tsvideos.catalog.api.CatalogStatistics
-import me.pinfort.tsvideos.core.domain.StorageDuplicateCandidate
-import me.pinfort.tsvideos.core.domain.StorageOverview
-import me.pinfort.tsvideos.core.domain.StorageRecording
+import me.pinfort.tsvideos.library.domain.StorageDuplicateCandidate
+import me.pinfort.tsvideos.library.domain.StorageOverview
+import me.pinfort.tsvideos.library.domain.StorageRecording
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
