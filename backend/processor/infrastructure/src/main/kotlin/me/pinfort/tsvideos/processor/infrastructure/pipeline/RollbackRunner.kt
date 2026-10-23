@@ -1,6 +1,6 @@
 package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
-import me.pinfort.tsvideos.core.component.ProcessingCancellation
+import me.pinfort.tsvideos.processing.api.ProcessingCancellation
 
 /** One instance per processing attempt; includes cleanup of a partially completed stage. */
 internal class RollbackRunner {

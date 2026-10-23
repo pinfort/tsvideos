@@ -6,11 +6,11 @@ import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import me.pinfort.tsvideos.core.command.ProcessingPreflightCommand
 import me.pinfort.tsvideos.diagnostics.api.DiagnosticEnvironment
 import me.pinfort.tsvideos.diagnostics.domain.DiagnosticCheck
 import me.pinfort.tsvideos.diagnostics.domain.DiagnosticReport
 import me.pinfort.tsvideos.diagnostics.domain.DiagnosticStatus
+import me.pinfort.tsvideos.processing.api.ProcessingPreflightCommand
 import me.pinfort.tsvideos.storage.api.NasComponent
 import me.pinfort.tsvideos.storage.api.VerifiedUploadNas
 import org.springframework.context.annotation.AnnotationConfigApplicationContext
@@ -64,13 +64,19 @@ class PreflightCommandTest :
             DiagnosticEnvironment.commandArguments(arrayOf("process", "--", "--spring.x=y")) shouldBe
                 listOf("process", "--", "--spring.x=y")
         }
-        // Standalone preflight reads the NAS settings from the storage module's application-storage.yaml.
-        expect("the standalone environment loads the core and storage profile defaults") {
+        // Standalone preflight reads the NAS settings from the storage module's application-storage.yaml and the tool
+        // settings from the processing module's application-processing.yaml.
+        expect("the standalone environment loads the core, storage and processing profile defaults") {
             val environment = DiagnosticEnvironment.load(emptyArray())
             environment.activeProfiles.toList().contains("core") shouldBe true
             environment.activeProfiles.toList().contains("storage") shouldBe true
+            environment.activeProfiles.toList().contains("processing") shouldBe true
             environment.getProperty("samba.video-store-nas.url")!!.startsWith("smb:") shouldBe true
             environment.getProperty("samba.original-store-nas.url")!!.startsWith("smb:") shouldBe true
+            environment.getProperty("processor-tool.ffprobe-path") shouldBe (System.getenv("FFPROBE_PATH") ?: "ffprobe")
+            environment.getProperty("processor-tool.amatsukaze.port") shouldBe (System.getenv("AMATSUKAZE_PORT") ?: "32768")
+            environment.getProperty("processor-preflight.space-multiplier") shouldBe
+                (System.getenv("PROCESSOR_PREFLIGHT_SPACE_MULTIPLIER") ?: "3")
         }
         // ConsoleApplication scans storage; its beans must assemble from this console's own configuration alone.
         expect("the storage beans assemble from the console's loaded configuration") {

@@ -2,10 +2,10 @@ package me.pinfort.tsvideos.processor.infrastructure.pipeline
 
 import io.mockk.every
 import io.mockk.mockk
-import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
-import me.pinfort.tsvideos.core.domain.ProcessingAttempt
-import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
-import me.pinfort.tsvideos.core.domain.ProcessingOutcome
+import me.pinfort.tsvideos.processing.api.ProcessingHistoryCommand
+import me.pinfort.tsvideos.processing.domain.ProcessingAttempt
+import me.pinfort.tsvideos.processing.domain.ProcessingAttemptKind
+import me.pinfort.tsvideos.processing.domain.ProcessingOutcome
 
 /** Keep existing pipeline tests executing their real stages while observing the history boundary. */
 internal fun historyFixture(): ProcessingHistoryCommand =

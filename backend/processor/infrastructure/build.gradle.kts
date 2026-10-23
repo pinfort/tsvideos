@@ -9,6 +9,7 @@ plugins {
 dependencies {
     implementation(project(":storage"))
     implementation(project(":catalog"))
+    implementation(project(":processing"))
     implementation(project(":core"))
     implementation("org.springframework.boot:spring-boot-starter")
     implementation("me.pinfort:tsselect:1.0.0")

@@ -1,0 +1,28 @@
+package me.pinfort.tsvideos.processing.api
+
+import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
+import me.pinfort.tsvideos.processing.domain.ProcessingJob
+import me.pinfort.tsvideos.processing.persistence.ProcessingJobMapper
+import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Propagation
+import org.springframework.transaction.annotation.Transactional
+
+/** Separate transactions release a duplicate INSERT's index locks before attempting the retry CAS. */
+@Component
+class ProcessingJobClaimCommand internal constructor(
+    private val mapper: ProcessingJobMapper,
+) {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun insert(identity: ProcessingIdentity): ProcessingJob {
+        check(mapper.claim(identity.key, identity.path, identity.size, identity.modifiedMillis) == 1) {
+            "Claim insert affected no row, path=${identity.path}"
+        }
+        return checkNotNull(mapper.find(identity.key)) { "Claimed job disappeared, path=${identity.path}" }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun retry(identity: ProcessingIdentity): ProcessingJob? {
+        if (mapper.retry(identity.key) != 1) return null
+        return checkNotNull(mapper.find(identity.key)) { "Retried job disappeared, path=${identity.path}" }
+    }
+}

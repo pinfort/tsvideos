@@ -5,13 +5,13 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
-import me.pinfort.tsvideos.core.command.ProcessingHistoryCommand
-import me.pinfort.tsvideos.core.domain.ProcessingAttempt
-import me.pinfort.tsvideos.core.domain.ProcessingAttemptHistory
-import me.pinfort.tsvideos.core.domain.ProcessingAttemptKind
-import me.pinfort.tsvideos.core.domain.ProcessingHistoryIdentity
-import me.pinfort.tsvideos.core.domain.ProcessingOutcome
-import me.pinfort.tsvideos.core.domain.ProcessingStatus
+import me.pinfort.tsvideos.processing.api.ProcessingHistoryCommand
+import me.pinfort.tsvideos.processing.domain.ProcessingAttempt
+import me.pinfort.tsvideos.processing.domain.ProcessingAttemptHistory
+import me.pinfort.tsvideos.processing.domain.ProcessingAttemptKind
+import me.pinfort.tsvideos.processing.domain.ProcessingHistoryIdentity
+import me.pinfort.tsvideos.processing.domain.ProcessingOutcome
+import me.pinfort.tsvideos.processing.domain.ProcessingStatus
 import me.pinfort.tsvideos.processor.console.parseProcessor
 import tools.jackson.databind.json.JsonMapper
 

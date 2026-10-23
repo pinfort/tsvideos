@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.processor.console
 import me.pinfort.tsvideos.catalog.api.CatalogPersistence
 import me.pinfort.tsvideos.console.common.charset.ConsoleCharset
 import me.pinfort.tsvideos.diagnostics.api.DiagnosticEnvironment
+import me.pinfort.tsvideos.processing.api.ProcessingPersistence
 import org.mybatis.spring.annotation.MapperScan
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan
@@ -13,6 +14,7 @@ import kotlin.system.exitProcess
     basePackages = [
         "me.pinfort.tsvideos.core.external.database.mapper",
         CatalogPersistence.MAPPER_PACKAGE,
+        ProcessingPersistence.MAPPER_PACKAGE,
     ],
 )
 @SpringBootApplication(
@@ -20,6 +22,7 @@ import kotlin.system.exitProcess
         "me.pinfort.tsvideos.storage",
         "me.pinfort.tsvideos.catalog",
         "me.pinfort.tsvideos.diagnostics",
+        "me.pinfort.tsvideos.processing",
         "me.pinfort.tsvideos.core",
         "me.pinfort.tsvideos.console.common",
         "me.pinfort.tsvideos.processor",
@@ -27,7 +30,7 @@ import kotlin.system.exitProcess
 )
 @ConfigurationPropertiesScan(
     basePackages = [
-        "me.pinfort.tsvideos.core.config",
+        "me.pinfort.tsvideos.processing.api.config",
     ],
 )
 class ConsoleApplication

@@ -25,6 +25,7 @@ dependencies {
     implementation(project(":storage"))
     implementation(project(":catalog"))
     implementation(project(":diagnostics"))
+    implementation(project(":processing"))
     implementation(project(":core"))
     implementation(project(":console-common"))
     implementation(project(":processor:infrastructure"))

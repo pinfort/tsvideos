@@ -16,15 +16,15 @@ import me.pinfort.tsvideos.catalog.domain.ExecutedFile
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
 import me.pinfort.tsvideos.catalog.domain.VideoResolution
-import me.pinfort.tsvideos.core.command.ProcessingJobCommand
 import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
-import me.pinfort.tsvideos.core.component.MimeTypeComponent
-import me.pinfort.tsvideos.core.component.NasDestinationResolver
-import me.pinfort.tsvideos.core.component.ValidateCompletedComponent
-import me.pinfort.tsvideos.core.domain.ProcessingIdentity
-import me.pinfort.tsvideos.core.domain.ProcessingJob
 import me.pinfort.tsvideos.core.domain.VerifiedUploadReceipt
-import me.pinfort.tsvideos.core.external.tool.VideoResolutionProbeClient
+import me.pinfort.tsvideos.processing.api.MimeTypeComponent
+import me.pinfort.tsvideos.processing.api.NasDestinationResolver
+import me.pinfort.tsvideos.processing.api.ProcessingJobCommand
+import me.pinfort.tsvideos.processing.api.ValidateCompletedComponent
+import me.pinfort.tsvideos.processing.api.tool.VideoResolutionProbeClient
+import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
+import me.pinfort.tsvideos.processing.domain.ProcessingJob
 import me.pinfort.tsvideos.processor.infrastructure.external.slack.SlackClient
 import me.pinfort.tsvideos.storage.api.NasPaths
 import me.pinfort.tsvideos.storage.api.NasStore
@@ -165,7 +165,7 @@ class AfterEncodeRunnerTest :
                 shouldThrow<IllegalStateException> { f.run() } shouldBe primary
                 primary.suppressed.single() shouldBe interrupted
                 Thread.currentThread().isInterrupted shouldBe true
-                me.pinfort.tsvideos.core.component.ProcessingCancellation
+                me.pinfort.tsvideos.processing.api.ProcessingCancellation
                     .isInterrupted(primary) shouldBe true
                 verify(exactly = 1) { f.slack.notify(any()) }
                 f.original.exists() shouldBe true
@@ -221,7 +221,7 @@ class AfterEncodeRunnerTest :
                     f.uploads.verifyRegistered(1, "original")
                     f.jobs.complete(f.job)
                 }
-                verify { f.history.finish(44, me.pinfort.tsvideos.core.domain.ProcessingOutcome.COMPLETED, null) }
+                verify { f.history.finish(44, me.pinfort.tsvideos.processing.domain.ProcessingOutcome.COMPLETED, null) }
                 f.output.exists() shouldBe false
                 f.original.exists() shouldBe false
                 f.input.exists() shouldBe false
