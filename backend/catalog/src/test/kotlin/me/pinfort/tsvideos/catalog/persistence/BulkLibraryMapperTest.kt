@@ -19,7 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.sql.DataSource
 
-// The bulk apply over these locks (library's BulkLibraryCommand) is tested in core's BulkLibraryApplyTest.
+// The bulk apply over these locks (library's BulkLibraryCommand) is tested in library's BulkLibraryApplyTest.
 @ImportTestcontainers
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @MybatisTest

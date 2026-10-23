@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
@@ -18,11 +18,11 @@ import me.pinfort.tsvideos.catalog.api.NormalizeComponent
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
-import me.pinfort.tsvideos.core.config.LoggerConfig
-import me.pinfort.tsvideos.core.domain.BulkAction
-import me.pinfort.tsvideos.core.domain.BulkApplyRequest
-import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
-import me.pinfort.tsvideos.core.domain.BulkRequest
+import me.pinfort.tsvideos.library.TestLoggerConfig
+import me.pinfort.tsvideos.library.domain.BulkAction
+import me.pinfort.tsvideos.library.domain.BulkApplyRequest
+import me.pinfort.tsvideos.library.domain.BulkOutcomeStatus
+import me.pinfort.tsvideos.library.domain.BulkRequest
 import me.pinfort.tsvideos.storage.api.NasComponent
 import me.pinfort.tsvideos.storage.api.NasStore
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
@@ -39,10 +39,10 @@ import org.springframework.transaction.annotation.Transactional
 import javax.sql.DataSource
 
 /**
- * The bulk apply (still in core until #158) over catalog's public operations as Spring wires them (one shared
- * transaction manager): catalog's MANDATORY locks run in its per-target transaction. Library reads joining the caller's
- * snapshot and the library search's compatibility with the catalog search are covered by library's
- * LibraryCatalogTransactionTest, catalog's own transaction contracts by catalog's CatalogTransactionTest.
+ * The bulk apply over catalog's public operations as Spring wires them (one shared transaction manager): catalog's
+ * MANDATORY locks run in its per-target transaction. Library reads joining the caller's snapshot and the library search's
+ * compatibility with the catalog search are covered by LibraryCatalogTransactionTest, catalog's own transaction contracts
+ * by catalog's CatalogTransactionTest.
  */
 @ImportTestcontainers
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -61,7 +61,7 @@ import javax.sql.DataSource
     ExecutedFileTagCommand::class,
     DirectoryNameComponent::class,
     NormalizeComponent::class,
-    LoggerConfig::class,
+    TestLoggerConfig::class,
     BulkLibraryCommand::class,
     BulkCatalogTransactionTest.Nas::class,
 )

@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.command
+package me.pinfort.tsvideos.library.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.assertions.withClue
@@ -22,11 +22,11 @@ import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.ExecutedFile
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
-import me.pinfort.tsvideos.core.domain.BulkAction
-import me.pinfort.tsvideos.core.domain.BulkApplyRequest
-import me.pinfort.tsvideos.core.domain.BulkOutcome
-import me.pinfort.tsvideos.core.domain.BulkOutcomeStatus
-import me.pinfort.tsvideos.core.domain.BulkRequest
+import me.pinfort.tsvideos.library.domain.BulkAction
+import me.pinfort.tsvideos.library.domain.BulkApplyRequest
+import me.pinfort.tsvideos.library.domain.BulkOutcome
+import me.pinfort.tsvideos.library.domain.BulkOutcomeStatus
+import me.pinfort.tsvideos.library.domain.BulkRequest
 import org.slf4j.Logger
 import org.springframework.dao.CannotAcquireLockException
 import org.springframework.transaction.PlatformTransactionManager

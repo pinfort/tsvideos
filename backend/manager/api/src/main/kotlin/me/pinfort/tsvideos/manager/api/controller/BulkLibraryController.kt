@@ -1,9 +1,9 @@
 package me.pinfort.tsvideos.manager.api.controller
 
-import me.pinfort.tsvideos.core.command.BulkLibraryCommand
-import me.pinfort.tsvideos.core.domain.BulkApplyRequest
-import me.pinfort.tsvideos.core.domain.BulkRequest
-import me.pinfort.tsvideos.core.domain.InvalidBulkRequestException
+import me.pinfort.tsvideos.library.api.BulkLibraryCommand
+import me.pinfort.tsvideos.library.domain.BulkApplyRequest
+import me.pinfort.tsvideos.library.domain.BulkRequest
+import me.pinfort.tsvideos.library.domain.InvalidBulkRequestException
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
