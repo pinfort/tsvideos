@@ -16,8 +16,8 @@ import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
 import me.pinfort.tsvideos.catalog.domain.ExecutedFile
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
-import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.processing.api.ProcessingJobCommand
+import me.pinfort.tsvideos.processing.api.VerifiedUploadCommand
 import org.slf4j.Logger
 import java.io.File
 import java.nio.file.Files

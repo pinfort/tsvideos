@@ -7,6 +7,9 @@ import me.pinfort.tsvideos.processing.api.NasDestinationResolver
 import me.pinfort.tsvideos.processing.api.ProcessingCancellation
 import me.pinfort.tsvideos.processing.api.ProcessingRetry
 import me.pinfort.tsvideos.processing.api.TransientProcessingFailure
+import me.pinfort.tsvideos.processing.api.VerifiedUploadCommand
+import me.pinfort.tsvideos.processing.domain.UploadManifest
+import me.pinfort.tsvideos.processing.domain.VerifiedUploadReceipt
 import me.pinfort.tsvideos.storage.api.NasAccessException
 import me.pinfort.tsvideos.storage.api.NasAuthenticationException
 import java.io.File
@@ -16,9 +19,10 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KVisibility
 
 /**
- * processing's side of the storage boundary (moved from core's StorageCallerBoundaryTest in #164): how processing
- * classifies storage exceptions, and that the public signatures of its storage callers do not expose implementation or
- * HTTP types. Storage's own contracts are checked by storage's StorageContractTest and its `checkStorageBoundaries` task.
+ * processing's side of the storage boundary (moved from core's StorageCallerBoundaryTest in #164; the verified upload's
+ * signatures followed it in #165): how processing classifies storage exceptions, and that the public signatures of its
+ * storage callers do not expose implementation or HTTP types. Storage's own contracts are checked by storage's
+ * StorageContractTest and its `checkStorageBoundaries` task; catalog's callers by catalog's CatalogStorageCallerTest.
  */
 class ProcessingStorageCallerTest :
     ExpectSpec({
@@ -50,6 +54,9 @@ class ProcessingStorageCallerTest :
                     NasDestinationResolver::class,
                     ProcessingRetry::class,
                     TransientProcessingFailure::class,
+                    VerifiedUploadCommand::class,
+                    UploadManifest::class,
+                    VerifiedUploadReceipt::class,
                 )
 
             fun signatures(type: KClass<*>): List<String> {

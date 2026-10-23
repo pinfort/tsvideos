@@ -18,7 +18,7 @@ DB/NAS の環境診断と診断結果を扱うモジュール。#136 で `core` 
 ## 組み立て
 
 - **Spring コンテキストなしでコンストラクタだけで組み立てられる。** `DoctorBootstrap` / `PreflightBootstrap` は `DiagnosticEnvironment.load(args)` で設定を読み、`EnvironmentDiagnosticCommand(environment, DatabaseDiagnosticProbe(), NasDiagnosticProbe(DiagnosticNasClient.create()))` を手で組み立てる。DataSource・ツール・アプリのコマンドグラフを作らないので、設定が壊れていて Spring が起動できなくても診断できる。
-- Spring で使う場合は各クラスが `@Component` なので、実行アプリが `scanBasePackages` に `me.pinfort.tsvideos.diagnostics` を含める (processing の `ProcessingPreflightCommand` が `EnvironmentDiagnosticCommand` の Bean を要求するため 3 つの実行アプリすべて。manager の 2 アプリが processing をスキャンするのは #165 までの移行中だけ)。`DiagnosticNasClient` の Bean は storage が登録する。
+- Spring で使う場合は各クラスが `@Component` なので、実行アプリが `scanBasePackages` に `me.pinfort.tsvideos.diagnostics` を含める (3 つの実行アプリすべて。processor:console では processing の `ProcessingPreflightCommand` が `EnvironmentDiagnosticCommand` の Bean を要求する。manager の 2 アプリは #165 から processing をスキャンしないが、diagnostics のスキャンは続ける)。`DiagnosticNasClient` の Bean は storage が登録する。
 - 設定ファイルとプロファイルを持たない。読むキー (`spring.datasource.*`、`samba.*`) と既定値は実行アプリと core / storage の設定のまま。
 - DB の確認は `org.mariadb.jdbc:mariadb-java-client` (runtimeOnly) を `DriverManager` で使う。接続プールを作らず、読み取り専用で、ライブラリの行を変更しない。
 

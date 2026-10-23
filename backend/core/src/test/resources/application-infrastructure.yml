@@ -1,4 +1,0 @@
-spring:
-  datasource:
-    url: ${DATABASE_CONNECTION:jdbc:tc:mariadb:11.8:///?TC_INITSCRIPT=ddl/01_create_database.sql}
-    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver

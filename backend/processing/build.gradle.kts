@@ -15,7 +15,7 @@ tasks.bootJar {
 
 // processing が依存してよいプロジェクトは catalog・storage・diagnostics だけ (backend/docs/module-boundaries.md §2)。
 // DB テストだけ database-schema のテストフィクスチャを使う。core・library・manager・processor には依存しない
-// (移行中は逆向きの core → processing だけを許す。#165 で外す)。
+// (#165 で逆向きの core → processing もなくなった。manager の実行アプリは processing を実行時クラスパスに含めない)。
 dependencies {
     // catalog の公開型 (ExecutedFile、VideoResolution など) は processing の公開シグネチャにも出る。利用側も catalog へ明示的に依存する
     implementation(project(":catalog"))
@@ -76,8 +76,9 @@ tasks.withType<Test> {
  * catalog・storage・diagnostics の内部パッケージを参照しないことは、それぞれの境界チェックが検査する。パッケージ名そのもの
  * (`"me.pinfort.tsvideos.processing"`) はコンポーネントスキャン対象として許可する。Mapper の登録先は
  * `ProcessingPersistence.MAPPER_PACKAGE` で受け取るので、persistence のパッケージ名を processing の外に書く必要はない。
- * 移行中 (#164〜#165) は core と manager の実行アプリが processing の公開パッケージを使う。その逆向きの依存を
- * なくすのは #165 の作業で、この検査は processing → 旧モジュールの依存だけを拒否する。
+ * #165 で core と manager の実行アプリは processing を使わなくなった。manager の実行アプリの実行時クラスパスに processing が
+ * 入らないことは、各アプリが適用する checkProcessingRuntimeIsolation (processing/runtime-isolation.gradle.kts) が検査し、
+ * checkProcessingBoundaries はその適用漏れを拒否する。
  */
 object ProcessingBoundaryRules {
     // database-schema の検査は、テストフィクスチャとしての宣言以外にプロジェクトパスを引用符付きで書く行を拒否するので、":" を付けずに持つ
@@ -197,7 +198,7 @@ val checkProcessingBoundaryRules by tasks.registering {
                 fixture(
                     "processing/src/main/kotlin/Reverse.kt",
                     "package me.pinfort.tsvideos.processing.api",
-                    "import me.pinfort.tsvideos.core.command.VerifiedUploadCommand",
+                    "import me.pinfort.tsvideos.core.config.LoggerConfig",
                 ),
                 fixture("processing/src/test/kotlin/Pipeline.kt", "// waits for me.pinfort.tsvideos.processor.infrastructure"),
                 fixture(
@@ -358,15 +359,24 @@ val checkProcessingBoundaries by tasks.registering {
             include("**/src/**/*.yaml", "**/src/**/*.yml", "**/src/**/*.properties")
             exclude("processing/**", "**/build/**", ".gradle/**")
         }
+    // manager の実行アプリのうち、processing の実行時隔離の検査 (runtime-isolation.gradle.kts) を適用していないもの
+    val unguardedManagerApps =
+        provider {
+            listOf(":manager:api", ":manager:console").filter { path ->
+                rootProject.findProject(path)?.tasks?.findByName("checkProcessingRuntimeIsolation") == null
+            }
+        }
     val rootPath = rootDir
     inputs.property("projectDependencies", projectDependencies)
+    inputs.property("unguardedManagerApps", unguardedManagerApps)
     inputs.files(ownSources, otherSources)
     doLast {
         if (persistenceSources.isEmpty) {
             throw GradleException("processing persistence sources not found; update checkProcessingBoundaries")
         }
         val violations =
-            ProcessingBoundaryRules.violations(projectDependencies.get(), ownSources, persistenceSources, otherSources, rootPath)
+            ProcessingBoundaryRules.violations(projectDependencies.get(), ownSources, persistenceSources, otherSources, rootPath) +
+                unguardedManagerApps.get().map { "$it does not apply processing/runtime-isolation.gradle.kts" }
         if (violations.isNotEmpty()) {
             throw GradleException("Processing boundary violations:\n" + violations.joinToString("\n") { "  $it" })
         }

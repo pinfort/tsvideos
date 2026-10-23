@@ -5,13 +5,13 @@ import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
-import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.processing.api.MimeTypeComponent
 import me.pinfort.tsvideos.processing.api.NasDestinationResolver
 import me.pinfort.tsvideos.processing.api.ProcessingCancellation
 import me.pinfort.tsvideos.processing.api.ProcessingHistoryCommand
 import me.pinfort.tsvideos.processing.api.ProcessingJobCommand
 import me.pinfort.tsvideos.processing.api.ValidateCompletedComponent
+import me.pinfort.tsvideos.processing.api.VerifiedUploadCommand
 import me.pinfort.tsvideos.processing.api.tool.VideoResolutionProbeClient
 import me.pinfort.tsvideos.processing.domain.ProcessingArtifact
 import me.pinfort.tsvideos.processing.domain.ProcessingArtifactType

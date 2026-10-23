@@ -4,8 +4,8 @@ import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
-import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
 import me.pinfort.tsvideos.processing.api.ProcessingJobCommand
+import me.pinfort.tsvideos.processing.api.VerifiedUploadCommand
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 import java.io.File

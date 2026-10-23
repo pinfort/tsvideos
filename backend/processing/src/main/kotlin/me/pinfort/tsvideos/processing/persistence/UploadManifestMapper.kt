@@ -1,6 +1,6 @@
-package me.pinfort.tsvideos.core.external.database.mapper
+package me.pinfort.tsvideos.processing.persistence
 
-import me.pinfort.tsvideos.core.domain.UploadManifest
+import me.pinfort.tsvideos.processing.domain.UploadManifest
 import org.apache.ibatis.annotations.Delete
 import org.apache.ibatis.annotations.Insert
 import org.apache.ibatis.annotations.Mapper
@@ -8,7 +8,7 @@ import org.apache.ibatis.annotations.Select
 import org.apache.ibatis.annotations.Update
 
 @Mapper
-interface UploadManifestMapper {
+internal interface UploadManifestMapper {
     @Insert(
         """
         INSERT INTO upload_manifest(job_id,artifact_key,destination_key,nas_type,final_path,temporary_path,

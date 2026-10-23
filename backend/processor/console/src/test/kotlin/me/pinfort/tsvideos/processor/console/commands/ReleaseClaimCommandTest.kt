@@ -9,10 +9,10 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
-import me.pinfort.tsvideos.core.command.VerifiedUploadCommand
-import me.pinfort.tsvideos.core.domain.UploadManifest
 import me.pinfort.tsvideos.processing.api.ProcessingJobCommand
+import me.pinfort.tsvideos.processing.api.VerifiedUploadCommand
 import me.pinfort.tsvideos.processing.domain.ProcessingJob
+import me.pinfort.tsvideos.processing.domain.UploadManifest
 import me.pinfort.tsvideos.storage.api.NasStore
 import java.io.File
 
