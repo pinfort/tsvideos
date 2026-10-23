@@ -7,8 +7,8 @@ import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.arguments.multiple
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import me.pinfort.tsvideos.processing.api.PathProcessingRunner
 import me.pinfort.tsvideos.processor.console.display.ProgressPrinter
-import me.pinfort.tsvideos.processor.infrastructure.pipeline.PathProcessingRunner
 import org.springframework.stereotype.Component
 import java.nio.file.Path
 

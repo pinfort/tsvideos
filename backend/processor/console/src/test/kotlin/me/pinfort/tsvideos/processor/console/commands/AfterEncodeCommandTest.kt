@@ -11,8 +11,8 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
+import me.pinfort.tsvideos.processing.api.AfterEncodeRunner
 import me.pinfort.tsvideos.processor.console.parseProcessor
-import me.pinfort.tsvideos.processor.infrastructure.pipeline.AfterEncodeRunner
 import java.nio.file.Path
 
 class AfterEncodeCommandTest :

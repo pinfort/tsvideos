@@ -15,7 +15,6 @@ include(
     "manager:infrastructure",
     "manager:console",
     "manager:api",
-    "processor:infrastructure",
     "processor:console",
 )
 
