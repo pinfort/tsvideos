@@ -93,22 +93,23 @@ Gradle モジュール ([settings.gradle.kts](../settings.gradle.kts)) とコン
 | `storage` | jcifs-ng (プロジェクト依存なし) | #132 で抽出。境界チェック `checkStorageBoundaries` ([build.gradle.kts](../storage/build.gradle.kts)、§11.7) |
 | `database-schema` | なし (プロジェクト依存なし、Kotlin/Java の main ソースなし) | #133 で抽出。migration、`generateTestDdl`、DB テスト用のテストフィクスチャ。境界チェック `checkDatabaseSchemaBoundaries` ([build.gradle.kts](../database-schema/build.gradle.kts)、§11.6、§11.7) |
 | `catalog` | `storage`, mybatis-spring-boot。テストだけ `database-schema` のテストフィクスチャ | #135 で抽出 ([catalog/README.md](../catalog/README.md))。境界チェック `checkCatalogBoundaries` ([build.gradle.kts](../catalog/build.gradle.kts)、§11.7) |
-| `core` | `storage`, `catalog`, mybatis-spring-boot, MariaDB driver (runtime)。テストだけ `database-schema` のテストフィクスチャ | `generateVersionProperties` タスクもここにある ([build.gradle.kts](../core/build.gradle.kts)) |
+| `diagnostics` | `storage`, MariaDB driver (runtime) | #136 で抽出 ([diagnostics/README.md](../diagnostics/README.md))。境界チェック `checkDiagnosticsBoundaries` ([build.gradle.kts](../diagnostics/build.gradle.kts)、§11.7) |
+| `core` | `storage`, `catalog`, `diagnostics`, mybatis-spring-boot, MariaDB driver (runtime)。テストだけ `database-schema` のテストフィクスチャ | `generateVersionProperties` タスクもここにある ([build.gradle.kts](../core/build.gradle.kts)) |
 | `console-common` | なし | |
 | `manager:infrastructure` | `core` | Kotlin ソースなし |
-| `manager:api` | `storage`, `catalog`, `core`, `manager:infrastructure` | [build.gradle.kts](../manager/api/build.gradle.kts) |
-| `manager:console` | `storage`, `catalog`, `core`, `console-common`, `manager:infrastructure` | [build.gradle.kts](../manager/console/build.gradle.kts) |
+| `manager:api` | `storage`, `catalog`, `diagnostics`, `core`, `manager:infrastructure` | [build.gradle.kts](../manager/api/build.gradle.kts) |
+| `manager:console` | `storage`, `catalog`, `diagnostics`, `core`, `console-common`, `manager:infrastructure` | [build.gradle.kts](../manager/console/build.gradle.kts) |
 | `processor:infrastructure` | `storage`, `catalog`, `core`, `me.pinfort:tsselect` | [build.gradle.kts](../processor/infrastructure/build.gradle.kts) |
-| `processor:console` | `storage`, `catalog`, `core`, `console-common`, `processor:infrastructure` | [build.gradle.kts](../processor/console/build.gradle.kts) |
+| `processor:console` | `storage`, `catalog`, `diagnostics`, `core`, `console-common`, `processor:infrastructure` | [build.gradle.kts](../processor/console/build.gradle.kts) |
 
 `core` は storage と catalog の公開型 (`NasStore`、`Program` など) を自分の公開シグネチャにも出すが、依存は `implementation` にしている。storage / catalog の型を使うモジュールはそれぞれ `implementation(project(":storage"))` / `implementation(project(":catalog"))` を明示的に宣言する。
 
 Spring の組み立て:
 
-- 3 つの実行アプリはすべて `scanBasePackages` に `me.pinfort.tsvideos.storage` (#132 以降)、`me.pinfort.tsvideos.catalog` (#135 以降) と `me.pinfort.tsvideos.core` を含め、`@MapperScan(basePackages = ["me.pinfort.tsvideos.core.external.database.mapper", CatalogPersistence.MAPPER_PACKAGE])` で全 Mapper を登録する (catalog の Mapper パッケージ `persistence` は internal なので、名前は catalog の公開定数 `CatalogPersistence.MAPPER_PACKAGE` で受け取る)。全 Mapper が実行アプリの 1 つの `SqlSessionFactory` と `PlatformTransactionManager` を共有する ([ApiApplication](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/ApiApplication.kt) と [MyBatisConfig](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/config/MyBatisConfig.kt)、manager の [ConsoleApplication](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/ConsoleApplication.kt)、processor の [ConsoleApplication](../processor/console/src/main/kotlin/me/pinfort/tsvideos/processor/console/ConsoleApplication.kt))。そのため **manager の 2 アプリにも `TsSplitterClient`、`AmatsukazeAddTaskClient`、`ProcessorToolConfigurationProperties` などの処理専用 Bean が登録される**。これが親 Issue の完了条件「manager の実行時依存に処理専用ツール/設定が入らない」に反する現状の主因である。
+- 3 つの実行アプリはすべて `scanBasePackages` に `me.pinfort.tsvideos.storage` (#132 以降)、`me.pinfort.tsvideos.catalog` (#135 以降)、`me.pinfort.tsvideos.diagnostics` (#136 以降。core の `ProcessingPreflightCommand` が `EnvironmentDiagnosticCommand` の Bean を要求するため manager:api も含める) と `me.pinfort.tsvideos.core` を含め、`@MapperScan(basePackages = ["me.pinfort.tsvideos.core.external.database.mapper", CatalogPersistence.MAPPER_PACKAGE])` で全 Mapper を登録する (catalog の Mapper パッケージ `persistence` は internal なので、名前は catalog の公開定数 `CatalogPersistence.MAPPER_PACKAGE` で受け取る)。全 Mapper が実行アプリの 1 つの `SqlSessionFactory` と `PlatformTransactionManager` を共有する ([ApiApplication](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/ApiApplication.kt) と [MyBatisConfig](../manager/api/src/main/kotlin/me/pinfort/tsvideos/manager/api/config/MyBatisConfig.kt)、manager の [ConsoleApplication](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/ConsoleApplication.kt)、processor の [ConsoleApplication](../processor/console/src/main/kotlin/me/pinfort/tsvideos/processor/console/ConsoleApplication.kt))。そのため **manager の 2 アプリにも `TsSplitterClient`、`AmatsukazeAddTaskClient`、`ProcessorToolConfigurationProperties` などの処理専用 Bean が登録される**。これが親 Issue の完了条件「manager の実行時依存に処理専用ツール/設定が入らない」に反する現状の主因である。
 - `@ConfigurationPropertiesScan` は `me.pinfort.tsvideos.core.config` (manager はさらに存在しない `manager.infrastructure.config`) を対象にする。storage の `samba.*` 設定クラスは storage 内部の `SambaStorageConfiguration` (`@EnableConfigurationProperties`) が登録するので、実行アプリはパッケージのスキャンだけでよい。
 - 設定は [application-core.yaml](../core/src/main/resources/application-core.yaml) に `spring.datasource`、`processor-tool`、`processor-preflight` がまとめて入る。`samba` は #132 で storage の [application-storage.yaml](../storage/src/main/resources/application-storage.yaml) に移した (キーと環境変数は同じ)。各アプリが `core` と `storage` プロファイルを include する ([core の application.yaml](../core/src/main/resources/application.yaml)、[processor:console](../processor/console/src/main/resources/application.yaml)、[manager:console](../manager/console/src/main/resources/application.yaml)、[manager:api](../manager/api/src/main/resources/application.yml)。各アプリは自分の設定で `core` と `storage` を明示し、core の application.yaml には頼らない)。両 CLI は `lazy-initialization: true` を使う ([processor](../processor/console/src/main/resources/application-console.yaml)、[manager](../manager/console/src/main/resources/application-console.yaml))。
-- `manager:console doctor` と `processor:console preflight` (および `process` の事前ゲート) は Spring コンテキストを作らずに診断部品を手で組み立てる ([DoctorBootstrap](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/DoctorBootstrap.kt)、[PreflightBootstrap](../processor/console/src/main/kotlin/me/pinfort/tsvideos/processor/console/PreflightBootstrap.kt))。NAS の診断用接続は storage の `DiagnosticNasClient.create()` で作る (実装クラスは storage の internal)。
+- `manager:console doctor` と `processor:console preflight` (および `process` の事前ゲート) は Spring コンテキストを作らずに診断部品を手で組み立てる ([DoctorBootstrap](../manager/console/src/main/kotlin/me/pinfort/tsvideos/manager/console/DoctorBootstrap.kt)、[PreflightBootstrap](../processor/console/src/main/kotlin/me/pinfort/tsvideos/processor/console/PreflightBootstrap.kt))。NAS の診断用接続は storage の `DiagnosticNasClient.create()` で作る (実装クラスは storage の internal)。組み立てる診断部品 (`EnvironmentDiagnosticCommand`、`DatabaseDiagnosticProbe`、`NasDiagnosticProbe`、`DiagnosticEnvironment`) は #136 から diagnostics モジュールの公開 API で、`preflight` の処理用の検査 (`ProcessingPreflightCommand`、`LocalPreflightProbe`、`EncoderConnectivityProbe`) は #138 まで core にある。
 - DataSource は Spring Boot 自動構成の Hikari 1 つ (`auto-commit: false`、最大 10 接続)。`PlatformTransactionManager` もアプリごとに自動構成の 1 つだけで、独自の DataSource/TransactionManager/SqlSessionFactory の Bean 定義はない。独自の `@Bean` は [LoggerConfig](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/LoggerConfig.kt) の注入先ごとの slf4j `Logger` だけである。
 
 ## 4. 現行コードの所属先
@@ -140,8 +141,8 @@ Spring の組み立て:
 | [LibraryVerificationCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/LibraryVerificationCommand.kt) | `library` | NAS の低レベル確認は storage の `NasFileVerifier` 後継を使う |
 | [LibraryHealthCommand / LibraryHealthScanCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/LibraryHealthCommand.kt) | `library` | |
 | [HealthVerificationStore](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/HealthVerificationStore.kt) | `library` | |
-| [EnvironmentDiagnosticCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/EnvironmentDiagnosticCommand.kt) | `diagnostics` | Spring なしで構築できる状態を保つ |
-| [ProcessingPreflightCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ProcessingPreflightCommand.kt) | `processing` | diagnostics の `EnvironmentDiagnosticCommand` とツール検査を組み立てる |
+| [EnvironmentDiagnosticCommand](../diagnostics/src/main/kotlin/me/pinfort/tsvideos/diagnostics/api/EnvironmentDiagnosticCommand.kt) | `diagnostics` | #136 で移動済み (`diagnostics.api`)。Spring なしで構築できる状態を保つ |
+| [ProcessingPreflightCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ProcessingPreflightCommand.kt) | `processing` | diagnostics の `EnvironmentDiagnosticCommand` とツール検査を組み立てる。#138 まで core に残り、diagnostics の公開 API を片方向に使う |
 | [ProcessingJobCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ProcessingJobCommand.kt) / [ProcessingJobClaimCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ProcessingJobClaimCommand.kt) | `processing` | |
 | [ProcessingHistoryCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/ProcessingHistoryCommand.kt) | `processing` | |
 | [RecordingQualityCommand](../core/src/main/kotlin/me/pinfort/tsvideos/core/command/RecordingQualityCommand.kt) | `processing` | |
@@ -193,7 +194,7 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 | `processor.upload.verify-sha256` (`VerifiedUploadCommand` の `@Value`) | | `processing` |
 | `processor.shutdown.grace-seconds` ([ConsoleRunner](../processor/console/src/main/kotlin/me/pinfort/tsvideos/processor/console/ConsoleRunner.kt)) | | `processor:console` (現状どおり) |
 | `SLACK_WEBHOOK_URL` ([SlackClient](../processor/infrastructure/src/main/kotlin/me/pinfort/tsvideos/processor/infrastructure/external/slack/SlackClient.kt)) | | `processing` |
-| [DiagnosticEnvironment](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/DiagnosticEnvironment.kt) | 引数・環境変数の解釈 | `diagnostics` |
+| [DiagnosticEnvironment](../diagnostics/src/main/kotlin/me/pinfort/tsvideos/diagnostics/api/DiagnosticEnvironment.kt) | 引数・環境変数の解釈 | `diagnostics` (#136 で移動済み、`diagnostics.api`) |
 | [LoggerConfig](../core/src/main/kotlin/me/pinfort/tsvideos/core/config/LoggerConfig.kt) | — | 実行アプリ。モジュールは slf4j の `Logger` 型の注入だけを要求し、Bean 定義には依存しない。storage は注入も要求せず自前の `LoggerFactory` のロガーを使う (#132) |
 
 `application-core.yaml` は移行中に分割する。manager の実行アプリは `processor-tool` / `processor-preflight` を含む設定を include しない状態にする (#138、#139)。
@@ -223,11 +224,11 @@ Mapper は XML を使わず、すべてアノテーションまたは `*Sql` プ
 | `core/domain`: `BulkPlan` 一式, `CleanupPlan` 一式, `DuplicateGroup`, `DuplicateReview`, `LibraryOrganization`, `LibraryStats`, `StorageOverview`, `LibraryHealth`, `VerificationReport` (`FileFinding`, `VerificationReport`) | `library` |
 | `core/domain`: `VerificationStatus` | `library`。#132 で storage の低レベル結果 (`NasFileVerifier.Status`) と分けた。`VerificationStatus` は core に残り、`LibraryVerificationCommand` が対応付ける (§13 U2) |
 | `core/domain`: `ProcessingJob`/`ProcessingIdentity`, `ProcessingHistory` 一式, `RecordingQuality` 一式, `RecordingQualityReport`, `UploadManifest`/`VerifiedUploadReceipt`, `FileName` | `processing` (`UploadManifest.nasType` は storage の公開値型に置き換える) |
-| `core/domain`: `DiagnosticReport` 一式 | `diagnostics` |
+| `core/domain`: `DiagnosticReport` 一式 | `diagnostics` (#136 で [diagnostics.domain](../diagnostics/src/main/kotlin/me/pinfort/tsvideos/diagnostics/domain/DiagnosticReport.kt) に移動済み) |
 | `core/domain`: `Sha256` (`hex`, `sha256Hex`) | `storage` (#132 で [storage.api](../storage/src/main/kotlin/me/pinfort/tsvideos/storage/api/Sha256.kt) に移動済み。NAS 側のハッシュ計算に必要。processing は storage 経由で使う) |
 | `core/component`: `DirectoryNameComponent`, `NormalizeComponent` | `catalog` (移動先パスの規則。library と processing も catalog 経由で使う) |
 | `core/component`: `CompressComponent`, `MainSplittedFileFinderComponent`, `NasDestinationResolver`, `MimeTypeComponent`, `ValidateCompletedComponent`, `ProcessingCancellation`, `ProcessingRetry` 一式, `RecordingQualityInspector`, `RecordingInputs`, `LocalPreflightProbe`/`EncoderConnectivityProbe`, `RunningPlatformComponent` | `processing` |
-| `core/component`: `DatabaseDiagnosticProbe`, `NasDiagnosticProbe`, `DiagnosticCancellation` | `diagnostics` (`NasDiagnosticProbe` が直接使う jcifs は storage の接続口に置き換える) |
+| `core/component`: `DatabaseDiagnosticProbe`, `NasDiagnosticProbe`, `DiagnosticCancellation` | `diagnostics` (#136 で `diagnostics.api` に移動済み。`NasDiagnosticProbe` は #130 から jcifs を直接使わず storage の `DiagnosticNasClient` だけを使う。`diagnosticCancellation` は core の `ProcessingPreflightCommand` / `LocalPreflightProbe` も使う) |
 | `core/exception`: `TsVideosException`, `InvalidFileNameException`, `InvalidEnvironmentException`, `ShellCommandTimeoutException`, `QualityReleaseRefusedException` | `processing` (利用者がすべて processing 側) |
 | [ApplicationVersion](../core/src/main/kotlin/me/pinfort/tsvideos/core/version/ApplicationVersion.kt) と `generateVersionProperties` | 両 CLI 用。置き場所は §13 U3 |
 | `pi/pipeline/*` (`FileProcessingPipeline`, `AfterEncodeRunner`, `PathProcessingRunner`, `ResetRunner`, `RollbackRunner`) | `processing` |
@@ -489,7 +490,7 @@ storage の例外型 (#132 以降は `storage.api`、jcifs に依存しない):
 - `NasFileVerifier` は従来どおり例外を外へ出さず、結果 (`INACCESSIBLE` など) に変える。
 - 呼び出し元 (`CreatedFileCommand.delete` / `move`、`ProgramCommand`、`BulkLibraryCommand`、`VerifiedUploadCommand`) は例外を型で分岐しておらず (`Exception` として記録・ラップするだけ)、ロールバック・claim の解放・再試行の可否は変わらない。
 
-#130 時点では、jcifs を import してよい本番ソースは `core/external/samba` だけで、`core/storage` は実装に依存しない宣言 (`NasStore`、例外型、#131 で追加した読み出しハンドル `NasReadHandle`) だけを持ち、`NasStorageBoundaryTest` がこれを検査していた。#132 でこの検査を storage の境界チェックと呼び出し元のテストに分けて引き継いだ (§8.3、§11.7)。境界での変換は storage の `SambaFailuresTest`、`VerifiedUploadNasFailureTest`、`NasComponentTest`、`SambaDiagnosticNasClientTest` と、core の `NasDiagnosticProbeTest` が検査する。
+#130 時点では、jcifs を import してよい本番ソースは `core/external/samba` だけで、`core/storage` は実装に依存しない宣言 (`NasStore`、例外型、#131 で追加した読み出しハンドル `NasReadHandle`) だけを持ち、`NasStorageBoundaryTest` がこれを検査していた。#132 でこの検査を storage の境界チェックと呼び出し元のテストに分けて引き継いだ (§8.3、§11.7)。境界での変換は storage の `SambaFailuresTest`、`VerifiedUploadNasFailureTest`、`NasComponentTest`、`SambaDiagnosticNasClientTest` と、diagnostics の `NasDiagnosticProbeTest` (#136 まで core) が検査する。
 
 ### 8.2 公開値型と操作 (契約)
 
@@ -622,6 +623,13 @@ storage の例外型 (#132 以降は `storage.api`、jcifs に依存しない):
 
 `EnvironmentDiagnosticCommand`、`DatabaseDiagnosticProbe`、`NasDiagnosticProbe`、`DiagnosticEnvironment`、`DiagnosticReport` 一式。**Spring コンテキストなしでコンストラクタだけで組み立てられること**を保つ (`DoctorBootstrap` / `PreflightBootstrap` が手で組み立てる)。
 
+#136 のモジュール構成 (契約、[diagnostics/README.md](../diagnostics/README.md)):
+
+- パッケージ: `api` (`EnvironmentDiagnosticCommand`、`DatabaseDiagnosticProbe`、`NasDiagnosticProbe`、`DiagnosticEnvironment`、割り込みを保つ `diagnosticCancellation`) と `domain` (`DiagnosticReport`、`DiagnosticCheck`、`DiagnosticStatus`)。すべて実行アプリと core が使うので公開する。内部サービスがないので内部パッケージは作っていない (作れば境界チェックで外部からの参照を拒否する)。interface は追加していない。
+- 公開コンストラクタで組み立てる。各クラスは `@Component` でもあり、Spring の実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.diagnostics` を含める (§3)。設定ファイル・プロファイル・設定クラスを持たず、読むキー (`spring.datasource.*`、`samba.*`) と既定値、診断の ID・文言・状態、`--check-write` の隔離された書き込み確認、割り込みの扱い (CLI の終了コード 130) は core にあったときと同じ。
+- DB の確認は MariaDB の JDBC ドライバ (runtimeOnly) を `DriverManager` で使い、接続プールやトランザクションを持たない。NAS は storage の `DiagnosticNasClient` だけを使う。
+- `ProcessingPreflightCommand`・`LocalPreflightProbe`・`EncoderConnectivityProbe` と処理用のツール/設定の検査は processing の責務として #138 まで core に残り、core → diagnostics の片方向で使う。diagnostics に core 向けの互換用の型は置かない。
+
 ### 11.6 database-schema
 
 migration ファイル、テスト DDL の生成タスク、DB テスト用の共通資源 (Testcontainers の初期化スクリプト、シードデータ)。データ操作 API は持たない。migration の順序と内容、生成 DDL、`docker-compose.test.yml` のマウント先を一致させる (#133)。
@@ -653,6 +661,11 @@ catalog (#135) の検査 (#134 の core 内の暫定 `CatalogBoundaryTest` / `Ca
 - [CatalogTransactionTest](../catalog/src/test/kotlin/me/pinfort/tsvideos/catalog/api/CatalogTransactionTest.kt) (catalog、Testcontainers): `LedgerLocks` がプロキシ越しに `MANDATORY` であること、ロックが呼び出し元のトランザクション終了まで別接続を待たせること、`REQUIRED` の協調削除が呼び出し元とともにロールバックされること、catalog の読み取りが `REPEATABLE_READ` のスナップショットに参加すること。[LedgerLocksTest](../catalog/src/test/kotlin/me/pinfort/tsvideos/catalog/api/LedgerLocksTest.kt) が各ロック操作の中の文の順序を、[LedgerSnapshotsTest](../catalog/src/test/kotlin/me/pinfort/tsvideos/catalog/api/LedgerSnapshotsTest.kt) がスナップショットの組み立て (ID 順) とスナップショット型のプロパティが保存列と一致することを確かめる。
 - [LibraryCatalogTransactionTest](../core/src/test/kotlin/me/pinfort/tsvideos/core/command/LibraryCatalogTransactionTest.kt) (core、Testcontainers): catalog の公開操作だけを使い、一括適用が対象ごとのトランザクションでロックして確定し NAS 失敗で戻ること、library の読み取りが catalog と同じスナップショットに参加すること、library の絞り込み検索が catalog の検索と結果・件数・並び順・ページングで一致すること。core の DB テスト (`BulkLibraryApplyTest`、`CleanupPlanApplyTest` など) も catalog の操作を Spring の Bean として組み立て、catalog の Mapper を参照しない。
 
+diagnostics (#136) の検査:
+
+- [checkDiagnosticsBoundaries](../diagnostics/build.gradle.kts) (Gradle タスク。`check` に含まれる): diagnostics のプロジェクト依存が (どの設定でも) `storage` だけであること、diagnostics のソース (テストを含む) が `me.pinfort.tsvideos.diagnostics` と `me.pinfort.tsvideos.storage` 以外のパッケージを参照しないこと、diagnostics 以外の Kotlin ソースが公開パッケージ `api` / `domain` 以外の diagnostics パッケージを参照しないこと (コメント行は除く。スキャン用のパッケージ名 `me.pinfort.tsvideos.diagnostics` そのものは許可)。storage の内部パッケージと jcifs を参照しないことは storage の `checkStorageBoundaries` が検査する。判定は `DiagnosticsBoundaryRules` にまとめ、先に実行される `checkDiagnosticsBoundaryRules` が違反を含むフィクスチャ (core・catalog・processor・manager への依存、diagnostics から core/catalog への参照、外部の main/test からの内部パッケージの参照) をすべて検出し、許可されるもの (storage 依存、公開パッケージの参照、スキャン用のパッケージ名、コメント) を検出しないことを確かめる。
+- [DiagnosticsContractTest](../diagnostics/src/test/kotlin/me/pinfort/tsvideos/diagnostics/api/DiagnosticsContractTest.kt): 公開コンストラクタだけで Spring なしに組み立てて診断できること、公開シグネチャに jcifs の型が出ないこと、diagnostics のソースが jcifs を import しないこと (#136 より前は core の `StorageCallerBoundaryTest` が `NasDiagnosticProbe` の公開シグネチャを検査していた)。
+
 database-schema (#133) の検査:
 
 - [checkDatabaseSchemaBoundaries](../database-schema/build.gradle.kts) (Gradle タスク。`check` に含まれる): database-schema が (java-test-fixtures が加える自分自身への依存を除き) プロジェクト依存を持たないこと、main とテストフィクスチャに Kotlin/Java のソースがないこと、他のプロジェクトが database-schema を `test` で始まる設定からだけ参照すること (Gradle のモデルで判定)、他のビルドスクリプトの参照がすべて `test…(testFixtures(project(":database-schema")))` の形であること、他のモジュールの `src` に `db/migrations` と `ddl/*.sql` がないこと、migration が `NNN_name.sql` の形で番号が重複しないこと、`docker-compose.test.yml` が migration をファイル名順に同名でマウントし最後にシードデータをマウントすること、bootJar が有効なプロジェクト (実行アプリ) がすべて下の `checkDatabaseSchemaRuntimeIsolation` を適用していること。判定は `DatabaseSchemaRules` にまとめ、先に実行される `checkDatabaseSchemaBoundaryRules` が違反を含むフィクスチャをすべて検出し、許可されるものを検出しないことを確かめる。
@@ -671,7 +684,7 @@ database-schema (#133) の検査:
 | #133 migration と DB テスト資源を分離 (実施済み、§11.6) | §11.6。`generateTestDdl`、`02_insert_data.sql`、`docker-compose.test.yml` のマウントを database-schema に合わせる |
 | #134 catalog の公開操作を整理 (実施済み) | §6、§11.1。§13 U1 (検索の library 絞り込み) を決着させる。`selectByName` / `CreatedFileCommand.updateStatus` の扱いを決める (残す、§6)。library 向けの用途別読み取りとロック操作を用意する (§11.1、§11.7) |
 | #135 catalog を抽出 (実施済み、§11.1、§11.7) | §4、§5。catalog の SQL が library のテーブルを参照しない状態にしてから移す。境界チェックの手段を決める (`internal` + `checkCatalogBoundaries`) |
-| #136 diagnostics を抽出 | §11.5。Spring なしの doctor/preflight の起動を確認する。jcifs の直接使用を storage の診断用接続に置き換える |
+| #136 diagnostics を抽出 (実施済み、§11.5、§11.7) | §11.5。Spring なしの doctor/preflight の起動を確認する。jcifs の直接使用を storage の診断用接続に置き換える |
 | #137 library へ移す | §4.1、§5.2、§7.3、§7.5。Mapper の直接使用を catalog の公開操作に置き換える。`BulkSnapshot` の JSON 形を保つ |
 | #138 processing へ統合 | §4.1、§4.5、§7.6、§10。`processor:infrastructure` と処理専用 core コードを統合する。`application-core.yaml` の処理専用設定を分ける |
 | #139 旧モジュールを廃止 | §2、§11.7。`core`・`manager:infrastructure` を削除し、AGENTS.md/CLAUDE.md、README、スキャン設定、配布・コンテナ設定を更新する |

@@ -1,4 +1,4 @@
-package me.pinfort.tsvideos.core.component
+package me.pinfort.tsvideos.diagnostics.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec

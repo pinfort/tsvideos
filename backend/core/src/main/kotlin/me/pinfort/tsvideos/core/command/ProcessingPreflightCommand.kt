@@ -2,10 +2,11 @@ package me.pinfort.tsvideos.core.command
 
 import me.pinfort.tsvideos.core.component.EncoderConnectivityProbe
 import me.pinfort.tsvideos.core.component.LocalPreflightProbe
-import me.pinfort.tsvideos.core.component.diagnosticCancellation
-import me.pinfort.tsvideos.core.domain.DiagnosticCheck
-import me.pinfort.tsvideos.core.domain.DiagnosticReport
-import me.pinfort.tsvideos.core.domain.DiagnosticStatus
+import me.pinfort.tsvideos.diagnostics.api.EnvironmentDiagnosticCommand
+import me.pinfort.tsvideos.diagnostics.api.diagnosticCancellation
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticCheck
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticReport
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticStatus
 import org.springframework.core.env.Environment
 import org.springframework.stereotype.Component
 import java.math.BigDecimal

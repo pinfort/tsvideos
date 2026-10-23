@@ -17,6 +17,7 @@ import kotlin.system.exitProcess
     scanBasePackages = [
         "me.pinfort.tsvideos.storage",
         "me.pinfort.tsvideos.catalog",
+        "me.pinfort.tsvideos.diagnostics",
         "me.pinfort.tsvideos.core",
         "me.pinfort.tsvideos.console.common",
         "me.pinfort.tsvideos.manager",

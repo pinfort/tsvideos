@@ -5,7 +5,8 @@ This is the backend for tsvideos, built with Kotlin, Spring Boot, and Gradle.
 - `storage`: NAS の公開契約 (`me.pinfort.tsvideos.storage.api`) と Samba (jcifs) 実装、`samba.*` 設定。業務モジュールに依存しない（[storage/README.md](storage/README.md)）
 - `database-schema`: 番号付き migration (スキーマの単一の情報源)、テスト DDL の生成、DB テスト用のテストフィクスチャ。データ操作 API を持たず、本番の依存先にならない（[database-schema/README.md](database-schema/README.md)）
 - `catalog`: 録画・番組・分割ファイル・作成ファイルの台帳と検出タグ/実施記録。公開操作 (`me.pinfort.tsvideos.catalog.api` / `domain`) と internal の Mapper・DTO。`storage` にだけ依存する（[catalog/README.md](catalog/README.md)）
-- `core`: 共通コンポーネント（DB 接続、業務ロジックなど）。NAS は `storage`、台帳は `catalog` の公開契約を通して使う
+- `diagnostics`: DB/NAS の環境診断 (`EnvironmentDiagnosticCommand` など) と診断結果 (`DiagnosticReport`)。Spring コンテキストなしで組み立てられ、`doctor` / `preflight` が使う。`storage` にだけ依存する（[diagnostics/README.md](diagnostics/README.md)）
+- `core`: 共通コンポーネント（DB 接続、業務ロジックなど）。NAS は `storage`、台帳は `catalog`、環境診断は `diagnostics` の公開契約を通して使う
 - `manager:infrastructure` / `manager:console` / `manager:api`: 処理済みの録画データを管理するためのツール（`manager:api` が Web API）
 - `processor:infrastructure` / `processor:console`: 録画データを処理して管理ツールで管理できる状態にするためのアプリケーション
 
@@ -32,6 +33,7 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 - `./gradlew storage:checkStorageBoundaries` - storage の境界チェック（`check` / `build` にも含まれる）
 - `./gradlew database-schema:checkDatabaseSchemaBoundaries` - database-schema の境界・migration 順序・compose マウントのチェック（`check` / `build` にも含まれる）
 - `./gradlew catalog:checkCatalogBoundaries` - catalog の境界チェック（依存先、他モジュールからの internal パッケージの参照。`check` / `build` にも含まれる）
+- `./gradlew diagnostics:checkDiagnosticsBoundaries` - diagnostics の境界チェック（依存先、他モジュールからの公開パッケージ以外の参照。`check` / `build` にも含まれる）
 
 ## processor:console (`tvpcli`)
 

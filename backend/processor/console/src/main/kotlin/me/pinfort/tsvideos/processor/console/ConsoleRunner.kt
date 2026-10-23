@@ -5,7 +5,7 @@ import com.github.ajalt.clikt.core.CliktError
 import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.core.parse
 import me.pinfort.tsvideos.core.component.ProcessingCancellation
-import me.pinfort.tsvideos.core.config.DiagnosticEnvironment
+import me.pinfort.tsvideos.diagnostics.api.DiagnosticEnvironment
 import me.pinfort.tsvideos.processor.console.commands.TsVideosProcessor
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.CommandLineRunner

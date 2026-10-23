@@ -17,7 +17,7 @@ NAS (録画の保存先) へのアクセスを提供するモジュール。#132
 - 実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.storage` を含める。`samba.*` の設定クラスは `SambaStorageConfiguration` が登録するので、`@ConfigurationPropertiesScan` の対象に加える必要はない。
 - storage は外部の Bean を必要としない。ロガーも `LoggerFactory` で自前に作り、`core` の `LoggerConfig` (注入先ごとの `Logger` Bean) には依存しない。storage だけのスキャンと `storage` プロファイルで組み立つことを `StorageContractTest` が Spring Boot で確かめる。
 - 既定値は [application-storage.yaml](src/main/resources/application-storage.yaml) にあり、`storage` プロファイルで読み込む。3 つの実行アプリ (`manager:api` の `application.yml`、`manager:console` / `processor:console` の `application.yaml`) は、それぞれ自分の設定で `spring.profiles.include` に `core` と `storage` を明示する (同名のクラスパス資源はどれか 1 つしか読まれないため、`core` の `application.yaml` に頼らない)。`core` の `application.yaml` も `core` のテスト用に `storage` を含める。設定キー (`samba.video-store-nas.*` / `samba.original-store-nas.*`) と環境変数 (`VIDEO_STORE_NAS_*` / `ORIGINAL_STORE_NAS_*`) は抽出前と同じ。
-- `tvmcli doctor` と `tvpcli preflight` は Spring コンテキストを作らずに `DiagnosticNasClient.create()` で診断用接続を作る。設定は `DiagnosticEnvironment` が同じプロファイル (`core`, `storage`) から読む。
+- `tvmcli doctor` と `tvpcli preflight` は Spring コンテキストを作らずに `DiagnosticNasClient.create()` で診断用接続を作る。設定は diagnostics の `DiagnosticEnvironment` が同じプロファイル (`core`, `storage`) から読む。
 
 ## 資源の寿命
 

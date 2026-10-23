@@ -8,8 +8,9 @@ import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.core.component.EncoderConnectivityProbe
 import me.pinfort.tsvideos.core.component.LocalPreflightProbe
-import me.pinfort.tsvideos.core.domain.DiagnosticReport
-import me.pinfort.tsvideos.core.domain.DiagnosticStatus
+import me.pinfort.tsvideos.diagnostics.api.EnvironmentDiagnosticCommand
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticReport
+import me.pinfort.tsvideos.diagnostics.domain.DiagnosticStatus
 import org.springframework.mock.env.MockEnvironment
 import java.nio.file.FileStore
 import java.nio.file.Path
