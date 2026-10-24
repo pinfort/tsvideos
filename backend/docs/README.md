@@ -5,6 +5,7 @@ backend の機能別の運用・設計ドキュメント。マイグレーショ
 | ファイル | 対象 | 役割 |
 | --- | --- | --- |
 | [module-boundaries.md](module-boundaries.md) | backend 全体 | モジュール境界・公開契約・テーブル所有権・トランザクション境界と、core 分割 (#128) の移行規則 |
+| [kotlin-review.md](kotlin-review.md) | backend 全体 | Kotlin コードの棚卸し (#152): 判断基準、モジュール別の確認結果、既存 Issue との照合と後続の改善候補 |
 | [processing-idempotency.md](processing-idempotency.md) | processor | 処理ジョブの同一性 (job key) と再実行・復旧 (reconciliation) |
 | [processing-preflight.md](processing-preflight.md) | processor | `tvpcli preflight` による事前チェック (入力・ツール・容量・NAS) |
 | [processing-history.md](processing-history.md) | processor | `tvpcli status` / `history` と処理試行の履歴 |
