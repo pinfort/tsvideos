@@ -134,6 +134,24 @@ class ChapterProbeClientTest :
             }
         }
 
+        expect("bounds the logged stdout of unexpected output and stderr of a non-zero exit") {
+            val logger = mockk<Logger>(relaxed = true)
+            val loggingClient = ChapterProbeClient(shellClient, properties, logger)
+            val messages = mutableListOf<String>()
+            every { logger.warn(capture(messages)) } returns Unit
+            val long = "x".repeat(10_000)
+
+            returns(long)
+            loggingClient.probe(file) shouldBe null
+            every { shellClient.executeCapturingOutput(any(), any(), any()) } returns ShellResult(3, "", long)
+            loggingClient.probe(file) shouldBe null
+
+            messages.size shouldBe 2
+            messages[0] shouldBe "Unexpected ffprobe chapter output, file=$file, stdout=${"x".repeat(500)}...(truncated, 10000 chars)"
+            messages[1] shouldBe
+                "ffprobe exited with non-zero code, file=$file, exitCode=3, stderr=${"x".repeat(500)}...(truncated, 10000 chars)"
+        }
+
         expect("a timeout or a missing ffprobe is not probed") {
             every { shellClient.executeCapturingOutput(any(), any(), any()) } throws ShellCommandTimeoutException("timed out")
             client.probe(file) shouldBe null

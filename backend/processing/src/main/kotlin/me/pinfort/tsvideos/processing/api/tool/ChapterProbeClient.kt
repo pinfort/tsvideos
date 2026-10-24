@@ -44,11 +44,13 @@ class ChapterProbeClient(
                     timeoutSec,
                 )
             if (result.exitCode != 0) {
-                logger.warn("ffprobe exited with non-zero code, file=$file, exitCode=${result.exitCode}, stderr=${result.stderr}")
+                logger.warn(
+                    "ffprobe exited with non-zero code, file=$file, exitCode=${result.exitCode}, stderr=${bounded(result.stderr)}",
+                )
                 null
             } else {
                 parse(result.stdout) ?: run {
-                    logger.warn("Unexpected ffprobe chapter output, file=$file, stdout=${result.stdout}")
+                    logger.warn("Unexpected ffprobe chapter output, file=$file, stdout=${bounded(result.stdout)}")
                     null
                 }
             }
@@ -73,6 +75,8 @@ class ChapterProbeClient(
         if (!chapters.isArray) return null
         return chapters
             .mapNotNull { chapter ->
+                // Non-local return: a non-object entry means the output's structure is malformed, so the whole probe
+                // fails, unlike an entry with invalid timestamps, which is just dropped below.
                 if (!chapter.isObject) return null
                 val start = seconds(chapter.get("start_time")) ?: return@mapNotNull null
                 val end = seconds(chapter.get("end_time")) ?: return@mapNotNull null
@@ -100,7 +104,12 @@ class ChapterProbeClient(
         return value?.takeIf { it.isFinite() }
     }
 
+    // Keeps diagnostic tool output in logs bounded; a corrupt file can make ffprobe print arbitrarily much.
+    private fun bounded(output: String): String =
+        if (output.length <= MAX_LOGGED_OUTPUT) output else "${output.take(MAX_LOGGED_OUTPUT)}...(truncated, ${output.length} chars)"
+
     private companion object {
         val JSON: JsonMapper = JsonMapper.builder().build()
+        const val MAX_LOGGED_OUTPUT = 500
     }
 }
