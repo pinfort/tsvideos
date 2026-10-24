@@ -18,6 +18,7 @@ import io.mockk.verify
 import me.pinfort.tsvideos.console.common.component.UserQuestionComponent
 import me.pinfort.tsvideos.console.common.version.ApplicationVersion
 import me.pinfort.tsvideos.processing.api.AfterEncodeRunner
+import me.pinfort.tsvideos.processing.api.ChapterBackfillRunner
 import me.pinfort.tsvideos.processing.api.PathProcessingRunner
 import me.pinfort.tsvideos.processing.api.ResetRunner
 import me.pinfort.tsvideos.processor.console.parseProcessor
@@ -29,6 +30,7 @@ class TsVideosProcessorTest :
         lateinit var afterEncodeRunner: AfterEncodeRunner
         lateinit var resetRunner: ResetRunner
         lateinit var userQuestionComponent: UserQuestionComponent
+        lateinit var chapterBackfillRunner: ChapterBackfillRunner
         lateinit var tsVideosProcessor: TsVideosProcessor
 
         beforeTest {
@@ -37,6 +39,7 @@ class TsVideosProcessorTest :
             afterEncodeRunner = mockk()
             resetRunner = mockk()
             userQuestionComponent = mockk()
+            chapterBackfillRunner = mockk()
             tsVideosProcessor =
                 TsVideosProcessor(
                     ProcessCommand(pathProcessingRunner),
@@ -46,6 +49,7 @@ class TsVideosProcessorTest :
                     StatusCommand(mockk(relaxed = true)),
                     HistoryCommand(mockk(relaxed = true)),
                     QualityCommand(QualityReportCommand(mockk(), mockk()), QualityReleaseCommand(mockk(), mockk(), mockk())),
+                    ChaptersCommand(ChaptersBackfillCommand(chapterBackfillRunner)),
                 )
         }
 
@@ -75,6 +79,22 @@ class TsVideosProcessorTest :
                 tsVideosProcessor.main(arrayOf("reset", "/rec/rec.m2ts"))
 
                 verify { resetRunner.run(Path.of("/rec/rec.m2ts"), false) }
+            }
+
+            expect("routes chapters backfill to the chapter backfill runner") {
+                val root =
+                    java.nio.file.Files
+                        .createTempDirectory("tvpcli-chapters-")
+                try {
+                    every { chapterBackfillRunner.run(any(), any(), any()) } returns ChapterBackfillRunner.Summary()
+
+                    tsVideosProcessor.main(arrayOf("chapters", "backfill", "--video-store-root", root.toString(), "--dry-run"))
+
+                    verify { chapterBackfillRunner.run(root, true, any()) }
+                } finally {
+                    java.nio.file.Files
+                        .deleteIfExists(root)
+                }
             }
 
             expect("a usage error on a legacy subcommand exits 2 and prints the usage") {

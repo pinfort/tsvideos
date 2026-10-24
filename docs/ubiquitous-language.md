@@ -14,6 +14,8 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | 番組詳細 | `ProgramDetail` | 番組に作成ファイル・タグ・チェックを加えた表示用のモデル |
 | 分割ファイル | `SplittedFile` (`splitted_file`) | TsSplitter が録画から分割したファイル。本編にあたるものをメインの分割ファイルと呼ぶ |
 | 作成ファイル | `CreatedFile` (`created_file`) | Amatsukaze のエンコードで作られた成果物 (主に mp4)。NAS に保管される。動画の解像度 (`width`/`height`) を持つ。動画以外のファイルと解像度記録前のデータは未設定 (null) |
+| チャプタ | `VideoChapter` (`created_file_chapter`) | mp4 の作成ファイルに埋め込まれた区間 (開始・終了の秒と title)。Amatsukaze (join_logo_scp) が付け、CM 区間も含む。title (`A`, `CM`, `CM?` など) は機械的なラベルで一意ではなく、無いこともある。ffprobe で取得して DB に保存し、プレーヤーのチャプタ一覧に使う |
+| チャプタ取得済み | `VideoChapters.probed` (`created_file.chapters_probed`) | チャプタを読み取ったかどうか。取得済みで 0 件 (チャプタの無いファイル) と未取得 (導入前の登録・ffprobe 失敗) を区別する。未取得の mp4 は `tvpcli chapters backfill` で取得する |
 | チャンネル | `channel` | 放送のチャンネル番号 |
 | チャンネル名 | `channelName` | 放送局名 |
 | ドロップ | `drops` | 録画中に欠落したフレーム数。TsSelect の `tsDump` で数える |

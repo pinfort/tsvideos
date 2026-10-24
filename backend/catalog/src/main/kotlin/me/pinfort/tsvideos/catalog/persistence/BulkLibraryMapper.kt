@@ -19,21 +19,27 @@ internal interface BulkLibraryMapper {
     @Select("SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT id FROM splitted_file ORDER BY id FOR UPDATE")
     fun lockAllSplits(): List<Long>
 
-    @Select("SELECT * FROM created_file ORDER BY id")
+    // Explicit columns throughout: CreatedFileDto is mapped by column order, so a new created_file column (such as
+    // chapters_probed) must not shift it.
+    @Select("SELECT id, splitted_file_id, file, size, mime, encoding, status, width, height FROM created_file ORDER BY id")
     fun allFiles(): List<CreatedFileDto>
 
     // Lock normalized aliases too: SMB is case-insensitive and accepts both separators.
     // The scan takes next-key locks, preventing insertion of new aliases during apply.
     // Every bulk lock uses the same bounded (MariaDB-only) wait, so a busy library fails this target fast
     // instead of queueing behind the pipeline.
-    @Select("SET STATEMENT innodb_lock_wait_timeout = 10 FOR SELECT * FROM created_file ORDER BY id FOR UPDATE")
+    @Select(
+        "SET STATEMENT innodb_lock_wait_timeout = 10 FOR " +
+            "SELECT id, splitted_file_id, file, size, mime, encoding, status, width, height FROM created_file ORDER BY id FOR UPDATE",
+    )
     fun lockFiles(): List<CreatedFileDto>
 
     // Every created file of the given programs, one row per (program, file) so shared executed records count twice.
     @Select(
         """
         <script>
-        SELECT created_file.*
+        SELECT created_file.id, created_file.splitted_file_id, created_file.file, created_file.size, created_file.mime,
+            created_file.encoding, created_file.status, created_file.width, created_file.height
         FROM program
         INNER JOIN splitted_file ON splitted_file.executed_file_id = program.executed_file_id
         INNER JOIN created_file ON created_file.splitted_file_id = splitted_file.id

@@ -8,6 +8,8 @@ import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import me.pinfort.tsvideos.catalog.TestLoggerConfig
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.VideoChapter
+import me.pinfort.tsvideos.catalog.domain.VideoChapters
 import me.pinfort.tsvideos.catalog.domain.VideoResolution
 import me.pinfort.tsvideos.catalog.persistence.CreatedFileMapper
 import me.pinfort.tsvideos.catalog.persistence.GeneratedKeyHolder
@@ -27,6 +29,9 @@ import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionTemplate
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import javax.sql.DataSource
 
 @ImportTestcontainers
@@ -205,6 +210,184 @@ class CreatedFileCatalogTest : ExpectSpec() {
                     catalog.find(id)?.mime shouldBe null
                 } finally {
                     files.delete(id)
+                }
+            }
+        }
+
+        context("chapters") {
+            val chapters =
+                listOf(
+                    VideoChapter(0, 0.0, 5.739, "A"),
+                    VideoChapter(1, 5.739, 65.0, "CM"),
+                    VideoChapter(2, 65.0, 65.0, null),
+                    VideoChapter(3, 65.0, 120.5, "A"),
+                )
+
+            fun chapterRows(id: Long): Int =
+                dataSource.connection.use { connection ->
+                    connection.prepareStatement("SELECT COUNT(*) FROM created_file_chapter WHERE created_file_id = ?").use { statement ->
+                        statement.setLong(1, id)
+                        statement.executeQuery().use { result ->
+                            result.next()
+                            result.getInt(1)
+                        }
+                    }
+                }
+
+            expect("a new row is not probed and a missing row has no chapters") {
+                val id = insertRow(uniquePath(), "video/mp4")
+                try {
+                    catalog.chaptersOf(id) shouldBe VideoChapters.NOT_PROBED
+                    catalog.chaptersOf(Long.MAX_VALUE) shouldBe null
+                } finally {
+                    files.delete(id)
+                }
+            }
+
+            expect("recording fails outside a transaction and changes nothing") {
+                val id = insertRow(uniquePath(), "video/mp4")
+                try {
+                    shouldThrow<IllegalTransactionStateException> { catalog.recordChaptersIfMissing(id, chapters) }
+                    catalog.chaptersOf(id) shouldBe VideoChapters.NOT_PROBED
+                } finally {
+                    files.delete(id)
+                }
+            }
+
+            expect("records the chapters once, titles unchanged and in index order; a second record changes nothing") {
+                val id = insertRow(uniquePath(), "video/mp4")
+                try {
+                    required.execute { catalog.recordChaptersIfMissing(id, chapters) } shouldBe true
+                    required.execute { catalog.recordChaptersIfMissing(id, listOf(VideoChapter(0, 1.0, 2.0, "B"))) } shouldBe false
+                    catalog.chaptersOf(id) shouldBe VideoChapters(true, chapters)
+                } finally {
+                    files.delete(id)
+                }
+            }
+
+            expect("a probe that found no chapters is recorded as probed with none") {
+                val id = insertRow(uniquePath(), "video/mp4")
+                try {
+                    required.execute { catalog.recordChaptersIfMissing(id, emptyList()) } shouldBe true
+                    catalog.chaptersOf(id) shouldBe VideoChapters(true, emptyList())
+                    required.execute { catalog.recordChaptersIfMissing(id, chapters) } shouldBe false
+                    catalog.chaptersOf(id) shouldBe VideoChapters(true, emptyList())
+                } finally {
+                    files.delete(id)
+                }
+            }
+
+            expect("the flag and the chapters roll back together with the caller") {
+                val id = insertRow(uniquePath(), "video/mp4")
+                try {
+                    shouldThrow<IllegalStateException> {
+                        required.execute {
+                            catalog.recordChaptersIfMissing(id, chapters) shouldBe true
+                            error("caller failed after recording")
+                        }
+                    }
+                    catalog.chaptersOf(id) shouldBe VideoChapters.NOT_PROBED
+                    chapterRows(id) shouldBe 0
+                } finally {
+                    files.delete(id)
+                }
+            }
+
+            expect("concurrent recorders store one set: the second waits for the first to commit and records nothing") {
+                val id = insertRow(uniquePath(), "video/mp4")
+                val pool = Executors.newFixedThreadPool(2)
+                try {
+                    val firstRecorded = CountDownLatch(1)
+                    val releaseFirst = CountDownLatch(1)
+                    val first =
+                        pool.submit<Boolean?> {
+                            requiresNew.execute {
+                                catalog.recordChaptersIfMissing(id, chapters).also {
+                                    firstRecorded.countDown()
+                                    releaseFirst.await(30, TimeUnit.SECONDS)
+                                }
+                            }
+                        }
+                    firstRecorded.await(30, TimeUnit.SECONDS) shouldBe true
+                    val second =
+                        pool.submit<Boolean?> {
+                            requiresNew.execute { catalog.recordChaptersIfMissing(id, listOf(VideoChapter(0, 0.0, 1.0, "X"))) }
+                        }
+                    // The second recorder is blocked on the row lock held by the uncommitted first one.
+                    Thread.sleep(500)
+                    second.isDone shouldBe false
+                    releaseFirst.countDown()
+
+                    first.get(30, TimeUnit.SECONDS) shouldBe true
+                    second.get(30, TimeUnit.SECONDS) shouldBe false
+                    catalog.chaptersOf(id) shouldBe VideoChapters(true, chapters)
+                } finally {
+                    pool.shutdownNow()
+                    files.delete(id)
+                }
+            }
+
+            expect("rejects chapters that are not normalized, without marking the row probed") {
+                val id = insertRow(uniquePath(), "video/mp4")
+                try {
+                    listOf(
+                        listOf(VideoChapter(1, 0.0, 1.0, null)),
+                        listOf(VideoChapter(0, -1.0, 1.0, null)),
+                        listOf(VideoChapter(0, 2.0, 1.0, null)),
+                        listOf(VideoChapter(0, 0.0, Double.POSITIVE_INFINITY, null)),
+                        listOf(VideoChapter(0, Double.NaN, 1.0, null)),
+                        listOf(VideoChapter(0, 5.0, 6.0, null), VideoChapter(1, 1.0, 2.0, null)),
+                    ).forEach { invalid ->
+                        shouldThrow<IllegalArgumentException> { required.execute { catalog.recordChaptersIfMissing(id, invalid) } }
+                    }
+                    catalog.chaptersOf(id) shouldBe VideoChapters.NOT_PROBED
+                } finally {
+                    files.delete(id)
+                }
+            }
+
+            expect("deleting the created file deletes its chapters") {
+                val id = insertRow(uniquePath(), "video/mp4")
+                required.execute { catalog.recordChaptersIfMissing(id, chapters) }
+                chapterRows(id) shouldBe chapters.size
+
+                files.delete(id)
+
+                chapterRows(id) shouldBe 0
+            }
+
+            expect("streamable video chapters exist only for streamable videos") {
+                val mp4 = insertRow(uniquePath(), "video/mp4")
+                val ts = insertRow(uniquePath(), CreatedFile.TS_MIME)
+                try {
+                    required.execute { catalog.recordChaptersIfMissing(mp4, chapters) }
+                    required.execute { catalog.recordChaptersIfMissing(ts, chapters) }
+                    catalog.streamableVideoChapters(mp4) shouldBe VideoChapters(true, chapters)
+                    catalog.streamableVideoChapters(ts) shouldBe null
+                    catalog.streamableVideoChapters(Long.MAX_VALUE) shouldBe null
+                } finally {
+                    files.delete(mp4)
+                    files.delete(ts)
+                }
+            }
+
+            expect("videos without chapters are unprobed mp4 rows in id order after the cursor") {
+                val probed = insertRow(uniquePath(), "video/mp4")
+                val firstMissing = insertRow(uniquePath(), "video/mp4")
+                val subtitle = insertRow(uniquePath(), "text/x-ssa")
+                val secondMissing = insertRow(uniquePath(), "video/mp4")
+                val created = listOf(probed, firstMissing, subtitle, secondMissing)
+                try {
+                    required.execute { catalog.recordChaptersIfMissing(probed, emptyList()) }
+
+                    catalog.videosWithoutChapters(probed - 1, 1000).map { it.id }.filter { it in created } shouldBe
+                        listOf(firstMissing, secondMissing)
+                    catalog.videosWithoutChapters(firstMissing, 1000).map { it.id }.filter { it in created } shouldBe
+                        listOf(secondMissing)
+                    catalog.videosWithoutChapters(probed - 1, 1).map { it.id } shouldBe listOf(firstMissing)
+                    shouldThrow<IllegalArgumentException> { catalog.videosWithoutChapters(0, 0) }
+                } finally {
+                    created.forEach { files.delete(it) }
                 }
             }
         }

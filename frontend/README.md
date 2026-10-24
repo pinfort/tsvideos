@@ -85,6 +85,10 @@ TS/エンコード済みの有無は、NAS の実際のチェックではなく 
 
 履歴の書き込みは、ロックなしで 1 つの localStorage キーを読み取り・変更・書き込みするため、2 つのタブが同時に別の動画を保存すると、一方の更新が失われることがある。
 
+## チャプタ
+
+`/video/[id]/view` は Server Component で `GET /api/v1/video/{id}/chapters` (`lib/api/video.ts` の `getVideoChapters`) を取得し、mp4 に埋め込まれたチャプタの一覧をプレーヤーの下に表示する。各チャプタは「開始時刻 (`h:mm:ss`) + title」のボタンで、title が無いときは「チャプタ N」と表示する (title は `A`, `CM` などの機械的なラベルで、重複してもそのまま表示する)。クリックすると再生/一時停止の状態を変えずに開始位置へシークし、通常のシークと同じく視聴位置を保存する (続きから再開するための復元シークとは区別する)。メタデータの読み込みと続きからの復元が済むまでチャプタのボタンは無効で、復元が選択したチャプタ位置を上書きすることはない。再生中のチャプタは `aria-current` で強調し、title が `CM` で始まるチャプタは控えめに表示する (動作は同じ)。チャプタ取得は 3 秒 (`VIDEO_CHAPTERS_TIMEOUT_MS`) で打ち切る。取得の失敗・タイムアウト・404・未取得 (`probed: false`)・0 件ではチャプタ一覧を出さず、再生には影響しない。詳細は [backend/docs/video-chapters.md](../backend/docs/video-chapters.md)。
+
 ## 共通 UI（shadcn/ui）
 
 検索フォーム・録画一覧・一括操作の確認は、`components/ui/` の Button、Input、Native Select、

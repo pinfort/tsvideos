@@ -1,16 +1,64 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/lib/api/client";
 
-const { notFound } = vi.hoisted(() => ({
+const { notFound, getVideoChapters } = vi.hoisted(() => ({
   notFound: vi.fn(() => {
     throw new Error("NEXT_NOT_FOUND");
   }),
+  getVideoChapters: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ notFound }));
+vi.mock("@/lib/api/video", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/video")>();
+  return { ...actual, getVideoChapters };
+});
 
 import VideoViewPage from "./page";
 
 describe("VideoViewPage", () => {
+  beforeEach(() => {
+    getVideoChapters.mockReset();
+    getVideoChapters.mockResolvedValue({ probed: false, chapters: [] });
+  });
+
+  it("passes probed chapters to the player", async () => {
+    getVideoChapters.mockResolvedValue({
+      probed: true,
+      chapters: [
+        { index: 0, startSeconds: 0, endSeconds: 5, title: "A" },
+        { index: 1, startSeconds: 5, endSeconds: 9, title: "A" },
+      ],
+    });
+    render(await VideoViewPage({ params: Promise.resolve({ id: "42" }) }));
+    expect(getVideoChapters).toHaveBeenCalledWith(42);
+    expect(screen.getByRole("navigation", { name: "チャプタ" })).toBeInTheDocument();
+    expect(screen.getAllByText("A")).toHaveLength(2);
+  });
+
+  it("shows no chapters, but still the player, when they are unavailable", async () => {
+    for (const outcome of [
+      () => getVideoChapters.mockResolvedValue({ probed: false, chapters: [] }),
+      () => getVideoChapters.mockResolvedValue({ probed: true, chapters: [] }),
+      () => getVideoChapters.mockRejectedValue(new ApiError(404, "not found")),
+      () => getVideoChapters.mockRejectedValue(new TypeError("fetch failed")),
+      () =>
+        getVideoChapters.mockRejectedValue(new DOMException("timed out", "TimeoutError")),
+      () => getVideoChapters.mockRejectedValue(new DOMException("aborted", "AbortError")),
+    ]) {
+      outcome();
+      const { container, unmount } = render(
+        await VideoViewPage({ params: Promise.resolve({ id: "42" }) }),
+      );
+      expect(container.querySelector("video")).toHaveAttribute(
+        "src",
+        "http://localhost:8080/api/v1/video/42/stream",
+      );
+      expect(screen.queryByRole("navigation", { name: "チャプタ" })).toBeNull();
+      unmount();
+    }
+  });
+
   it("calls notFound for a non-numeric id", async () => {
     await expect(VideoViewPage({ params: Promise.resolve({ id: "abc" }) })).rejects.toThrow(
       "NEXT_NOT_FOUND",

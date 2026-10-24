@@ -15,7 +15,9 @@ import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
 import me.pinfort.tsvideos.catalog.domain.ExecutedFile
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
+import me.pinfort.tsvideos.catalog.domain.VideoChapter
 import me.pinfort.tsvideos.catalog.domain.VideoResolution
+import me.pinfort.tsvideos.processing.api.tool.ChapterProbeClient
 import me.pinfort.tsvideos.processing.api.tool.VideoResolutionProbeClient
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
 import me.pinfort.tsvideos.processing.domain.ProcessingJob
@@ -53,6 +55,8 @@ class AfterEncodeRunnerTest :
             val logger = mockk<Logger>(relaxed = true)
             val nasPaths = mockk<NasPaths>()
             val resolutionProbe = mockk<VideoResolutionProbeClient>()
+            val chapterProbe = mockk<ChapterProbeClient>()
+            val chapters = listOf(VideoChapter(0, 0.0, 5.739, "A"), VideoChapter(1, 5.739, 30.0, "CM"))
             val identity = ProcessingIdentity.from(original)
             val job = ProcessingJob(1, identity.key, identity.path, identity.size, identity.modifiedMillis, "SUBMITTED", 10, null)
             val splitRow = SplittedFile(20, 10, split.canonicalPath, split.length(), 1.0, SplittedFile.Status.COMPRESS_SAVED)
@@ -82,6 +86,7 @@ class AfterEncodeRunnerTest :
                 every { nasPaths.resolvePathUnderBaseDir(any(), any()) } answers { "base/${secondArg<String>()}" }
                 every { validation.validate(1) } returns true
                 every { resolutionProbe.probe(any()) } returns VideoResolution(1920, 1080)
+                every { chapterProbe.probe(any()) } returns chapters
                 every { uploads.upload(any(), any(), any(), any(), any(), any()) } returns receipt
                 every { uploads.deleteLocal(receipt) } answers {
                     output.delete()
@@ -101,6 +106,7 @@ class AfterEncodeRunnerTest :
                         uploads,
                         history,
                         resolutionProbe,
+                        chapterProbe,
                     )
             }
 
@@ -186,16 +192,56 @@ class AfterEncodeRunnerTest :
                 f.cleanup()
             }
         }
-        expect("non-video outputs are registered without probing a resolution") {
+        expect("non-video outputs are registered without probing a resolution or chapters") {
             val f = Fixture()
             val subtitle = File(f.output.parentFile, "video.ass").apply { writeText("subtitle") }
             try {
                 f.run(files = listOf(f.output, subtitle))
                 verify(exactly = 1) { f.resolutionProbe.probe(f.output) }
                 verify(exactly = 0) { f.resolutionProbe.probe(subtitle) }
-                verify { f.uploads.register(f.receipt, 20, "video/mp4", null, VideoResolution(1920, 1080)) }
-                verify { f.uploads.register(f.receipt, 20, "text/x-ssa", null, null) }
+                verify(exactly = 1) { f.chapterProbe.probe(f.output) }
+                verify(exactly = 0) { f.chapterProbe.probe(subtitle) }
+                verify { f.uploads.register(f.receipt, 20, "video/mp4", null, VideoResolution(1920, 1080), f.chapters) }
+                verify { f.uploads.register(f.receipt, 20, "text/x-ssa", null, null, null) }
             } finally {
+                f.cleanup()
+            }
+        }
+        expect("a failed chapter probe registers the video as not probed and the callback still completes") {
+            val f = Fixture()
+            every { f.chapterProbe.probe(any()) } returns null
+            try {
+                f.run()
+                verify { f.uploads.register(f.receipt, 20, "video/mp4", null, VideoResolution(1920, 1080), null) }
+                verify { f.jobs.complete(f.job) }
+                verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
+                verify(exactly = 0) { f.slack.notify(any()) }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("a video without chapters is registered as probed with none") {
+            val f = Fixture()
+            every { f.chapterProbe.probe(any()) } returns emptyList()
+            try {
+                f.run()
+                verify { f.uploads.register(f.receipt, 20, "video/mp4", null, VideoResolution(1920, 1080), emptyList()) }
+            } finally {
+                f.cleanup()
+            }
+        }
+        expect("an interrupted chapter probe stops the callback before registration and keeps the outputs") {
+            val f = Fixture()
+            every { f.chapterProbe.probe(any()) } throws InterruptedException()
+            try {
+                shouldThrow<InterruptedException> { f.run() }
+                verify(exactly = 0) { f.uploads.register(any(), any(), any(), any(), any(), any()) }
+                verify(exactly = 0) { f.uploads.deleteLocal(any()) }
+                verify(exactly = 0) { f.slack.notify(any()) }
+                f.output.exists() shouldBe true
+                f.original.exists() shouldBe true
+            } finally {
+                Thread.interrupted()
                 f.cleanup()
             }
         }
@@ -212,7 +258,7 @@ class AfterEncodeRunnerTest :
                         "base/m/myprogram/video.mp4",
                         any(),
                     )
-                    f.uploads.register(f.receipt, 20, "video/mp4", null, VideoResolution(1920, 1080))
+                    f.uploads.register(f.receipt, 20, "video/mp4", null, VideoResolution(1920, 1080), f.chapters)
                     f.uploads.deleteLocal(f.receipt)
                     f.uploads.verifyRegistered(1, "original")
                     f.jobs.complete(f.job)
@@ -236,7 +282,7 @@ class AfterEncodeRunnerTest :
                             every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws
                                 IllegalStateException("upload failure")
                         "register" ->
-                            every { f.uploads.register(any(), any(), any(), any(), any()) } throws
+                            every { f.uploads.register(any(), any(), any(), any(), any(), any()) } throws
                                 IllegalStateException("db failure")
                         else -> every { f.uploads.deleteLocal(any()) } throws IllegalStateException("delete failure")
                     }

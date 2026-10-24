@@ -38,6 +38,7 @@ class DatabaseSchemaResourcesTest : FunSpec() {
 
         test("the seed data and the maintenance script are shared with DB tests") {
             resource("ddl/02_insert_data.sql") shouldContain "INSERT INTO `test`.`program`"
+            resource("ddl/02_insert_data.sql") shouldContain "INSERT INTO `test`.`created_file_chapter`"
             resource("db/maintenance/processing_history_cleanup.sql").shouldNotBeNull()
         }
     }

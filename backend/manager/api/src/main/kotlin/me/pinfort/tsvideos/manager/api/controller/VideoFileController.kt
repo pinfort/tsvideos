@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.manager.api.controller
 
 import jakarta.servlet.http.HttpServletRequest
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
+import me.pinfort.tsvideos.manager.api.response.VideoChaptersResponse
 import me.pinfort.tsvideos.manager.api.stream.NasVideoResource
 import me.pinfort.tsvideos.manager.api.stream.ResponseResources
 import me.pinfort.tsvideos.storage.api.NasComponent
@@ -22,6 +23,15 @@ class VideoFileController(
     private val createdFileCatalog: CreatedFileCatalog,
     private val nasComponent: NasComponent,
 ) {
+    /** Chapters from the DB only; the NAS is not touched. 404 for anything [stream] would not play. */
+    @GetMapping("/api/v1/video/{id}/chapters")
+    fun chapters(
+        @PathVariable(name = "id") id: Long,
+    ): ResponseEntity<VideoChaptersResponse> {
+        val chapters = createdFileCatalog.streamableVideoChapters(id) ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(VideoChaptersResponse.of(chapters))
+    }
+
     @GetMapping("/api/v1/video/{id}/stream")
     fun stream(
         @PathVariable(name = "id") id: Long,

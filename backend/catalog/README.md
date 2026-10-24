@@ -11,7 +11,7 @@
 | パッケージ | 内容 |
 | --- | --- |
 | `me.pinfort.tsvideos.catalog.api` (公開) | 公開操作: `ProgramCommand`、`CreatedFileCommand`、`ExecutedFileCommand`、`SplittedFileCommand`、`ExecutedFileTagCommand`、`CreatedFileCatalog`、`ProgramInventory`、`LedgerSnapshots`、`LedgerLocks`、`CatalogStatistics`。移動先パスの規則 `DirectoryNameComponent` / `NormalizeComponent`。結果型 `ProgramSummary`、`ProgramSnapshot`、`CreatedFileSnapshot`、`ProgramStatsRow`、`FileStatsRow`、`StorageReference`、`StreamableVideo`。Mapper の登録先 `CatalogPersistence.MAPPER_PACKAGE` |
-| `me.pinfort.tsvideos.catalog.domain` (公開) | `Program`、`ProgramDetail`、`ExecutedFile`、`SplittedFile`、`CreatedFile`、`VideoResolution`、検出タグ/実施記録の名前 (`ExecutedFileTag` / `ExecutedFileCheck`)、検索条件と結果 (`ProgramSearchQuery` / `ProgramSearchPage`) |
+| `me.pinfort.tsvideos.catalog.domain` (公開) | `Program`、`ProgramDetail`、`ExecutedFile`、`SplittedFile`、`CreatedFile`、`VideoResolution`、`VideoChapter` / `VideoChapters` (作成ファイルのチャプタ。[video-chapters.md](../docs/video-chapters.md))、検出タグ/実施記録の名前 (`ExecutedFileTag` / `ExecutedFileCheck`)、検索条件と結果 (`ProgramSearchQuery` / `ProgramSearchPage`) |
 | `me.pinfort.tsvideos.catalog.persistence` (internal) | MyBatis の Mapper (アノテーションと SQL プロバイダ `ProgramSearchSql`。XML はない)、DTO、`GeneratedKeyHolder`。トップレベルの宣言はすべて `internal` |
 
 公開操作のコンストラクタは `internal` (引数が internal の Mapper のため)。catalog の外では Spring の Bean として注入するか、テストではモックにする。`application` パッケージは内部サービスがないので作っていない。
@@ -29,7 +29,7 @@ core にあったときと同じ (module-boundaries.md §7.2)。
 
 - `ProgramCommand.search`: `readOnly` + `REPEATABLE_READ`。
 - `ProgramCommand.delete` / `moveCreatedFiles`、`CreatedFileCommand.delete` / `move`、`ExecutedFileTagCommand.recordCheck`: `REQUIRED`。
-- `LedgerLocks` の全操作、`CreatedFileCatalog.register` / `fillMimeIfMissing` / `fillResolutionIfMissing`: `MANDATORY`。
+- `LedgerLocks` の全操作、`CreatedFileCatalog.register` / `fillMimeIfMissing` / `fillResolutionIfMissing` / `recordChaptersIfMissing`: `MANDATORY`。
 - `ProgramInventory`、`LedgerSnapshots`、`CatalogStatistics`、`CreatedFileCatalog` の読み取り: 宣言なし (呼び出し元のトランザクションに参加)。
 - 宣言のない登録・状態更新 (`ProgramCommand.insert` など) は、トランザクション外で呼ばれれば文単位で確定する。
 - ロックの順序と 10 秒の待機上限は `LedgerLocks` が守る (§7.3)。

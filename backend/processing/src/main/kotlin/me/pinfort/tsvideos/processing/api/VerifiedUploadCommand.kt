@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.processing.api
 
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.VideoChapter
 import me.pinfort.tsvideos.catalog.domain.VideoResolution
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
 import me.pinfort.tsvideos.processing.domain.UploadManifest
@@ -243,11 +244,13 @@ class VerifiedUploadCommand internal constructor(
         mime: String?,
         encoding: String?,
         resolution: VideoResolution? = null,
+        // null means the chapters were not probed (or the probe failed); an empty list means the file has none.
+        chapters: List<VideoChapter>? = null,
     ): CreatedFile =
         retry.execute(RetryOperation.REGISTER_UPLOAD, {
             retryEligible(transaction.execute { manifests.get(receipt.manifestId) }, State.VERIFIED)
         }) {
-            registerOnce(receipt, splittedFileId, mime, encoding, resolution)
+            registerOnce(receipt, splittedFileId, mime, encoding, resolution, chapters)
         }
 
     private fun registerOnce(
@@ -256,6 +259,7 @@ class VerifiedUploadCommand internal constructor(
         mime: String?,
         encoding: String?,
         resolution: VideoResolution?,
+        chapters: List<VideoChapter>?,
     ): CreatedFile =
         withClaim(receipt.manifestId) { manifest, token ->
             check(manifest.state in State.VERIFIED) { "Upload is not verified" }
@@ -285,6 +289,9 @@ class VerifiedUploadCommand internal constructor(
                     } else {
                         file
                     }
+                // Chapters are best-effort metadata like the resolution below: never part of the identity check, and a
+                // re-run only records them while none were recorded (a stored set, even an empty one, is kept).
+                if (chapters != null) transaction.execute { createdFiles.recordChaptersIfMissing(file.id, chapters) }
                 // The resolution is best-effort metadata, so it is not part of this identity check: a re-run that probes
                 // null keeps the stored value, and one that probes a value fills in a resolution the first run missed.
                 if (resolution != null && withMime.width == null && withMime.height == null) {
@@ -306,6 +313,8 @@ class VerifiedUploadCommand internal constructor(
                                 encoding,
                                 resolution,
                             )
+                        // Also MANDATORY: the chapters commit (or roll back) with the row and the manifest.
+                        if (chapters != null) createdFiles.recordChaptersIfMissing(file.id, chapters)
                         check(manifests.register(manifest.id, token, file.id) == 1) { "Upload registration lost ownership" }
                         file
                     },

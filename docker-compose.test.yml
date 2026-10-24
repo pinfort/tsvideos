@@ -41,6 +41,7 @@ services:
       - ./backend/database-schema/src/main/resources/db/migrations/071_recording_quality.sql:/docker-entrypoint-initdb.d/071_recording_quality.sql:ro
       - ./backend/database-schema/src/main/resources/db/migrations/072_upload_manifest.sql:/docker-entrypoint-initdb.d/072_upload_manifest.sql:ro
       - ./backend/database-schema/src/main/resources/db/migrations/073_created_file_resolution.sql:/docker-entrypoint-initdb.d/073_created_file_resolution.sql:ro
+      - ./backend/database-schema/src/main/resources/db/migrations/074_created_file_chapter.sql:/docker-entrypoint-initdb.d/074_created_file_chapter.sql:ro
       - ./backend/database-schema/src/testFixtures/resources/ddl/02_insert_data.sql:/docker-entrypoint-initdb.d/999_insert_data.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -utest -ptest"]

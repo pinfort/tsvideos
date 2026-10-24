@@ -70,6 +70,20 @@ export interface ProgramDetailResponse {
   videoFiles: CreatedFile[];
 }
 
+/** A chapter embedded in an encoded video; `title` is the raw, possibly duplicated label, or null. */
+export interface VideoChapter {
+  index: number;
+  startSeconds: number;
+  endSeconds: number;
+  title: string | null;
+}
+
+/** `probed: false` means the chapters were never read, so an empty list then says nothing. */
+export interface VideoChaptersResponse {
+  probed: boolean;
+  chapters: VideoChapter[];
+}
+
 /** The subset of program detail the same-origin playback route exposes. */
 export interface PlaybackMetadataResponse {
   videoFiles: Pick<CreatedFile, "id" | "mp4" | "status">[];
