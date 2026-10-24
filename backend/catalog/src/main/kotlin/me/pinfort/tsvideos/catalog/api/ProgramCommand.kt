@@ -108,14 +108,10 @@ class ProgramCommand internal constructor(
             it.toDomain()
         }
 
-    fun hasTsFile(program: Program): Boolean {
-        createdFileMapper.selectByExecutedFileId(program.executedFileId).forEach {
-            if (it.toDomain().isTs) {
-                return true
-            }
+    fun hasTsFile(program: Program): Boolean =
+        createdFileMapper.selectByExecutedFileId(program.executedFileId).any {
+            it.toDomain().isTs
         }
-        return false
-    }
 
     fun findDetail(id: Long): ProgramDetail? {
         val program: ProgramDto = programMapper.find(id) ?: return null

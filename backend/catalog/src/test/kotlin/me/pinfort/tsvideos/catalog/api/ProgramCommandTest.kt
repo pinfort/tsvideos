@@ -410,6 +410,49 @@ class ProgramCommandTest :
 
                 actual shouldBe false
             }
+
+            // Records which elements were read so the tests can tell where the scan stopped.
+            class ReadTrackingList(
+                private val elements: List<CreatedFileDto>,
+            ) : AbstractList<CreatedFileDto>() {
+                val readIndices = mutableListOf<Int>()
+                override val size: Int get() = elements.size
+
+                override fun get(index: Int): CreatedFileDto {
+                    readIndices += index
+                    return elements[index]
+                }
+            }
+
+            expect("a TS file first stops the scan without reading the rest") {
+                val files = ReadTrackingList(listOf(tsCreatedFileDto, createdFileDto, createdFileDto.copy(mime = null)))
+                every { createdFileMapper.selectByExecutedFileId(any()) } returns files
+
+                programCommand.hasTsFile(program) shouldBe true
+
+                files.readIndices shouldBe listOf(0)
+                verify(exactly = 1) { createdFileMapper.selectByExecutedFileId(program.executedFileId) }
+            }
+
+            expect("a TS file in the middle is found after the earlier files and stops the scan") {
+                val files = ReadTrackingList(listOf(createdFileDto, tsCreatedFileDto, createdFileDto.copy(id = 3)))
+                every { createdFileMapper.selectByExecutedFileId(any()) } returns files
+
+                programCommand.hasTsFile(program) shouldBe true
+
+                files.readIndices shouldBe listOf(0, 1)
+                verify(exactly = 1) { createdFileMapper.selectByExecutedFileId(program.executedFileId) }
+            }
+
+            expect("files with a null MIME are not TS and are all checked") {
+                val files = ReadTrackingList(listOf(createdFileDto.copy(mime = null), createdFileDto.copy(id = 3, mime = null)))
+                every { createdFileMapper.selectByExecutedFileId(any()) } returns files
+
+                programCommand.hasTsFile(program) shouldBe false
+
+                files.readIndices shouldBe listOf(0, 1)
+                verify(exactly = 1) { createdFileMapper.selectByExecutedFileId(program.executedFileId) }
+            }
         }
 
         context("findDetail") {
