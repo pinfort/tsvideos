@@ -12,6 +12,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.domain.VideoChapter
+import me.pinfort.tsvideos.catalog.domain.VideoChapters
 import me.pinfort.tsvideos.catalog.domain.VideoResolution
 import me.pinfort.tsvideos.processing.TestLoggerConfig
 import me.pinfort.tsvideos.processing.api.config.ProcessingRetryConfigurationProperties
@@ -570,6 +572,96 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 (rerun.width to rerun.height) shouldBe (1280 to 720)
                 f.command.register(receipt, 876543, "video/mp4", null, VideoResolution(1920, 1080)).width shouldBe 1280
                 catalog.find(first.id)?.let { it.width to it.height } shouldBe (1280 to 720)
+            } finally {
+                f.source.delete()
+            }
+        }
+        val chapters = listOf(VideoChapter(0, 0.0, 5.739, "A"), VideoChapter(1, 5.739, 60.0, "CM"))
+        expect("chapters are stored on registration; a re-run with other or no chapters keeps them and the identity") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                val first = f.command.register(receipt, 876543, "video/mp4", null, chapters = chapters)
+                catalog.chaptersOf(first.id) shouldBe VideoChapters(true, chapters)
+                f.command.register(receipt, 876543, "video/mp4", null).id shouldBe first.id
+                f.command.register(receipt, 876543, "video/mp4", null, chapters = emptyList()) shouldBe first
+                catalog.chaptersOf(first.id) shouldBe VideoChapters(true, chapters)
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("a re-run records chapters the first registration could not probe, without changing the registered row") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                val first = f.command.register(receipt, 876543, "video/mp4", null)
+                catalog.chaptersOf(first.id) shouldBe VideoChapters.NOT_PROBED
+                f.command.register(receipt, 876543, "video/mp4", null, chapters = chapters) shouldBe first
+                catalog.chaptersOf(first.id) shouldBe VideoChapters(true, chapters)
+                catalog.find(first.id) shouldBe first
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("a probe that found no chapters registers the file as probed with none") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                val first = f.command.register(receipt, 876543, "video/mp4", null, chapters = emptyList())
+                catalog.chaptersOf(first.id) shouldBe VideoChapters(true, emptyList())
+                f.command.register(receipt, 876543, "video/mp4", null, chapters = chapters)
+                catalog.chaptersOf(first.id) shouldBe VideoChapters(true, emptyList())
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("chapters roll back with the created row when the manifest registration fails, then converge once") {
+            var registrations = 0
+            val wrapped =
+                object : UploadManifestMapper by manifests {
+                    override fun register(
+                        id: Long,
+                        token: String,
+                        createdFileId: Long,
+                    ): Int {
+                        if (++registrations == 1) {
+                            // Inside the registration transaction: the row and its chapters are visible but uncommitted.
+                            catalog.chaptersOf(createdFileId) shouldBe VideoChapters(true, chapters)
+                            throw SQLTransientConnectionException()
+                        }
+                        return manifests.register(id, token, createdFileId)
+                    }
+                }
+            val f = fixture(mapper = wrapped)
+            try {
+                val receipt = f.upload()
+                val registered = f.command.register(receipt, 876546, "video/mp4", null, chapters = chapters)
+                registrations shouldBe 2
+                createdFiles(876546, f.target) shouldBe 1
+                catalog.chaptersOf(registered.id) shouldBe VideoChapters(true, chapters)
+                dataSource.connection.use { connection ->
+                    connection
+                        .prepareStatement(
+                            "SELECT COUNT(*) FROM created_file_chapter c " +
+                                "LEFT JOIN created_file f ON f.id = c.created_file_id WHERE f.id IS NULL",
+                        ).use { statement ->
+                            statement.executeQuery().use {
+                                it.next()
+                                it.getLong(1) shouldBe 0
+                            }
+                        }
+                }
+            } finally {
+                f.source.delete()
+            }
+        }
+        expect("a re-run with chapters is still checked against the registered identity") {
+            val f = fixture()
+            try {
+                val receipt = f.upload()
+                f.command.register(receipt, 876543, "video/mp4", null)
+                shouldThrow<IllegalStateException> { f.command.register(receipt, 876543, "video/mp4", "gzip", chapters = chapters) }
+                catalog.chaptersOf(checkNotNull(f.manifest().createdFileId)) shouldBe VideoChapters.NOT_PROBED
             } finally {
                 f.source.delete()
             }

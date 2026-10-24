@@ -5,6 +5,7 @@ import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
+import me.pinfort.tsvideos.processing.api.tool.ChapterProbeClient
 import me.pinfort.tsvideos.processing.api.tool.VideoResolutionProbeClient
 import me.pinfort.tsvideos.processing.domain.ProcessingArtifact
 import me.pinfort.tsvideos.processing.domain.ProcessingArtifactType
@@ -47,6 +48,7 @@ class AfterEncodeRunner internal constructor(
     private val verifiedUploadCommand: VerifiedUploadCommand,
     private val history: ProcessingHistoryCommand,
     private val videoResolutionProbeClient: VideoResolutionProbeClient,
+    private val chapterProbeClient: ChapterProbeClient,
     private val cancellation: ProcessingCancellation = ProcessingCancellation(),
 ) {
     /**
@@ -151,7 +153,10 @@ class AfterEncodeRunner internal constructor(
                         // Probe the local file: it is byte-identical to the verified upload and avoids a NAS round trip.
                         // Subtitles, compressed files and other non-video outputs have no readable resolution.
                         val resolution = if (mime.isProbeableVideo) videoResolutionProbeClient.probe(path.toFile()) else null
-                        verifiedUploadCommand.register(uploaded, splittedFile.id, mime.mime, mime.encoding, resolution)
+                        // Chapters are best-effort too: a failed probe (null) registers the file as not probed, for the
+                        // backfill command to retry; only an interruption stops the callback.
+                        val chapters = if (mime.isProbeableVideo) chapterProbeClient.probe(path.toFile()) else null
+                        verifiedUploadCommand.register(uploaded, splittedFile.id, mime.mime, mime.encoding, resolution, chapters)
                         uploaded
                     }
                 history.stage(active.id, ProcessingStage.FINALIZE) { verifiedUploadCommand.deleteLocal(receipt) }

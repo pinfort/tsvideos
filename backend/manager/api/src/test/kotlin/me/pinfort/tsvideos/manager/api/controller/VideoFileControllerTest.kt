@@ -15,6 +15,8 @@ import jakarta.servlet.http.HttpServletResponse
 import jakarta.servlet.http.HttpServletResponseWrapper
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.catalog.api.StreamableVideo
+import me.pinfort.tsvideos.catalog.domain.VideoChapter
+import me.pinfort.tsvideos.catalog.domain.VideoChapters
 import me.pinfort.tsvideos.manager.api.stream.FakeReadHandle
 import me.pinfort.tsvideos.manager.api.stream.ResponseResourcesFilter
 import me.pinfort.tsvideos.storage.api.NasAccessException
@@ -25,6 +27,7 @@ import me.pinfort.tsvideos.storage.api.NasStore
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
 import org.springframework.http.HttpHeaders
+import org.springframework.test.json.JsonCompareMode
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
@@ -70,6 +73,58 @@ class VideoFileControllerTest : DescribeSpec() {
         fun FakeReadHandle.shouldBeReleasedOnce() {
             closes shouldBe 1
             openStreams shouldBe 0
+        }
+
+        describe("chapters") {
+            it("returns the probed chapters in order, titles as stored, without touching the NAS") {
+                every { createdFileCatalog.streamableVideoChapters(1L) } returns
+                    VideoChapters(
+                        true,
+                        listOf(VideoChapter(0, 0.0, 5.739, "A"), VideoChapter(1, 5.739, 60.0, "A"), VideoChapter(2, 60.0, 65.5, null)),
+                    )
+
+                mockMvc
+                    .perform(get("/api/v1/video/1/chapters"))
+                    .andExpect(status().isOk)
+                    .andExpect(
+                        content().json(
+                            """
+                            {"probed":true,"chapters":[
+                              {"index":0,"startSeconds":0.0,"endSeconds":5.739,"title":"A"},
+                              {"index":1,"startSeconds":5.739,"endSeconds":60.0,"title":"A"},
+                              {"index":2,"startSeconds":60.0,"endSeconds":65.5,"title":null}
+                            ]}
+                            """,
+                            JsonCompareMode.STRICT,
+                        ),
+                    )
+
+                verify(exactly = 0) { nasComponent.openForRead(any(), any()) }
+            }
+
+            it("distinguishes a file probed with no chapters from one never probed") {
+                every { createdFileCatalog.streamableVideoChapters(1L) } returns VideoChapters(true, emptyList())
+                every { createdFileCatalog.streamableVideoChapters(2L) } returns VideoChapters.NOT_PROBED
+
+                mockMvc
+                    .perform(get("/api/v1/video/1/chapters"))
+                    .andExpect(status().isOk)
+                    .andExpect(content().json("""{"probed":true,"chapters":[]}""", JsonCompareMode.STRICT))
+                mockMvc
+                    .perform(get("/api/v1/video/2/chapters"))
+                    .andExpect(status().isOk)
+                    .andExpect(content().json("""{"probed":false,"chapters":[]}""", JsonCompareMode.STRICT))
+            }
+
+            it("not found when the video is not streamable") {
+                every { createdFileCatalog.streamableVideoChapters(1L) } returns null
+
+                mockMvc
+                    .perform(get("/api/v1/video/1/chapters"))
+                    .andExpect(status().isNotFound)
+
+                verify(exactly = 0) { nasComponent.openForRead(any(), any()) }
+            }
         }
 
         describe("stream") {

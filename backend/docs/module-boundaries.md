@@ -247,7 +247,8 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 
 | テーブル | migration | 所有 |
 | --- | --- | --- |
-| `executed_file`, `splitted_file`, `created_file`, `program` | [001](../database-schema/src/main/resources/db/migrations/001_base_schema.sql), [073](../database-schema/src/main/resources/db/migrations/073_created_file_resolution.sql) | `catalog` |
+| `executed_file`, `splitted_file`, `created_file`, `program` | [001](../database-schema/src/main/resources/db/migrations/001_base_schema.sql), [073](../database-schema/src/main/resources/db/migrations/073_created_file_resolution.sql), [074](../database-schema/src/main/resources/db/migrations/074_created_file_chapter.sql) | `catalog` |
+| `created_file_chapter` | [074](../database-schema/src/main/resources/db/migrations/074_created_file_chapter.sql) | `catalog` |
 | `executed_file_tag`, `executed_file_check` | [002](../database-schema/src/main/resources/db/migrations/002_executed_file_tag.sql) | `catalog` |
 | `health_verification_run`, `health_verification_finding` | [051](../database-schema/src/main/resources/db/migrations/051_library_health.sql) | `library` |
 | `library_collection`, `library_tag`, `library_collection_program`, `library_tag_program` | [053](../database-schema/src/main/resources/db/migrations/053_library_organization.sql) | `library` |

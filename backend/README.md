@@ -43,10 +43,11 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 
 ## processor:console (`tvpcli`)
 
-`tvpcli` は3つのサブコマンドを持ちます。
+`tvpcli` の主なサブコマンドは次のとおりです（`status` / `history` / `quality` / `release-claim` / `preflight` は各ドキュメントを参照）。
 
 - `process <パス>...` — 録画ファイル（または `.m2ts` を含むディレクトリ）をドロップチェック(tsselect) → TsSplitter → 圧縮・NAS アップロード → Amatsukaze タスク登録 のパイプラインで処理します。
-- `after-encode` — Amatsukaze のエンコード実行後バッチから呼び出します。エンコード済みファイルを `created_file` として登録し（ffprobe で取得した動画の解像度 `width`/`height` も保存します。動画でない場合や取得できない場合は NULL。マイグレーション `073_created_file_resolution.sql`）、NAS へアップロードしたうえで元ファイルを削除し、番組を `COMPLETED` にします。
+- `after-encode` — Amatsukaze のエンコード実行後バッチから呼び出します。エンコード済みファイルを `created_file` として登録し（ffprobe で取得した動画の解像度 `width`/`height` も保存します。動画でない場合や取得できない場合は NULL。マイグレーション `073_created_file_resolution.sql`。同じく ffprobe で取得した埋め込みチャプタを `created_file_chapter` に保存します。取得に失敗しても after-encode は成功し、未取得として残ります。マイグレーション `074_created_file_chapter.sql`、[docs/video-chapters.md](docs/video-chapters.md)）、NAS へアップロードしたうえで元ファイルを削除し、番組を `COMPLETED` にします。
+- `chapters backfill --video-store-root <共有ルート>` — チャプタ未取得の既存 mp4（`created_file`）のチャプタを ffprobe で取得して記録します。`<共有ルート>` は VIDEO_STORE_NAS の共有ルートに対応するローカル/UNC パス（例: `\\nas\videos`）です。ファイルが存在しサイズが一致する場合だけ取得し、欠損・サイズ不一致・ffprobe 失敗があれば終了コード 1 で終わります。詳細は [docs/video-chapters.md](docs/video-chapters.md)。
 - `reset <録画ファイル>` — 指定した録画ファイルの処理をリセットします。`executed_file` → `program` を辿り、`splitted_file` / `created_file` の各レコード、NAS 上のファイル、ローカルに残った分割ファイルを削除したうえで `program` と `executed_file` のレコードも消します（元の録画ファイルは残します）。実行前に確認を求めます。ロールバックは行いません（Python 版 `reset.py` の移植）。
 
 いずれも `-d` / `--dry-run` で書き込みを行わずに実行できます。
@@ -56,7 +57,10 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 ./gradlew processor:console:bootRun --args="process D:\\rec\\foo.m2ts"
 ./gradlew processor:console:bootRun --args="after-encode"
 ./gradlew processor:console:bootRun --args="reset D:\\rec\\foo.m2ts"
+./gradlew processor:console:bootRun --args="chapters backfill --video-store-root \\\\nas\\videos --dry-run"
 ```
+
+チャプタ（[docs/video-chapters.md](docs/video-chapters.md)）を含むビルドをデプロイする前に、既存の DB へ `database-schema/src/main/resources/db/migrations/074_created_file_chapter.sql` を一度適用してください（073 の後。`IF NOT EXISTS` なので再実行しても安全です）。manager:api のチャプタ API と processor の after-encode / バックフィルが `created_file.chapters_probed` と `created_file_chapter` を参照します。
 
 `after-encode` は Amatsukaze が実行後バッチに渡す以下の環境変数を読みます（同名のオプションでも指定できます）。
 

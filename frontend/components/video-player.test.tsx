@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VideoPlayer } from "./video-player";
 import { readPlayback, savePlayback } from "@/lib/playback";
+import type { VideoChapter } from "@/lib/api/types";
 beforeEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
@@ -132,6 +133,109 @@ describe("VideoPlayer", () => {
     video.currentTime = 60;
     view.unmount();
     expect(readPlayback()[0]).toMatchObject({ position: 60, programId: 4 });
+  });
+  describe("chapters", () => {
+    const chapters: VideoChapter[] = [
+      { index: 0, startSeconds: 0, endSeconds: 60, title: "A" },
+      { index: 1, startSeconds: 60, endSeconds: 120, title: "CM" },
+      { index: 2, startSeconds: 120, endSeconds: 200, title: null },
+    ];
+    function setupWithChapters() {
+      const view = render(
+        <VideoPlayer videoId={1} programId={4} title="番組" chapters={chapters} />,
+      );
+      const video = view.container.querySelector("video")!;
+      Object.defineProperty(video, "duration", { configurable: true, value: 200 });
+      fireEvent.loadedMetadata(video);
+      return video;
+    }
+
+    it("shows no chapter list without chapters", () => {
+      setup();
+      expect(screen.queryByRole("navigation", { name: "チャプタ" })).toBeNull();
+    });
+
+    it("seeks to the chapter start and saves it as a user seek, keeping a paused video paused", () => {
+      const play = vi.spyOn(HTMLMediaElement.prototype, "play");
+      const pause = vi.spyOn(HTMLMediaElement.prototype, "pause");
+      const video = setupWithChapters();
+      fireEvent.click(screen.getByText("チャプタ 3"));
+      expect(video.currentTime).toBe(120);
+      fireEvent.seeked(video);
+      expect(readPlayback()[0]).toMatchObject({ position: 120, programId: 4 });
+      expect(play).not.toHaveBeenCalled();
+      expect(pause).not.toHaveBeenCalled();
+      expect(screen.getByText("チャプタ 3").closest("button")).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+    });
+
+    it("a chapter seek during a pending restore is still saved", () => {
+      savePlayback({
+        videoId: 1,
+        title: "番組",
+        position: 61,
+        duration: 200,
+        updatedAt: 1,
+      });
+      const video = setupWithChapters();
+      expect(video.currentTime).toBe(61);
+      // Restore's seeked never fired; the chapter start is within 1s of its target.
+      fireEvent.click(screen.getByText("CM"));
+      fireEvent.seeked(video);
+      expect(readPlayback()[0]).toMatchObject({ position: 60 });
+      expect(readPlayback()[0].updatedAt).not.toBe(1);
+    });
+
+    it("ignores chapter clicks before metadata so restore cannot overwrite them", () => {
+      savePlayback({
+        videoId: 1,
+        title: "番組",
+        position: 40,
+        duration: 200,
+        updatedAt: 1,
+      });
+      const play = vi.spyOn(HTMLMediaElement.prototype, "play");
+      const view = render(
+        <VideoPlayer videoId={1} programId={4} title="番組" chapters={chapters} />,
+      );
+      const video = view.container.querySelector("video")!;
+      const button = screen.getByText("チャプタ 3").closest("button")!;
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+      expect(video.currentTime).toBe(0);
+      expect(readPlayback()[0]).toMatchObject({ position: 40, updatedAt: 1 });
+
+      Object.defineProperty(video, "duration", { configurable: true, value: 200 });
+      fireEvent.loadedMetadata(video);
+      expect(video.currentTime).toBe(40);
+      fireEvent.seeked(video);
+      expect(readPlayback()[0].updatedAt).toBe(1);
+
+      expect(button).toBeEnabled();
+      fireEvent.click(button);
+      expect(video.currentTime).toBe(120);
+      fireEvent.seeked(video);
+      expect(readPlayback()[0]).toMatchObject({ position: 120, programId: 4 });
+      expect(play).not.toHaveBeenCalled();
+    });
+
+    it("highlights the chapter playing on timeupdate", () => {
+      const video = setupWithChapters();
+      const current = () =>
+        screen
+          .getAllByRole("button")
+          .filter((b) => b.getAttribute("aria-current") === "true")
+          .map((b) => b.textContent);
+      expect(current()).toEqual([]);
+      video.currentTime = 10;
+      fireEvent.timeUpdate(video);
+      expect(current()).toEqual(["0:00:00A"]);
+      video.currentTime = 90;
+      fireEvent.timeUpdate(video);
+      expect(current()).toEqual(["0:01:00CM"]);
+    });
   });
   it("throttles progress writes and flushes on page hide", () => {
     let now = 10000;

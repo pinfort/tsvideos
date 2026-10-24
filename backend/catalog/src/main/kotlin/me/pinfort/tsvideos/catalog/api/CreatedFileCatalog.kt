@@ -1,7 +1,10 @@
 package me.pinfort.tsvideos.catalog.api
 
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
+import me.pinfort.tsvideos.catalog.domain.VideoChapter
+import me.pinfort.tsvideos.catalog.domain.VideoChapters
 import me.pinfort.tsvideos.catalog.domain.VideoResolution
+import me.pinfort.tsvideos.catalog.persistence.CreatedFileChapterMapper
 import me.pinfort.tsvideos.catalog.persistence.CreatedFileMapper
 import me.pinfort.tsvideos.catalog.persistence.GeneratedKeyHolder
 import me.pinfort.tsvideos.storage.api.NasStore
@@ -21,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional
 @Component
 class CreatedFileCatalog internal constructor(
     private val createdFileMapper: CreatedFileMapper,
+    private val chapterMapper: CreatedFileChapterMapper,
     private val logger: Logger,
 ) {
     fun find(id: Long): CreatedFile? = createdFileMapper.find(id)?.toDomain()
@@ -105,8 +109,62 @@ class CreatedFileCatalog internal constructor(
         resolution: VideoResolution,
     ): Boolean = createdFileMapper.updateResolutionIfMissing(id, resolution.width, resolution.height) > 0
 
+    /**
+     * Whether the chapters of [createdFileId] were probed, and the chapters in index order; null when the row does not
+     * exist. The flag is read first: it commits together with the chapters, so a probed flag is never paired with a
+     * partial list.
+     */
+    fun chaptersOf(createdFileId: Long): VideoChapters? {
+        val probed = chapterMapper.chaptersProbed(createdFileId) ?: return null
+        if (!probed) return VideoChapters.NOT_PROBED
+        return VideoChapters(true, chapterMapper.select(createdFileId).map { it.toDomain() })
+    }
+
+    /** The chapters of a video that [findStreamableVideo] would play; null for anything that is not streamable. */
+    fun streamableVideoChapters(id: Long): VideoChapters? {
+        if (findStreamableVideo(id) == null) return null
+        return chaptersOf(id)
+    }
+
+    /**
+     * Mp4 rows whose chapters were never probed, in id order after [afterId] (a keyset cursor, so a caller that records
+     * as it goes neither skips nor revisits rows).
+     */
+    fun videosWithoutChapters(
+        afterId: Long,
+        limit: Int,
+    ): List<CreatedFile> {
+        require(limit > 0) { "limit must be positive: $limit" }
+        return chapterMapper.selectUnprobedVideos(afterId, limit).map { it.toDomain() }
+    }
+
+    /**
+     * Marks the chapters of [id] probed and stores [chapters] (possibly none), only while they are not probed yet;
+     * returns whether this call recorded them. The flag and the chapters commit together with the caller's transaction,
+     * and a concurrent recorder waits on the row lock and then records nothing. [chapters] must be indexed 0..n-1 in
+     * start order with finite, non-negative times and end >= start.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    fun recordChaptersIfMissing(
+        id: Long,
+        chapters: List<VideoChapter>,
+    ): Boolean {
+        chapters.forEachIndexed { position, chapter ->
+            require(chapter.index == position) { "Chapter index ${chapter.index} at position $position" }
+            require(chapter.startSeconds.isFinite() && chapter.startSeconds >= 0) { "Invalid chapter start: $chapter" }
+            require(chapter.endSeconds.isFinite() && chapter.endSeconds >= chapter.startSeconds) { "Invalid chapter end: $chapter" }
+        }
+        require(chapters.zipWithNext().all { (a, b) -> a.startSeconds <= b.startSeconds }) { "Chapters are not in start order" }
+        if (chapterMapper.markProbedIfMissing(id) == 0) return false
+        // Chunked so a file with very many chapters stays within placeholder limits.
+        chapters.chunked(CHAPTER_CHUNK_SIZE).forEach { chapterMapper.insert(id, it) }
+        logger.info("Recorded chapters, createdFileId=$id, count=${chapters.size}")
+        return true
+    }
+
     private companion object {
         const val ID_CHUNK_SIZE = 1000
+        const val CHAPTER_CHUNK_SIZE = 500
     }
 }
 

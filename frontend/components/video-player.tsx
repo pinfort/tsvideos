@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { currentChapterIndex, VideoChapters } from "@/components/video-chapters";
+import type { VideoChapter } from "@/lib/api/types";
 import { getVideoStreamUrl } from "@/lib/api/video";
 import {
   completed,
@@ -14,10 +16,12 @@ export function VideoPlayer({
   videoId,
   programId,
   title,
+  chapters = [],
 }: {
   videoId: number;
   programId?: number;
   title: string;
+  chapters?: VideoChapter[];
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const loaded = useRef(false);
@@ -32,7 +36,15 @@ export function VideoPlayer({
   const [unavailable, setUnavailable] = useState(false);
   const [speed, setSpeed] = useState("1");
   const [notice, setNotice] = useState("");
+  const [currentChapter, setCurrentChapter] = useState<number | null>(null);
+  // Chapter seeks wait for restore: a seek made before metadata would be
+  // overwritten by the saved position restore applies afterwards.
+  const [ready, setReady] = useState(false);
   const src = getVideoStreamUrl(videoId);
+  const trackChapter = () => {
+    if (video.current)
+      setCurrentChapter(currentChapterIndex(chapters, video.current.currentTime));
+  };
 
   const restore = useCallback(() => {
     const player = video.current;
@@ -50,6 +62,7 @@ export function VideoPlayer({
         }
       }
       loaded.current = true;
+      setReady(true);
     }
     player.playbackRate = Number(speedRef.current);
     setUnavailable(false);
@@ -108,10 +121,12 @@ export function VideoPlayer({
         aria-label={title}
         onLoadedMetadata={restore}
         onTimeUpdate={() => {
+          trackChapter();
           if (Date.now() - lastSaved.current >= SAVE_INTERVAL_MS) persist();
         }}
         onPause={persist}
         onSeeked={() => {
+          trackChapter();
           const target = restoringTo.current;
           restoringTo.current = null;
           const player = video.current;
@@ -160,6 +175,20 @@ export function VideoPlayer({
           最初から再生
         </button>
       </div>
+      <VideoChapters
+        chapters={chapters}
+        currentIndex={currentChapter}
+        disabled={!ready}
+        onSelect={(chapter) => {
+          const player = video.current;
+          if (!player || !loaded.current) return;
+          // A user seek like any other: it is saved by onSeeked, never mistaken
+          // for restore's own seek, and leaves playing/paused as it was.
+          restoringTo.current = null;
+          player.currentTime = chapter.startSeconds;
+          setCurrentChapter(chapter.index);
+        }}
+      />
       <p role="status">{notice}</p>
       {unavailable && (
         <div role="alert" className="rounded border p-4">

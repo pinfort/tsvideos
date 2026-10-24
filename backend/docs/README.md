@@ -11,6 +11,7 @@ backend の機能別の運用・設計ドキュメント。マイグレーショ
 | [processing-history.md](processing-history.md) | processor | `tvpcli status` / `history` と処理試行の履歴 |
 | [recording-quality.md](recording-quality.md) | processor | opt-in の録画品質ルール、in-place 隔離 (QUARANTINED) と `tvpcli quality report` / `release` |
 | [verified-uploads.md](verified-uploads.md) | processor | NAS への検証付きアップロード (`upload_manifest`) と所有権・復旧 |
+| [video-chapters.md](video-chapters.md) | processor / manager | mp4 の埋め込みチャプタの取得タイミング・保存形式・未取得と 0 件の区別・API と `tvpcli chapters backfill` の手順 |
 | [graceful-shutdown.md](graceful-shutdown.md) | processor | 停止シグナル受信時の協調的な中断、猶予時間 (`PROCESSOR_SHUTDOWN_GRACE_SECONDS`) と中断後の状態 |
 | [bulk-library.md](bulk-library.md) | manager | 一括削除・移動 (プレビュー → 適用) の仕様 |
 | [library-health.md](library-health.md) | manager | `/health` ダッシュボード、明示的な NAS 検証の実行・保存と、RUNNING のまま残った実行の復旧 |
