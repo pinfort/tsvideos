@@ -81,6 +81,17 @@ internal class FileProcessingPipeline(
         val emergencyTags: Set<String>?,
     )
 
+    // Either a terminal result decided by the pre-claim guards, or the job this invocation now owns.
+    private sealed interface JobClaim {
+        data class Finished(
+            val result: Result,
+        ) : JobClaim
+
+        data class Claimed(
+            val job: ProcessingJob,
+        ) : JobClaim
+    }
+
     fun processFile(
         file: File,
         dryRun: Boolean = false,
@@ -109,29 +120,11 @@ internal class FileProcessingPipeline(
             )
             return Result.DRY_RUN
         }
-        val existing = processingJobCommand.find(identity)
-        if (existing?.state == ProcessingJob.State.QUARANTINED) {
-            logger.warn("Job ${existing.id} remains quarantined in place at ${identity.path}; explicit quality release required")
-            return Result.QUARANTINED
-        }
-        if (existing != null && existing.state != ProcessingJob.State.RETRYABLE) {
-            check(existing.state in ProcessingJob.State.ACCEPTED) { blockedJobMessage(existing) }
-            return Result.SKIPPED_ALREADY_REGISTERED
-        }
-        processingJobCommand.findByPath(identity.path)?.let {
-            check(it.identityKey == identity.key || it.state == ProcessingJob.State.RETRYABLE) {
-                "Changed recording version requires reconciliation of job ${it.id} (${it.state}); " +
-                    "see docs/processing-idempotency.md, then run `tvpcli reset ${identity.path}`"
-            }
-        }
-        executedFileCommand.findByFile(identity.path)?.let {
-            error("Recording path already registered without a matching job; run `tvpcli reset ${identity.path}` before processing")
-        }
-        // Checked before claiming so a name collision leaves no job behind; inspect() re-checks it after the claim.
-        programCommand.findByName(file.name)?.let { error(nameAlreadyRegistered(file)) }
         val job =
-            processingJobCommand.claim(identity)
-                ?: error("Recording already claimed by another invocation")
+            when (val claim = claimJob(file, identity)) {
+                is JobClaim.Finished -> return claim.result
+                is JobClaim.Claimed -> claim.job
+            }
         val runner = RollbackRunner()
         var started: ProcessingAttempt? = null
         var uploadStarted = false
@@ -238,6 +231,37 @@ internal class FileProcessingPipeline(
             throw e
         }
         return Result.PROCESSED
+    }
+
+    // Guards that run before any job is owned, then the claim itself; inspection stays after the claim in processFile.
+    private fun claimJob(
+        file: File,
+        identity: ProcessingIdentity,
+    ): JobClaim {
+        val existing = processingJobCommand.find(identity)
+        if (existing?.state == ProcessingJob.State.QUARANTINED) {
+            logger.warn("Job ${existing.id} remains quarantined in place at ${identity.path}; explicit quality release required")
+            return JobClaim.Finished(Result.QUARANTINED)
+        }
+        if (existing != null && existing.state != ProcessingJob.State.RETRYABLE) {
+            check(existing.state in ProcessingJob.State.ACCEPTED) { blockedJobMessage(existing) }
+            return JobClaim.Finished(Result.SKIPPED_ALREADY_REGISTERED)
+        }
+        processingJobCommand.findByPath(identity.path)?.let {
+            check(it.identityKey == identity.key || it.state == ProcessingJob.State.RETRYABLE) {
+                "Changed recording version requires reconciliation of job ${it.id} (${it.state}); " +
+                    "see docs/processing-idempotency.md, then run `tvpcli reset ${identity.path}`"
+            }
+        }
+        executedFileCommand.findByFile(identity.path)?.let {
+            error("Recording path already registered without a matching job; run `tvpcli reset ${identity.path}` before processing")
+        }
+        // Checked before claiming so a name collision leaves no job behind; inspect() re-checks it after the claim.
+        programCommand.findByName(file.name)?.let { error(nameAlreadyRegistered(file)) }
+        val job =
+            processingJobCommand.claim(identity)
+                ?: error("Recording already claimed by another invocation")
+        return JobClaim.Claimed(job)
     }
 
     private fun nameAlreadyRegistered(file: File) =
