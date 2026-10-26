@@ -60,6 +60,21 @@ class ProcessingJobMapperTest : ExpectSpec() {
             }
         }
 
+    /** Puts a job directly into [state], bypassing the guarded operations under test. */
+    private fun forceState(
+        id: Long,
+        state: State,
+    ) {
+        dataSource.connection.use { connection ->
+            connection.prepareStatement("UPDATE processing_job SET state=? WHERE id=?").use { statement ->
+                statement.setString(1, state.name)
+                statement.setLong(2, id)
+                check(statement.executeUpdate() == 1)
+            }
+            if (!connection.autoCommit) connection.commit()
+        }
+    }
+
     init {
         expect("every state is persisted and read back by its exact constant name") {
             val key = UUID.randomUUID().toString()
@@ -265,10 +280,37 @@ class ProcessingJobMapperTest : ExpectSpec() {
             mapper.link(job.id, 65432, State.CLAIMED)
             mapper.transition(job.id, State.CLAIMED, State.SUBMISSION_UNKNOWN) shouldBe 1
             mapper.removeReset(65432, State.RESETTABLE) shouldBe 0
-            mapper.reconcile(job.id, State.SUBMISSION_UNKNOWN, State.REJECTED, State.CALLBACK) shouldBe 1
+            mapper.reconcile(job.id, State.REJECTED) shouldBe 1
             storedState(job.id) shouldBe "REJECTED"
-            mapper.reconcile(job.id, State.REJECTED, State.SUBMITTED, State.CALLBACK) shouldBe 0
+            mapper.reconcile(job.id, State.SUBMITTED) shouldBe 0
             mapper.removeReset(65432, State.RESETTABLE) shouldBe 1
+        }
+        expect("reconciliation rejects every state other than SUBMISSION_UNKNOWN and leaves the job unchanged") {
+            State.entries.filter { it != State.SUBMISSION_UNKNOWN }.forEach { state ->
+                val key = UUID.randomUUID().toString()
+                claim(key, "/reconcile-${state.name}") shouldBe 1
+                val job = checkNotNull(mapper.find(key))
+                forceState(job.id, state)
+                val before = checkNotNull(mapper.find(key))
+                mapper.reconcile(job.id, State.SUBMITTED) shouldBe 0
+                mapper.reconcile(job.id, State.REJECTED) shouldBe 0
+                mapper.find(key) shouldBe before
+            }
+        }
+        expect("reconciliation rejects a callback-claimed SUBMISSION_UNKNOWN job until the claim is released") {
+            val key = UUID.randomUUID().toString()
+            claim(key, "/reconcile-claimed") shouldBe 1
+            val job = checkNotNull(mapper.find(key))
+            mapper.transition(job.id, State.CLAIMED, State.SUBMISSION_UNKNOWN) shouldBe 1
+            mapper.claimCallback(job.id, "owner", State.CALLBACK) shouldBe 1
+            val before = checkNotNull(mapper.find(key))
+            mapper.reconcile(job.id, State.SUBMITTED) shouldBe 0
+            mapper.find(key) shouldBe before
+            mapper.releaseCallback(job.id, "owner") shouldBe 1
+            mapper.reconcile(job.id, State.SUBMITTED) shouldBe 1
+            val reconciled = checkNotNull(mapper.find(key))
+            reconciled.state shouldBe State.SUBMITTED
+            reconciled.callbackClaim shouldBe null
         }
     }
 }

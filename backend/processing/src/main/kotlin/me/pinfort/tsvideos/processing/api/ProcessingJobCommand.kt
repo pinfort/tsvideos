@@ -105,7 +105,7 @@ class ProcessingJobCommand internal constructor(
         accepted: Boolean,
     ) {
         val next = if (accepted) State.SUBMITTED else State.REJECTED
-        check(mapper.reconcile(job.id, State.SUBMISSION_UNKNOWN, next, State.CALLBACK) == 1) {
+        check(mapper.reconcile(job.id, next) == 1) {
             "Job ${job.id} is no longer an unclaimed SUBMISSION_UNKNOWN job"
         }
     }
