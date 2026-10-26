@@ -13,6 +13,7 @@ import me.pinfort.tsvideos.processing.domain.ProcessingAttempt
 import me.pinfort.tsvideos.processing.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.processing.domain.ProcessingErrorCode
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
+import me.pinfort.tsvideos.processing.domain.ProcessingJob
 import me.pinfort.tsvideos.processing.domain.ProcessingOutcome
 import me.pinfort.tsvideos.processing.domain.ProcessingStage
 import me.pinfort.tsvideos.processing.external.slack.SlackClient
@@ -109,7 +110,7 @@ class AfterEncodeRunner internal constructor(
                 throw e
             }
         // claim 前のスナップショット。この呼び出し内で完了した後の失敗は履歴の記録だけなので、catch で completed として扱う。
-        val alreadyCompleted = job?.state == "COMPLETED"
+        val alreadyCompleted = job?.state == ProcessingJob.State.COMPLETED
         var completed = false
         var attempt: ProcessingAttempt? = null
         var primaryFailure: Exception? = null

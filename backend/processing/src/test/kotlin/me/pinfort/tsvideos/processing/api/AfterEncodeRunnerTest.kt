@@ -21,6 +21,7 @@ import me.pinfort.tsvideos.processing.api.tool.ChapterProbeClient
 import me.pinfort.tsvideos.processing.api.tool.VideoResolutionProbeClient
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
 import me.pinfort.tsvideos.processing.domain.ProcessingJob
+import me.pinfort.tsvideos.processing.domain.ProcessingJob.State
 import me.pinfort.tsvideos.processing.domain.VerifiedUploadReceipt
 import me.pinfort.tsvideos.processing.external.slack.SlackClient
 import me.pinfort.tsvideos.processing.pipeline.historyFixture
@@ -58,7 +59,7 @@ class AfterEncodeRunnerTest :
             val chapterProbe = mockk<ChapterProbeClient>()
             val chapters = listOf(VideoChapter(0, 0.0, 5.739, "A"), VideoChapter(1, 5.739, 30.0, "CM"))
             val identity = ProcessingIdentity.from(original)
-            val job = ProcessingJob(1, identity.key, identity.path, identity.size, identity.modifiedMillis, "SUBMITTED", 10, null)
+            val job = ProcessingJob(1, identity.key, identity.path, identity.size, identity.modifiedMillis, State.SUBMITTED, 10, null)
             val splitRow = SplittedFile(20, 10, split.canonicalPath, split.length(), 1.0, SplittedFile.Status.COMPRESS_SAVED)
             val program = Program(1, "raw", 10, Program.Status.REGISTERED, 0, 8, LocalDateTime.now(), "ch", "title", "name", 1.0)
             val receipt = VerifiedUploadReceipt(123)
@@ -511,9 +512,9 @@ class AfterEncodeRunnerTest :
         expect("completes a job whose submission acknowledgement has not been recorded yet") {
             val f = Fixture()
             try {
-                every { f.jobs.findByExecutedFile(10) } returns f.job.copy(state = "SUBMISSION_UNKNOWN")
+                every { f.jobs.findByExecutedFile(10) } returns f.job.copy(state = State.SUBMISSION_UNKNOWN)
                 f.run()
-                verify { f.jobs.complete(match { it.state == "SUBMISSION_UNKNOWN" }) }
+                verify { f.jobs.complete(match { it.state == State.SUBMISSION_UNKNOWN }) }
                 verify { f.programs.updateStatusByExecutedFileId(10, Program.Status.COMPLETED, false) }
             } finally {
                 f.cleanup()
@@ -563,7 +564,7 @@ class AfterEncodeRunnerTest :
         expect("a failing replay of a completed job keeps the existing outcome") {
             val f = Fixture()
             try {
-                every { f.jobs.findByExecutedFile(10) } returns f.job.copy(state = "COMPLETED")
+                every { f.jobs.findByExecutedFile(10) } returns f.job.copy(state = State.COMPLETED)
                 every { f.uploads.upload(any(), any(), any(), any(), any(), any()) } throws IllegalStateException("source gone")
                 shouldThrow<IllegalStateException> { f.run() }
                 verify(exactly = 0) { f.programs.updateStatusByExecutedFileId(any(), any(), any()) }

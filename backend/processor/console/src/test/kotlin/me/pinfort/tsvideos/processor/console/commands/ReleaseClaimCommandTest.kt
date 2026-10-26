@@ -23,7 +23,7 @@ class ReleaseClaimCommandTest :
         lateinit var question: UserQuestionComponent
         lateinit var command: ReleaseClaimCommand
         val path = File("/rec/rec.m2ts").canonicalPath
-        val job = ProcessingJob(7, "key", path, 1, 1, "CLAIMED", 10, null)
+        val job = ProcessingJob(7, "key", path, 1, 1, ProcessingJob.State.CLAIMED, 10, null)
         val stale =
             UploadManifest(
                 3,

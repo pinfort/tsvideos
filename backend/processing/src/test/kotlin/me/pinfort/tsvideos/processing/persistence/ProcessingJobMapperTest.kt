@@ -8,6 +8,7 @@ import io.kotest.matchers.shouldNotBe
 import me.pinfort.tsvideos.processing.api.ProcessingJobClaimCommand
 import me.pinfort.tsvideos.processing.api.ProcessingJobCommand
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
+import me.pinfort.tsvideos.processing.domain.ProcessingJob.State
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -43,20 +44,47 @@ class ProcessingJobMapperTest : ExpectSpec() {
 
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
 
+    private fun claim(
+        key: String,
+        path: String,
+    ) = mapper.claim(key, path, 1, 2, State.CLAIMED)
+
+    private fun storedState(id: Long): String =
+        dataSource.connection.use { connection ->
+            connection.prepareStatement("SELECT state FROM processing_job WHERE id=?").use { statement ->
+                statement.setLong(1, id)
+                statement.executeQuery().use { result ->
+                    check(result.next())
+                    result.getString(1)
+                }
+            }
+        }
+
     init {
+        expect("every state is persisted and read back by its exact constant name") {
+            val key = UUID.randomUUID().toString()
+            claim(key, "/persisted-names") shouldBe 1
+            val job = checkNotNull(mapper.find(key))
+            storedState(job.id) shouldBe "CLAIMED"
+            State.entries.zipWithNext().forEach { (from, to) ->
+                mapper.transition(job.id, from, to) shouldBe 1
+                storedState(job.id) shouldBe to.name
+                mapper.find(key)?.state shouldBe to
+            }
+        }
         expect("stale transitions and repeated registration links cannot overwrite a job") {
             val key = UUID.randomUUID().toString()
-            mapper.claim(key, "/guarded", 1, 2)
+            claim(key, "/guarded")
             val job = checkNotNull(mapper.find(key))
-            mapper.link(job.id, 87654) shouldBe 1
-            mapper.link(job.id, 87655) shouldBe 0
-            mapper.transition(job.id, "SUBMITTED", "COMPLETED") shouldBe 0
-            mapper.transition(job.id, "CLAIMED", "SUBMISSION_UNKNOWN") shouldBe 1
-            mapper.link(job.id, 87656) shouldBe 0
-            mapper.transition(job.id, "CLAIMED", "RETRYABLE") shouldBe 0
+            mapper.link(job.id, 87654, State.CLAIMED) shouldBe 1
+            mapper.link(job.id, 87655, State.CLAIMED) shouldBe 0
+            mapper.transition(job.id, State.SUBMITTED, State.COMPLETED) shouldBe 0
+            mapper.transition(job.id, State.CLAIMED, State.SUBMISSION_UNKNOWN) shouldBe 1
+            mapper.link(job.id, 87656, State.CLAIMED) shouldBe 0
+            mapper.transition(job.id, State.CLAIMED, State.RETRYABLE) shouldBe 0
             command.complete(job)
             command.acknowledgeSubmission(job)
-            mapper.find(key)?.state shouldBe "COMPLETED"
+            mapper.find(key)?.state shouldBe State.COMPLETED
         }
         expect("duplicate claim can atomically reacquire only a known retryable job") {
             val key = UUID.randomUUID().toString()
@@ -64,7 +92,7 @@ class ProcessingJobMapperTest : ExpectSpec() {
                 ProcessingIdentity(key, "/retry-command", 1, 2)
             val job = checkNotNull(command.claim(identity))
             command.claim(identity) shouldBe null
-            command.transition(job, "CLAIMED", "RETRYABLE")
+            command.transition(job, State.CLAIMED, State.RETRYABLE)
             command.claim(identity)?.id shouldBe job.id
             command.claim(identity) shouldBe null
         }
@@ -74,7 +102,7 @@ class ProcessingJobMapperTest : ExpectSpec() {
             val outerKey = UUID.randomUUID().toString()
             TransactionTemplate(transactionManager).executeWithoutResult {
                 command.claim(identity) shouldBe null
-                mapper.claim(outerKey, "/outer-work", 1, 2) shouldBe 1
+                claim(outerKey, "/outer-work") shouldBe 1
             }
             mapper.find(outerKey) shouldNotBe null
         }
@@ -98,37 +126,39 @@ class ProcessingJobMapperTest : ExpectSpec() {
             }
             val job = checkNotNull(mapper.findByExecutedFile(76543))
             job.modifiedMillis shouldBe -1
-            mapper.claimCallback(job.id, "legacy-owner") shouldBe 1
-            mapper.transition(job.id, "SUBMITTED", "COMPLETED") shouldBe 1
+            job.state shouldBe State.SUBMITTED
+            mapper.claimCallback(job.id, "legacy-owner", State.CALLBACK) shouldBe 1
+            mapper.transition(job.id, State.SUBMITTED, State.COMPLETED) shouldBe 1
             mapper.releaseCallback(job.id, "legacy-owner") shouldBe 1
-            mapper.prepareReset(job.id) shouldBe 1
+            mapper.prepareReset(job.id, State.RESETTING, State.RESETTABLE) shouldBe 1
             // an interrupted reset can be replayed
-            mapper.prepareReset(job.id) shouldBe 1
-            mapper.claimCallback(job.id, "racing-callback") shouldBe 0
+            mapper.prepareReset(job.id, State.RESETTING, State.RESETTABLE) shouldBe 1
+            mapper.claimCallback(job.id, "racing-callback", State.CALLBACK) shouldBe 0
             mapper.find(job.identityKey)?.updatedAt shouldNotBe null
         }
         expect("only proven rollback can be retried and active claims cannot reset") {
             val key = UUID.randomUUID().toString()
-            mapper.claim(key, "/safe-retry", 1, 2) shouldBe 1
+            claim(key, "/safe-retry") shouldBe 1
             val job = checkNotNull(mapper.find(key))
-            mapper.prepareReset(job.id) shouldBe 0
-            mapper.retry(key) shouldBe 0
-            mapper.transition(job.id, "CLAIMED", "RETRYABLE") shouldBe 1
-            mapper.retry(key) shouldBe 1
-            mapper.retry(key) shouldBe 0
+            mapper.prepareReset(job.id, State.RESETTING, State.RESETTABLE) shouldBe 0
+            mapper.retry(key, State.RETRYABLE, State.CLAIMED) shouldBe 0
+            mapper.transition(job.id, State.CLAIMED, State.RETRYABLE) shouldBe 1
+            mapper.retry(key, State.RETRYABLE, State.CLAIMED) shouldBe 1
+            mapper.retry(key, State.RETRYABLE, State.CLAIMED) shouldBe 0
         }
         expect("retry starts from a clean link and callback manifest") {
             val key = UUID.randomUUID().toString()
-            mapper.claim(key, "/stale-manifest", 1, 2) shouldBe 1
+            claim(key, "/stale-manifest") shouldBe 1
             val job = checkNotNull(mapper.find(key))
-            mapper.link(job.id, 87700) shouldBe 1
-            mapper.transition(job.id, "CLAIMED", "SUBMISSION_UNKNOWN") shouldBe 1
-            mapper.claimCallback(job.id, "owner") shouldBe 1
+            mapper.link(job.id, 87700, State.CLAIMED) shouldBe 1
+            mapper.transition(job.id, State.CLAIMED, State.SUBMISSION_UNKNOWN) shouldBe 1
+            mapper.claimCallback(job.id, "owner", State.CALLBACK) shouldBe 1
             mapper.manifest(job.id, "owner", "a".repeat(64)) shouldBe 1
             mapper.releaseCallback(job.id, "owner") shouldBe 1
-            mapper.transition(job.id, "SUBMISSION_UNKNOWN", "RETRYABLE") shouldBe 1
-            mapper.retry(key) shouldBe 1
+            mapper.transition(job.id, State.SUBMISSION_UNKNOWN, State.RETRYABLE) shouldBe 1
+            mapper.retry(key, State.RETRYABLE, State.CLAIMED) shouldBe 1
             val retried = checkNotNull(mapper.find(key))
+            retried.state shouldBe State.CLAIMED
             retried.executedFileId shouldBe null
             retried.callbackManifest shouldBe null
         }
@@ -161,10 +191,10 @@ class ProcessingJobMapperTest : ExpectSpec() {
                 ) shouldBe null
                 val job = checkNotNull(mapper.find(key))
                 job.inputSize shouldBe 12
-                job.state shouldBe "CLAIMED"
-                mapper.link(job.id, 54321) shouldBe 1
+                job.state shouldBe State.CLAIMED
+                mapper.link(job.id, 54321, State.CLAIMED) shouldBe 1
                 mapper.findByExecutedFile(54321)?.id shouldBe job.id
-                command.transition(job, "CLAIMED", "RETRYABLE")
+                command.transition(job, State.CLAIMED, State.RETRYABLE)
                 val retryStart = CountDownLatch(1)
                 val retries =
                     (1..4).map {
@@ -190,10 +220,10 @@ class ProcessingJobMapperTest : ExpectSpec() {
         }
         expect("callback ownership is exclusive and manifest cannot change on retry") {
             val key = UUID.randomUUID().toString()
-            mapper.claim(key, "/callback", 1, 2)
+            claim(key, "/callback")
             val job = checkNotNull(mapper.find(key))
-            mapper.transition(job.id, "CLAIMED", "SUBMISSION_UNKNOWN")
-            mapper.transition(job.id, "SUBMISSION_UNKNOWN", "SUBMITTED")
+            mapper.transition(job.id, State.CLAIMED, State.SUBMISSION_UNKNOWN)
+            mapper.transition(job.id, State.SUBMISSION_UNKNOWN, State.SUBMITTED)
             val start = CountDownLatch(1)
             val pool = Executors.newFixedThreadPool(4)
             try {
@@ -202,7 +232,7 @@ class ProcessingJobMapperTest : ExpectSpec() {
                         pool.submit(
                             Callable {
                                 start.await()
-                                mapper.claimCallback(job.id, "owner-$n")
+                                mapper.claimCallback(job.id, "owner-$n", State.CALLBACK)
                             },
                         )
                     }
@@ -213,21 +243,32 @@ class ProcessingJobMapperTest : ExpectSpec() {
                 mapper.manifest(job.id, owner, "manifest-two") shouldBe 0
                 mapper.releaseCallback(job.id, "wrong-owner") shouldBe 0
                 mapper.releaseCallback(job.id, owner) shouldBe 1
-                mapper.claimCallback(job.id, "retry") shouldBe 1
+                mapper.claimCallback(job.id, "retry", State.CALLBACK) shouldBe 1
                 mapper.manifest(job.id, "retry", "manifest-one") shouldBe 1
             } finally {
                 pool.shutdownNow()
             }
         }
+        expect("callbacks cannot claim a job outside the callback states") {
+            val key = UUID.randomUUID().toString()
+            claim(key, "/callback-states")
+            val job = checkNotNull(mapper.find(key))
+            mapper.claimCallback(job.id, "early", State.CALLBACK) shouldBe 0
+            mapper.transition(job.id, State.CLAIMED, State.RETRYABLE) shouldBe 1
+            mapper.claimCallback(job.id, "late", State.CALLBACK) shouldBe 0
+            mapper.find(key)?.callbackClaim shouldBe null
+        }
         expect("uncertain submission requires explicit reconciliation and cannot be reset") {
             val key = UUID.randomUUID().toString()
-            mapper.claim(key, "/unknown", 1, 2)
+            claim(key, "/unknown")
             val job = checkNotNull(mapper.find(key))
-            mapper.link(job.id, 65432)
-            mapper.transition(job.id, "CLAIMED", "SUBMISSION_UNKNOWN") shouldBe 1
-            mapper.removeReset(65432) shouldBe 0
-            mapper.reconcile(job.id, "SUBMISSION_UNKNOWN", "REJECTED") shouldBe 1
-            mapper.removeReset(65432) shouldBe 1
+            mapper.link(job.id, 65432, State.CLAIMED)
+            mapper.transition(job.id, State.CLAIMED, State.SUBMISSION_UNKNOWN) shouldBe 1
+            mapper.removeReset(65432, State.RESETTABLE) shouldBe 0
+            mapper.reconcile(job.id, State.SUBMISSION_UNKNOWN, State.REJECTED, State.CALLBACK) shouldBe 1
+            storedState(job.id) shouldBe "REJECTED"
+            mapper.reconcile(job.id, State.REJECTED, State.SUBMITTED, State.CALLBACK) shouldBe 0
+            mapper.removeReset(65432, State.RESETTABLE) shouldBe 1
         }
     }
 }

@@ -110,16 +110,16 @@ internal class FileProcessingPipeline(
             return Result.DRY_RUN
         }
         val existing = processingJobCommand.find(identity)
-        if (existing?.state == "QUARANTINED") {
+        if (existing?.state == ProcessingJob.State.QUARANTINED) {
             logger.warn("Job ${existing.id} remains quarantined in place at ${identity.path}; explicit quality release required")
             return Result.QUARANTINED
         }
-        if (existing != null && existing.state != "RETRYABLE") {
-            check(existing.state in setOf("SUBMITTED", "COMPLETED")) { blockedJobMessage(existing) }
+        if (existing != null && existing.state != ProcessingJob.State.RETRYABLE) {
+            check(existing.state in ProcessingJob.State.ACCEPTED) { blockedJobMessage(existing) }
             return Result.SKIPPED_ALREADY_REGISTERED
         }
         processingJobCommand.findByPath(identity.path)?.let {
-            check(it.identityKey == identity.key || it.state == "RETRYABLE") {
+            check(it.identityKey == identity.key || it.state == ProcessingJob.State.RETRYABLE) {
                 "Changed recording version requires reconciliation of job ${it.id} (${it.state}); " +
                     "see docs/processing-idempotency.md, then run `tvpcli reset ${identity.path}`"
             }
@@ -207,7 +207,7 @@ internal class FileProcessingPipeline(
             // Once submission starts rollback would destroy input possibly already consumed by the encoder.
             history.stage(attempt.id, ProcessingStage.SUBMIT_ENCODER) {
                 cancellation.check()
-                processingJobCommand.transition(job, "CLAIMED", "SUBMISSION_UNKNOWN")
+                processingJobCommand.transition(job, ProcessingJob.State.CLAIMED, ProcessingJob.State.SUBMISSION_UNKNOWN)
                 cancellation.check()
                 amatsukazeAddTask(mainSplittedFile)
                 cancellation.check()
@@ -246,10 +246,11 @@ internal class FileProcessingPipeline(
     private fun blockedJobMessage(job: ProcessingJob): String {
         val reason =
             when (job.state) {
-                "CLAIMED" ->
+                ProcessingJob.State.CLAIMED ->
                     "another invocation is processing it, or an earlier one stopped after its upload started " +
                         "or without finishing rollback"
-                "SUBMISSION_UNKNOWN" -> "encoder submission may have succeeded; check the encoder queue before reconciling"
+                ProcessingJob.State.SUBMISSION_UNKNOWN ->
+                    "encoder submission may have succeeded; check the encoder queue before reconciling"
                 else -> "finish its reset (`tvpcli reset ${job.inputPath}`) before processing"
             }
         return "Job ${job.id} is ${job.state} (last updated ${job.updatedAt} UTC): $reason. See docs/processing-idempotency.md"
@@ -263,7 +264,7 @@ internal class FileProcessingPipeline(
     ): Boolean {
         try {
             if (executedFileCommand.findByFile(identity.path) != null) return false
-            processingJobCommand.transition(job, "CLAIMED", "RETRYABLE")
+            processingJobCommand.transition(job, ProcessingJob.State.CLAIMED, ProcessingJob.State.RETRYABLE)
             return true
         } catch (e: Exception) {
             failure.addSuppressed(e)

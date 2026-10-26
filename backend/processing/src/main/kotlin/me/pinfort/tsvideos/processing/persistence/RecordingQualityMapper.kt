@@ -29,8 +29,8 @@ internal interface RecordingQualityMapper {
     )
     fun transition(
         id: Long,
-        expected: String,
-        next: String,
+        expected: ProcessingJob.State,
+        next: ProcessingJob.State,
     ): Int
 
     @Insert(

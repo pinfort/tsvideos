@@ -4,6 +4,7 @@ import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
+import me.pinfort.tsvideos.processing.domain.ProcessingJob
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
 import java.io.File
@@ -78,7 +79,7 @@ class ResetRunner(
         dryRun: Boolean,
     ): Boolean {
         val job = processingJobCommand.findByPath(target) ?: return false
-        if (job.state != "RESETTING") return false
+        if (job.state != ProcessingJob.State.RESETTING) return false
         val executedId = checkNotNull(job.executedFileId) { "Reset job has no registration identity" }
         check(
             job.callbackClaim == null &&
