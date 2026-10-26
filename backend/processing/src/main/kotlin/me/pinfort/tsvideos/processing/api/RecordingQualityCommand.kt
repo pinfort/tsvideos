@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.processing.api
 import me.pinfort.tsvideos.processing.domain.ProcessingErrorCode
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
 import me.pinfort.tsvideos.processing.domain.ProcessingJob
+import me.pinfort.tsvideos.processing.domain.ProcessingJob.State
 import me.pinfort.tsvideos.processing.domain.ProcessingOutcome
 import me.pinfort.tsvideos.processing.domain.QualityAction
 import me.pinfort.tsvideos.processing.domain.QualityReleaseRefusedException
@@ -34,7 +35,7 @@ class RecordingQualityCommand internal constructor(
         decision: RecordingQualityDecision,
     ) {
         val current = checkNotNull(mapper.lockJob(job.id)) { "Processing job not found" }
-        check(current.identityKey == job.identityKey && current.state == "CLAIMED" && current.executedFileId == null) {
+        check(current.identityKey == job.identityKey && current.state == State.CLAIMED && current.executedFileId == null) {
             "Quality checks require an owned unregistered job"
         }
         check(mapper.ownedAttempt(attemptId, job.id) == 1) { "Quality attempt is not active" }
@@ -43,7 +44,7 @@ class RecordingQualityCommand internal constructor(
                 1,
         ) { "Quality report for attempt $attemptId was not recorded" }
         if (decision.action != QualityAction.QUARANTINE) return
-        check(mapper.transition(job.id, "CLAIMED", "QUARANTINED") == 1) { "Job ${job.id} could not be quarantined" }
+        check(mapper.transition(job.id, State.CLAIMED, State.QUARANTINED) == 1) { "Job ${job.id} could not be quarantined" }
         // Same transaction as the transition: a committed quarantine never leaves an ACTIVE attempt blocking release.
         check(
             historyMapper.finish(attemptId, ProcessingOutcome.FAILED.name, ProcessingErrorCode.QUALITY_QUARANTINED.name) == 1,
@@ -63,14 +64,14 @@ class RecordingQualityCommand internal constructor(
     ) {
         require(jobId > 0)
         val job = checkNotNull(mapper.lockJob(jobId)) { "Processing job not found" }
-        refuseUnless(job.state == "QUARANTINED" && job.executedFileId == null && job.callbackClaim == null, Reason.NOT_QUARANTINED)
+        refuseUnless(job.state == State.QUARANTINED && job.executedFileId == null && job.callbackClaim == null, Reason.NOT_QUARANTINED)
         refuseUnless(mapper.activeAttempts(jobId) == 0, Reason.ACTIVE_ATTEMPT)
         // Checked under the job row lock on purpose, so no process run can claim the job between this check and the
         // transition. It is a single metadata read of the original, not a content read.
         val source = File(job.inputPath)
         refuseUnless(source.isFile && ProcessingIdentity.from(source).key == job.identityKey, Reason.SOURCE_CHANGED)
         if (dryRun) return
-        refuseUnless(mapper.transition(jobId, "QUARANTINED", "RETRYABLE") == 1, Reason.CHANGED_CONCURRENTLY)
+        refuseUnless(mapper.transition(jobId, State.QUARANTINED, State.RETRYABLE) == 1, Reason.CHANGED_CONCURRENTLY)
     }
 
     private fun refuseUnless(

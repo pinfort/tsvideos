@@ -16,6 +16,7 @@ import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
 import me.pinfort.tsvideos.catalog.domain.ExecutedFile
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
+import me.pinfort.tsvideos.processing.domain.ProcessingJob
 import org.slf4j.Logger
 import java.io.File
 import java.nio.file.Files
@@ -97,13 +98,13 @@ class ResetRunnerTest :
         expect("repeated reset finishes manifest cleanup after program records have been deleted") {
             val fixture = ResetFixture()
             val job =
-                me.pinfort.tsvideos.processing.domain.ProcessingJob(
+                ProcessingJob(
                     12,
                     "key",
                     fixture.executedFile.canonicalPath,
                     8,
                     1,
-                    "RESETTING",
+                    ProcessingJob.State.RESETTING,
                     1,
                     null,
                 )

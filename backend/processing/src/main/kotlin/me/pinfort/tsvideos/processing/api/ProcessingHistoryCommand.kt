@@ -205,7 +205,7 @@ class ProcessingHistoryCommand internal constructor(
                         id,
                         job?.identityKey ?: checkNotNull(identity).identityKey,
                         job?.inputPath ?: checkNotNull(identity).inputPath,
-                        job?.state ?: "RETIRED",
+                        job?.state?.name ?: ProcessingStatus.RETIRED,
                         history.lastOrNull(),
                         history.filter { it.outcome == ProcessingOutcome.ACTIVE },
                     )

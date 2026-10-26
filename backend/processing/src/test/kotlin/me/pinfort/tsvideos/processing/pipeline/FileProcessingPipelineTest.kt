@@ -38,6 +38,7 @@ import me.pinfort.tsvideos.processing.api.tool.AmatsukazeAddTaskClient
 import me.pinfort.tsvideos.processing.api.tool.DurationProbeClient
 import me.pinfort.tsvideos.processing.api.tool.TsSplitterClient
 import me.pinfort.tsvideos.processing.domain.ProcessingJob
+import me.pinfort.tsvideos.processing.domain.ProcessingJob.State
 import me.pinfort.tsvideos.processing.domain.ProcessingOutcome
 import me.pinfort.tsvideos.processing.domain.ProcessingStage
 import me.pinfort.tsvideos.processing.domain.QualityAction
@@ -113,9 +114,9 @@ class FileProcessingPipelineTest :
             qualityReports = mockk(relaxed = true)
             every { jobs.find(any()) } returns null
             every { jobs.findByPath(any()) } returns null
-            every { jobs.claim(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "CLAIMED", null, null)
+            every { jobs.claim(any()) } returns ProcessingJob(1, "key", "path", 1, 1, State.CLAIMED, null, null)
             every { executedFileCommand.findByFile(any()) } returns null
-            every { jobs.findByExecutedFile(any()) } returns ProcessingJob(1, "key", "path", 1, 1, "SUBMITTED", 1, null)
+            every { jobs.findByExecutedFile(any()) } returns ProcessingJob(1, "key", "path", 1, 1, State.SUBMITTED, 1, null)
             every { jobs.claimCallback(any()) } returns "token"
             every { createdFileCommand.selectBySplittedFileId(any()) } returns emptyList()
             every { nasComponent.matchesSize(any(), any(), any()) } returns true
@@ -206,7 +207,7 @@ class FileProcessingPipelineTest :
         expect("existing quarantine remains held without inspection even when policy is disabled") {
             val original = newOriginalFile()
             every { jobs.find(any()) } returns
-                ProcessingJob(1, "key", original.canonicalPath, original.length(), original.lastModified(), "QUARANTINED", null, null)
+                ProcessingJob(1, "key", original.canonicalPath, original.length(), original.lastModified(), State.QUARANTINED, null, null)
             fileProcessingPipeline.processFile(original) shouldBe FileProcessingPipeline.Result.QUARANTINED
             verify {
                 quality wasNot Called
@@ -227,7 +228,7 @@ class FileProcessingPipelineTest :
             every { qualityReports.record(any(), 44, any()) } throws failure
             shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) } shouldBe failure
             verify { history.failed(44, failure) }
-            verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
             verify(exactly = 0) { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
             original.exists() shouldBe true
         }
@@ -243,7 +244,7 @@ class FileProcessingPipelineTest :
             every { qualityReports.record(any(), 44, any()) } throws failure
             shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) } shouldBe failure
             verify { history.failed(44, failure) }
-            verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+            verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
             verify(exactly = 0) { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
             verify { tsSplitterClient wasNot Called }
         }
@@ -325,7 +326,7 @@ class FileProcessingPipelineTest :
                         verify(exactly = 0) { history.begin(any(), any()) }
                     } else {
                         verify { history.failed(44, any()) }
-                        verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                        verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
                     }
                 }
             }
@@ -479,7 +480,7 @@ class FileProcessingPipelineTest :
                         original.canonicalPath,
                         original.length(),
                         original.lastModified(),
-                        "SUBMISSION_UNKNOWN",
+                        State.SUBMISSION_UNKNOWN,
                         10,
                         null,
                     )
@@ -524,7 +525,7 @@ class FileProcessingPipelineTest :
                 val original = File.createTempFile("process-file-test", ".m2ts")
                 original.writeBytes("x".toByteArray())
                 every { jobs.find(any()) } returns
-                    ProcessingJob(1, "key", original.canonicalPath, original.length(), original.lastModified(), "SUBMITTED", 10, null)
+                    ProcessingJob(1, "key", original.canonicalPath, original.length(), original.lastModified(), State.SUBMITTED, 10, null)
                 val program = mockk<Program>()
                 every { programCommand.findByName(original.name) } returns program
 
@@ -552,7 +553,8 @@ class FileProcessingPipelineTest :
             expect("a CLAIMED job names its age and possible causes") {
                 val original = newOriginalFile()
                 every { jobs.find(any()) } returns
-                    ProcessingJob(1, "key", original.canonicalPath, 1, 1, "CLAIMED", 10, null, null, LocalDateTime.of(2026, 10, 1, 3, 4))
+                    ProcessingJob(1, "key", original.canonicalPath, 1, 1, State.CLAIMED, 10, null)
+                        .copy(updatedAt = LocalDateTime.of(2026, 10, 1, 3, 4))
 
                 val e = shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
 
@@ -709,7 +711,7 @@ class FileProcessingPipelineTest :
 
                 verify { executedFileCommand.delete(executedFile, false) }
                 verify { tsSplitterClient wasNot Called }
-                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
             }
 
             expect("a history failure after an acknowledged submission still reports the recording processed") {
@@ -735,7 +737,7 @@ class FileProcessingPipelineTest :
 
                 verify(exactly = 0) { tsSelectClient.check(any(), any()) }
                 verify(exactly = 0) { history.failed(any(), any()) }
-                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
             }
 
             expect("a compress failure removes the partial archive and releases the job for retry") {
@@ -748,7 +750,7 @@ class FileProcessingPipelineTest :
 
                 archive.exists() shouldBe false
                 verify(exactly = 0) { nasComponent.uploadResource(any(), any(), any(), any()) }
-                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
             }
 
             expect("an upload failure keeps the job claimed for reconciliation") {
@@ -758,7 +760,7 @@ class FileProcessingPipelineTest :
 
                 shouldThrow<RuntimeException> { fileProcessingPipeline.processFile(original) }
 
-                verify(exactly = 0) { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                verify(exactly = 0) { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
                 verify { logger.error(match<String> { it.contains("requires reconciliation") }, any<Throwable>()) }
             }
 
@@ -768,7 +770,7 @@ class FileProcessingPipelineTest :
 
                 shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
 
-                verify { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
             }
 
             expect("a partially failed rollback keeps the job claimed for reconciliation") {
@@ -779,13 +781,13 @@ class FileProcessingPipelineTest :
                 val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
 
                 e.suppressed.map { it.message } shouldBe listOf("db down")
-                verify(exactly = 0) { jobs.transition(any(), "CLAIMED", "RETRYABLE") }
+                verify(exactly = 0) { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
             }
 
             expect("a failure to release the job does not mask the processing failure") {
                 val original = newOriginalFile()
                 stubFailingSplit(original)
-                every { jobs.transition(any(), "CLAIMED", "RETRYABLE") } throws IllegalStateException("state changed")
+                every { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) } throws IllegalStateException("state changed")
 
                 val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
 
@@ -944,7 +946,7 @@ class FileProcessingPipelineTest :
                     }
 
                     verify(exactly = 0) { jobs.acknowledgeSubmission(any()) }
-                    verify { jobs.transition(any(), "CLAIMED", "SUBMISSION_UNKNOWN") }
+                    verify { jobs.transition(any(), State.CLAIMED, State.SUBMISSION_UNKNOWN) }
                     verify(exactly = 0) { createdFileCommand.delete(any(), any()) }
                     verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
                     splitFile.exists() shouldBe true

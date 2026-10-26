@@ -10,6 +10,7 @@ import io.mockk.mockk
 import me.pinfort.tsvideos.processing.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.processing.domain.ProcessingErrorCode
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
+import me.pinfort.tsvideos.processing.domain.ProcessingJob.State
 import me.pinfort.tsvideos.processing.domain.ProcessingOutcome
 import me.pinfort.tsvideos.processing.domain.QualityAction
 import me.pinfort.tsvideos.processing.domain.QualityReleaseRefusedException
@@ -57,12 +58,12 @@ class RecordingQualityCommandTest : ExpectSpec() {
             try {
                 source.writeText("original")
                 val identity = ProcessingIdentity.from(source)
-                jobs.claim(identity.key, identity.path, identity.size, identity.modifiedMillis)
+                jobs.claim(identity.key, identity.path, identity.size, identity.modifiedMillis, State.CLAIMED)
                 val job = checkNotNull(jobs.find(identity.key))
                 val history = ProcessingHistoryCommand(histories, transactions, mockk(relaxed = true))
                 val attempt = history.begin(job, ProcessingAttemptKind.PROCESS)
                 command.record(job, attempt.id, RecordingQualityDecision(QualityAction.QUARANTINE, emptyList()))
-                jobs.find(identity.key)?.state shouldBe "QUARANTINED"
+                jobs.find(identity.key)?.state shouldBe State.QUARANTINED
                 // The quarantine finishes its own attempt, so nothing is left ACTIVE to block release.
                 checkNotNull(histories.attempt(attempt.id)).let {
                     it.outcome shouldBe ProcessingOutcome.FAILED
@@ -79,15 +80,15 @@ class RecordingQualityCommandTest : ExpectSpec() {
                 source.writeText("original")
                 source.setLastModified(identity.modifiedMillis) shouldBe true
                 command.release(job.id, dryRun = true)
-                jobs.find(identity.key)?.state shouldBe "QUARANTINED"
+                jobs.find(identity.key)?.state shouldBe State.QUARANTINED
                 command.release(job.id)
-                jobs.find(identity.key)?.state shouldBe "RETRYABLE"
+                jobs.find(identity.key)?.state shouldBe State.RETRYABLE
                 command.reports(job.id).single().action shouldBe QualityAction.QUARANTINE
                 shouldThrow<QualityReleaseRefusedException> { command.release(job.id) }.reason shouldBe Reason.NOT_QUARANTINED
-                jobs.retry(identity.key) shouldBe 1
-                jobs.link(job.id, 987654321) shouldBe 1
-                jobs.transition(job.id, "CLAIMED", "RETRYABLE") shouldBe 1
-                jobs.removeReset(987654321) shouldBe 1
+                jobs.retry(identity.key, State.RETRYABLE, State.CLAIMED) shouldBe 1
+                jobs.link(job.id, 987654321, State.CLAIMED) shouldBe 1
+                jobs.transition(job.id, State.CLAIMED, State.RETRYABLE) shouldBe 1
+                jobs.removeReset(987654321, State.RESETTABLE) shouldBe 1
                 RecordingQualityCommand(qualityMapper, histories).reports(job.id).single() shouldBe saved
                 history.status(job.id).single().jobState shouldBe "RETIRED"
             } finally {
@@ -100,7 +101,7 @@ class RecordingQualityCommandTest : ExpectSpec() {
             try {
                 source.writeText("original")
                 val identity = ProcessingIdentity.from(source)
-                jobs.claim(identity.key, identity.path, identity.size, identity.modifiedMillis)
+                jobs.claim(identity.key, identity.path, identity.size, identity.modifiedMillis, State.CLAIMED)
                 val job = checkNotNull(jobs.find(identity.key))
                 val history = ProcessingHistoryCommand(histories, transactions, mockk(relaxed = true))
                 val attempt = history.begin(job, ProcessingAttemptKind.PROCESS)
@@ -117,7 +118,7 @@ class RecordingQualityCommandTest : ExpectSpec() {
                             .record(job, attempt.id, RecordingQualityDecision(QualityAction.QUARANTINE, emptyList()))
                     }
                 }.message shouldBe "Job ${job.id} could not be quarantined"
-                jobs.find(identity.key)?.state shouldBe "CLAIMED"
+                jobs.find(identity.key)?.state shouldBe State.CLAIMED
                 command.reports(job.id) shouldBe emptyList()
                 checkNotNull(histories.attempt(attempt.id)).outcome shouldBe ProcessingOutcome.ACTIVE
             } finally {

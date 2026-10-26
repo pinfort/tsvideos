@@ -10,6 +10,7 @@ import me.pinfort.tsvideos.processing.domain.ProcessingArtifact
 import me.pinfort.tsvideos.processing.domain.ProcessingArtifactType
 import me.pinfort.tsvideos.processing.domain.ProcessingAttemptKind
 import me.pinfort.tsvideos.processing.domain.ProcessingErrorCode
+import me.pinfort.tsvideos.processing.domain.ProcessingJob
 import me.pinfort.tsvideos.processing.domain.ProcessingOutcome
 import me.pinfort.tsvideos.processing.domain.ProcessingStage
 import me.pinfort.tsvideos.processing.persistence.ProcessingHistoryMapper
@@ -52,7 +53,7 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
 
     private fun job() =
         UUID.randomUUID().toString().let { key ->
-            jobs.claim(key, "/recordings/$key.m2ts", 3, 100)
+            jobs.claim(key, "/recordings/$key.m2ts", 3, 100, ProcessingJob.State.CLAIMED)
             checkNotNull(jobs.find(key))
         }
 
@@ -320,8 +321,8 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
             val job = job()
             val attempt = command.begin(job, ProcessingAttemptKind.PROCESS)
             command.finish(attempt.id, ProcessingOutcome.FAILED, ProcessingErrorCode.OPERATION_FAILED)
-            jobs.transition(job.id, "CLAIMED", "RETRYABLE") shouldBe 1
-            jobs.link(job.id, 999999) shouldBe 0
+            jobs.transition(job.id, ProcessingJob.State.CLAIMED, ProcessingJob.State.RETRYABLE) shouldBe 1
+            jobs.link(job.id, 999999, ProcessingJob.State.CLAIMED) shouldBe 0
             dataSource.connection.use { connection ->
                 connection.prepareStatement("DELETE FROM processing_job WHERE id=?").use { statement ->
                     statement.setLong(1, job.id)

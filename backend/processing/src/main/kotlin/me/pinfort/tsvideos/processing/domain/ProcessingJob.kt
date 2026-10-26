@@ -37,10 +37,46 @@ data class ProcessingJob(
     val inputPath: String,
     val inputSize: Long,
     val modifiedMillis: Long,
-    val state: String,
+    val state: State,
     val executedFileId: Long?,
     val callbackClaim: String?,
     val callbackManifest: String? = null,
     // UTC; last change of any column, e.g. when the current callback claim was taken
     val updatedAt: LocalDateTime? = null,
-)
+) {
+    /**
+     * Persisted by name in `processing_job.state`, so renaming a constant requires a data migration.
+     * See docs/processing-idempotency.md for the lifecycle.
+     */
+    enum class State {
+        CLAIMED,
+        RETRYABLE,
+        QUARANTINED,
+        SUBMISSION_UNKNOWN,
+        SUBMITTED,
+        REJECTED,
+        COMPLETED,
+        RESETTING,
+        ;
+
+        /** Only the generic transitions; every other change goes through its own guarded operation. */
+        fun canTransitionTo(next: State): Boolean = this to next in ALLOWED_TRANSITIONS
+
+        companion object {
+            private val ALLOWED_TRANSITIONS =
+                setOf(
+                    CLAIMED to RETRYABLE,
+                    CLAIMED to SUBMISSION_UNKNOWN,
+                )
+
+            /** The encoder acknowledged the submission. */
+            val ACCEPTED = setOf(SUBMITTED, COMPLETED)
+
+            /** The encoder may hold the inputs, so its callback may claim or reconcile the job. */
+            val CALLBACK = setOf(SUBMITTED, SUBMISSION_UNKNOWN, COMPLETED)
+
+            /** No encoder or invocation can still be using the files. */
+            val RESETTABLE = setOf(REJECTED, COMPLETED, RETRYABLE, RESETTING)
+        }
+    }
+}

@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.processing.api
 
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
 import me.pinfort.tsvideos.processing.domain.ProcessingJob
+import me.pinfort.tsvideos.processing.domain.ProcessingJob.State
 import me.pinfort.tsvideos.processing.persistence.ProcessingJobMapper
 import org.springframework.dao.DuplicateKeyException
 import org.springframework.stereotype.Component
@@ -37,7 +38,7 @@ class ProcessingJobCommand internal constructor(
         job: ProcessingJob,
         executedId: Long,
     ) {
-        check(mapper.link(job.id, executedId) == 1) {
+        check(mapper.link(job.id, executedId, State.CLAIMED) == 1) {
             "Cannot link job ${job.id} to executed file $executedId; it is no longer CLAIMED or already linked"
         }
     }
@@ -45,10 +46,10 @@ class ProcessingJobCommand internal constructor(
     @Transactional
     fun transition(
         job: ProcessingJob,
-        expected: String,
-        next: String,
+        expected: State,
+        next: State,
     ) {
-        require(expected to next in allowedTransitions) { "Unsupported processing job transition: $expected -> $next" }
+        require(expected.canTransitionTo(next)) { "Unsupported processing job transition: $expected -> $next" }
         check(mapper.transition(job.id, expected, next) == 1) {
             "Processing job ${job.id} is no longer $expected; reconcile before proceeding"
         }
@@ -57,8 +58,8 @@ class ProcessingJobCommand internal constructor(
     /** A fast callback may complete before the encoder client's acknowledgement is recorded. */
     @Transactional
     fun acknowledgeSubmission(job: ProcessingJob) {
-        if (mapper.transition(job.id, "SUBMISSION_UNKNOWN", "SUBMITTED") == 1) return
-        check(mapper.find(job.identityKey)?.state in setOf("SUBMITTED", "COMPLETED")) {
+        if (mapper.transition(job.id, State.SUBMISSION_UNKNOWN, State.SUBMITTED) == 1) return
+        check(mapper.find(job.identityKey)?.state in State.ACCEPTED) {
             "Submission acknowledgement for job ${job.id} conflicts with its current state"
         }
     }
@@ -66,22 +67,16 @@ class ProcessingJobCommand internal constructor(
     @Transactional
     fun complete(job: ProcessingJob) {
         // Try both legitimate predecessor states; submission acknowledgement can race this callback.
-        if (mapper.transition(job.id, "SUBMISSION_UNKNOWN", "COMPLETED") == 1) return
-        if (mapper.transition(job.id, "SUBMITTED", "COMPLETED") == 1) return
+        if (mapper.transition(job.id, State.SUBMISSION_UNKNOWN, State.COMPLETED) == 1) return
+        if (mapper.transition(job.id, State.SUBMITTED, State.COMPLETED) == 1) return
         val state = mapper.find(job.identityKey)?.state
-        check(state == "COMPLETED") { "Cannot complete job ${job.id} in state $state" }
+        check(state == State.COMPLETED) { "Cannot complete job ${job.id} in state $state" }
     }
-
-    private val allowedTransitions =
-        setOf(
-            "CLAIMED" to "RETRYABLE",
-            "CLAIMED" to "SUBMISSION_UNKNOWN",
-        )
 
     @Transactional
     fun claimCallback(job: ProcessingJob): String? {
         val token = UUID.randomUUID().toString()
-        return token.takeIf { mapper.claimCallback(job.id, token) == 1 }
+        return token.takeIf { mapper.claimCallback(job.id, token, State.CALLBACK) == 1 }
     }
 
     @Transactional
@@ -109,7 +104,8 @@ class ProcessingJobCommand internal constructor(
         job: ProcessingJob,
         accepted: Boolean,
     ) {
-        check(mapper.reconcile(job.id, "SUBMISSION_UNKNOWN", if (accepted) "SUBMITTED" else "REJECTED") == 1) {
+        val next = if (accepted) State.SUBMITTED else State.REJECTED
+        check(mapper.reconcile(job.id, State.SUBMISSION_UNKNOWN, next, State.CALLBACK) == 1) {
             "Job ${job.id} is no longer an unclaimed SUBMISSION_UNKNOWN job"
         }
     }
@@ -117,16 +113,16 @@ class ProcessingJobCommand internal constructor(
     @Transactional
     fun reset(executedId: Long) {
         val job = mapper.findByExecutedFile(executedId) ?: return
-        check(job.callbackClaim == null && job.state in setOf("REJECTED", "COMPLETED", "RETRYABLE", "RESETTING")) {
+        check(job.callbackClaim == null && job.state in State.RESETTABLE) {
             "Job ${job.id} is ${job.state} (callback claim ${job.callbackClaim}); encoder may still be using these files, reconcile before reset"
         }
-        check(mapper.removeReset(executedId) == 1) { "Job ${job.id} changed during reset; reconcile before retrying" }
+        check(mapper.removeReset(executedId, State.RESETTABLE) == 1) { "Job ${job.id} changed during reset; reconcile before retrying" }
     }
 
     @Transactional
     fun prepareReset(executedId: Long) {
         val job = mapper.findByExecutedFile(executedId) ?: return
-        check(mapper.prepareReset(job.id) == 1) {
+        check(mapper.prepareReset(job.id, State.RESETTING, State.RESETTABLE) == 1) {
             "Job ${job.id} is ${job.state}; active processing or encoder submission must be reconciled before reset"
         }
     }

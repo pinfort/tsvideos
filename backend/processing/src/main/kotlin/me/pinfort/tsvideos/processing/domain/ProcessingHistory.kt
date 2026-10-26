@@ -71,7 +71,12 @@ data class ProcessingStatus(
     val jobId: Long,
     val identityKey: String,
     val inputPath: String,
+    /** A [ProcessingJob.State] name, or [RETIRED] once the job row is gone and only its history remains. */
     val jobState: String,
     val latestAttempt: ProcessingAttempt?,
     val activeAttempts: List<ProcessingAttempt>,
-)
+) {
+    companion object {
+        const val RETIRED = "RETIRED"
+    }
+}
