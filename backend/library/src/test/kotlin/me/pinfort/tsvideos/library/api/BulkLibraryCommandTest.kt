@@ -11,6 +11,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import io.mockk.verifyOrder
+import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.api.CreatedFilePathKey
 import me.pinfort.tsvideos.catalog.api.CreatedFileSnapshot
 import me.pinfort.tsvideos.catalog.api.DirectoryNameComponent
 import me.pinfort.tsvideos.catalog.api.LedgerLocks
@@ -46,6 +48,9 @@ internal interface RecordingRows {
     fun splits(executedFileId: Long): List<SplittedFile>
 
     fun created(executedFileId: Long): List<CreatedFileSnapshot>
+
+    /** Every created_file row in the library. */
+    fun library(): List<CreatedFileSnapshot>
 }
 
 class BulkLibraryCommandTest :
@@ -54,6 +59,7 @@ class BulkLibraryCommandTest :
         val rows = mockk<RecordingRows>()
         val snapshots = mockk<LedgerSnapshots>()
         val locks = mockk<LedgerLocks>(relaxed = true)
+        val createdFiles = mockk<CreatedFileCatalog>()
         val tx = mockk<PlatformTransactionManager>(relaxed = true)
         val logger = mockk<Logger>(relaxed = true)
 
@@ -62,6 +68,7 @@ class BulkLibraryCommandTest :
                 programs,
                 snapshots,
                 locks,
+                createdFiles,
                 DirectoryNameComponent(NormalizeComponent()),
                 normalize,
                 tx,
@@ -87,23 +94,29 @@ class BulkLibraryCommandTest :
         val file = CreatedFileSnapshot(30, 20, "base/a/alpha/video.mp4", 12, "video/mp4", null, CreatedFile.Status.FILE_MOVED, 1920, 1080)
         val request = BulkRequest(listOf(1), BulkAction.DELETE)
         beforeTest {
-            clearMocks(programs, rows, snapshots, locks, tx, logger)
+            clearMocks(programs, rows, snapshots, locks, createdFiles, tx, logger)
             every { tx.getTransaction(any()) } returns SimpleTransactionStatus()
             every { programs.find(any()) } returns program
             every { rows.executed(10) } returns source
             every { rows.splits(10) } returns listOf(split)
             every { rows.created(10) } returns listOf(file)
+            every { rows.library() } returns listOf(file)
             every { snapshots.programSnapshot(any()) } answers {
                 programs.find(firstArg())?.let {
                     ProgramSnapshot(it, rows.executed(it.executedFileId), rows.splits(it.executedFileId), rows.created(it.executedFileId))
                 }
             }
             every { snapshots.referencingPrograms(10) } returns listOf(1)
-            every { snapshots.allCreatedFiles() } returns listOf(file)
-            every { locks.lockCreatedFiles() } answers { snapshots.allCreatedFiles() }
+            every { locks.lockCreatedFiles() } answers { rows.library() }
             every { snapshots.createdFilesOfPrograms(any()) } answers {
                 firstArg<List<Long>>().filter { programs.find(it) != null }.flatMap { rows.created(10) }
             }
+            // The whole table is rows.library(); catalog's indexed lookup returns the rows at the given paths' keys.
+            every { snapshots.createdFilesAt(any()) } answers {
+                val keys = firstArg<Collection<String>>().map(CreatedFilePathKey::of).toSet()
+                rows.library().filter { CreatedFilePathKey.of(it.file) in keys }
+            }
+            every { createdFiles.fillMissingPathKeys(any(), any()) } returns null
             every { locks.lockProgramGraph(any()) } answers { programs.find(firstArg()) }
         }
         expect("preview is read only and includes all records and original preservation") {
@@ -119,6 +132,7 @@ class BulkLibraryCommandTest :
             verify(exactly = 0) {
                 programs.delete(any(), any())
                 programs.moveCreatedFiles(any(), any(), any())
+                locks.lockCreatedFilePaths(any(), any())
                 locks.lockCreatedFiles()
             }
         }
@@ -241,7 +255,7 @@ class BulkLibraryCommandTest :
                 BulkOutcomeStatus.STALE
         }
         expect("shared normalized paths and shared executed records are refused and excluded from estimates") {
-            every { snapshots.allCreatedFiles() } returns listOf(file, file.copy(id = 99, file = "BASE\\A\\ALPHA\\VIDEO.MP4"))
+            every { rows.library() } returns listOf(file, file.copy(id = 99, file = "BASE\\A\\ALPHA\\VIDEO.MP4"))
             command
                 .preview(request)
                 .targets
@@ -252,7 +266,7 @@ class BulkLibraryCommandTest :
                 .targets
                 .single()
                 .estimatedMetadataBytes shouldBe 0
-            every { snapshots.allCreatedFiles() } returns listOf(file)
+            every { rows.library() } returns listOf(file)
             every { snapshots.referencingPrograms(10) } returns listOf(1, 2)
             command
                 .preview(request)
@@ -277,7 +291,7 @@ class BulkLibraryCommandTest :
                 .targets
                 .single()
                 .eligible shouldBe false
-            every { snapshots.allCreatedFiles() } returns listOf(file, file.copy(id = 99, file = "base/B/Beta/video.mp4"))
+            every { rows.library() } returns listOf(file, file.copy(id = 99, file = "base/B/Beta/video.mp4"))
             command
                 .preview(move)
                 .targets
@@ -310,7 +324,7 @@ class BulkLibraryCommandTest :
                     .eligible shouldBe false
             }
             every { rows.created(10) } returns listOf(file)
-            every { snapshots.allCreatedFiles() } returns listOf(file, file.copy(id = 99, file = file.file + "."))
+            every { rows.library() } returns listOf(file, file.copy(id = 99, file = file.file + "."))
             command
                 .preview(request)
                 .targets
@@ -384,10 +398,10 @@ class BulkLibraryCommandTest :
             every { rows.created(10) } answers { listOf(files[0]) }
             every { rows.created(11) } answers { listOf(files[1]) }
             every { snapshots.referencingPrograms(11) } returns listOf(2)
-            every { snapshots.allCreatedFiles() } answers { files.toList() }
+            every { rows.library() } answers { files.toList() }
             every { snapshots.createdFilesOfPrograms(any()) } answers { files.toList() }
             every { programs.moveCreatedFiles(program, "beta", any()) } answers {
-                files[0] = file.copy(file = "base/B/beta/video.mp4")
+                files[0] = file.copy(file = "base\\b\\beta\\video.mp4")
             }
             val move = BulkRequest(listOf(1, 2), BulkAction.MOVE, "beta")
             val plan = command.preview(move)
@@ -402,14 +416,93 @@ class BulkLibraryCommandTest :
             every { snapshots.createdFilesOfPrograms(ids) } returns ids.map { file }
             command.preview(BulkRequest(ids, BulkAction.MOVE, "beta")).targets.size shouldBe 100
             verify(exactly = 1) {
-                snapshots.allCreatedFiles()
+                snapshots.createdFilesAt(listOf(file.file, "base\\b\\beta\\video.mp4"))
                 snapshots.createdFilesOfPrograms(ids)
             }
             verify(exactly = 100) { snapshots.programSnapshot(any()) }
+            verify(exactly = 0) { snapshots.allCreatedFiles() }
+        }
+        expect("apply reads and guards only each target's own paths and destinations, never the whole table") {
+            val move = BulkRequest(listOf(1), BulkAction.MOVE, "beta")
+            val plan = command.preview(move)
+            val paths = listOf(file.file, "base\\b\\beta\\video.mp4")
+            command
+                .apply(BulkApplyRequest(move, plan.targets.associate { it.id to it.fingerprint }))
+                .outcomes
+                .single()
+                .status shouldBe BulkOutcomeStatus.SUCCESS
+            verifyOrder {
+                locks.lockCreatedFilePaths(paths, setOf(20L))
+                locks.lockCreatedFileRows(setOf(30L))
+                locks.lockProgramGraph(1)
+                snapshots.createdFilesAt(paths)
+                programs.moveCreatedFiles(program, "beta", false)
+            }
+            verify(exactly = 0) {
+                snapshots.allCreatedFiles()
+                locks.lockCreatedFiles()
+            }
+        }
+        expect("a file added or renamed after the paths were read is stale: its path was not guarded") {
+            val plan = command.preview(request)
+            for (late in listOf(
+                listOf(file, file.copy(id = 31, file = "base/a/alpha/late.mp4")),
+                listOf(file.copy(file = "base/a/alpha/renamed.mp4")),
+            )) {
+                // The change commits after the read that chose the guards, and before the target's own read.
+                var committed = false
+                every { rows.created(10) } answers { if (committed) late else listOf(file) }
+                every { locks.lockCreatedFilePaths(any(), any()) } answers { committed = true }
+                command
+                    .apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+                    .outcomes
+                    .single()
+                    .status shouldBe BulkOutcomeStatus.STALE
+            }
+            verify(exactly = 0) { programs.delete(any(), any()) }
+        }
+        expect("a split added after the splits were read is stale: registrations on it were not held up") {
+            val plan = command.preview(request)
+            var committed = false
+            val lateSplit = split.copy(id = 21, file = "C:\\late.m2ts")
+            every { rows.splits(10) } answers { if (committed) listOf(split, lateSplit) else listOf(split) }
+            every { locks.lockCreatedFilePaths(any(), any()) } answers { committed = true }
+            command
+                .apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+                .outcomes
+                .single()
+                .status shouldBe BulkOutcomeStatus.STALE
+            verify(exactly = 1) { locks.lockCreatedFilePaths(listOf(file.file), setOf(20L)) }
+            verify(exactly = 0) { programs.delete(any(), any()) }
+        }
+        expect("an alias of the destination that appears after preview makes apply stale") {
+            val move = BulkRequest(listOf(1), BulkAction.MOVE, "beta")
+            val plan = command.preview(move)
+            every { rows.library() } returns listOf(file, file.copy(id = 99, splittedFileId = 77, file = "BASE/b/BETA/video.mp4 "))
+            command
+                .apply(BulkApplyRequest(move, plan.targets.associate { it.id to it.fingerprint }))
+                .outcomes
+                .single()
+                .status shouldBe BulkOutcomeStatus.STALE
+            verify(exactly = 0) { programs.moveCreatedFiles(any(), any(), any()) }
+        }
+        expect("missing path keys are filled in before preview and apply, and a failure there is only logged") {
+            val plan = command.preview(request)
+            verify(exactly = 1) { createdFiles.fillMissingPathKeys(0, any()) }
+            every { createdFiles.fillMissingPathKeys(0, any()) } returns 40
+            every { createdFiles.fillMissingPathKeys(40, any()) } throws IllegalStateException("db busy")
+            command
+                .apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
+                .outcomes
+                .single()
+                .status shouldBe BulkOutcomeStatus.SUCCESS
+            verify(exactly = 1) { logger.warn(any(), any<IllegalStateException>()) }
+            verify(exactly = 2) { createdFiles.fillMissingPathKeys(0, any()) }
+            verify(exactly = 1) { createdFiles.fillMissingPathKeys(40, any()) }
         }
         expect("a lock wait timeout reports a busy library without mutating anything") {
             val plan = command.preview(request)
-            every { locks.lockCreatedFiles() } throws CannotAcquireLockException("Lock wait timeout exceeded")
+            every { locks.lockCreatedFilePaths(any(), any()) } throws CannotAcquireLockException("Lock wait timeout exceeded")
             val outcome = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))).outcomes.single()
             outcome.status shouldBe BulkOutcomeStatus.FAILED
             outcome.message.contains("nothing was changed") shouldBe true
@@ -451,13 +544,19 @@ class BulkLibraryCommandTest :
             val result = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint)))
             result.outcomes.single().status shouldBe BulkOutcomeStatus.SUCCESS
             verifyOrder {
-                locks.lockCreatedFiles()
+                snapshots.programSnapshot(1)
+                locks.lockCreatedFilePaths(listOf(file.file), setOf(20L))
+                locks.lockCreatedFileRows(setOf(30L))
                 locks.lockProgramGraph(1)
                 snapshots.programSnapshot(1)
                 rows.executed(10)
+                snapshots.createdFilesAt(listOf(file.file))
                 programs.delete(program, false)
             }
-            verify(exactly = 0) { locks.lockWholeLedger() }
+            verify(exactly = 0) {
+                locks.lockCreatedFiles()
+                locks.lockWholeLedger()
+            }
         }
         expect("guarded apply locks the whole ledger after the created files and before the target") {
             val plan = command.preview(request)
@@ -470,11 +569,14 @@ class BulkLibraryCommandTest :
             result.outcomes.single().status shouldBe BulkOutcomeStatus.SUCCESS
             guarded shouldBe listOf(1L)
             verifyOrder {
+                locks.lockCreatedFilePaths(listOf(file.file), setOf(20L))
                 locks.lockCreatedFiles()
                 locks.lockWholeLedger()
                 locks.lockProgramGraph(1)
                 programs.delete(program, false)
             }
+            // The full created_file lock already covers the target's rows.
+            verify(exactly = 0) { locks.lockCreatedFileRows(any()) }
         }
         expect("a guard veto returns before the target is locked or changed") {
             val plan = command.preview(request)

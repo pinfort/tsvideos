@@ -77,4 +77,29 @@ class LedgerSnapshotsTest :
             snapshots.createdFilesOfPrograms(listOf(1, 1)).size shouldBe 2
             snapshots.referencingPrograms(10) shouldBe listOf(1L, 2L)
         }
+
+        expect("created files at paths look up the key index and compare unkeyed rows, keeping only real aliases") {
+            val keys = mutableListOf<List<String>>()
+            every { bulk.filesWithPathKeys(any()) } answers {
+                keys += firstArg<List<ByteArray>>().map { it.toList().toString() }
+                // The index lookup may return a colliding row whose path is not an alias; it must be dropped.
+                listOf(file, file.copy(id = 40, file = "base/a/other/video.mp4"))
+            }
+            every { bulk.filesWithoutPathKey() } returns
+                listOf(file.copy(id = 5, file = "BASE\\A\\ALPHA\\VIDEO.MP4. "), file.copy(id = 6, file = "base/b/beta/video.mp4"), file)
+            snapshots
+                .createdFilesAt(listOf("base/a/alpha/video.mp4", "Base/A/Alpha/Video.mp4", "base/c/gamma/x.mp4"))
+                .map { it.id } shouldBe listOf(5L, 30L)
+            // One key per normalized path.
+            keys.single() shouldBe
+                listOf("base/a/alpha/video.mp4", "base/c/gamma/x.mp4").map { CreatedFilePathKey.hash(it).toList().toString() }
+        }
+
+        expect("created files at no paths reads nothing") {
+            snapshots.createdFilesAt(emptyList()) shouldBe emptyList()
+            verify(exactly = 0) {
+                bulk.filesWithPathKeys(any())
+                bulk.filesWithoutPathKey()
+            }
+        }
     })

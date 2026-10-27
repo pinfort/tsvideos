@@ -9,6 +9,7 @@ import me.pinfort.tsvideos.catalog.api.CreatedFileCommand
 import me.pinfort.tsvideos.catalog.api.DirectoryNameComponent
 import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
 import me.pinfort.tsvideos.catalog.api.ExecutedFileTagCommand
+import me.pinfort.tsvideos.catalog.api.LedgerLocks
 import me.pinfort.tsvideos.catalog.api.LedgerSnapshots
 import me.pinfort.tsvideos.catalog.api.NormalizeComponent
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
@@ -47,6 +48,7 @@ import javax.sql.DataSource
 @MybatisTest
 @SpringJUnitConfig
 @Import(
+    LedgerLocks::class,
     LedgerSnapshots::class,
     ProgramInventory::class,
     ProgramCommand::class,

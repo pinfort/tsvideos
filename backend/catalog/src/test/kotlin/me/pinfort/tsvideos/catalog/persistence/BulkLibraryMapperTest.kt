@@ -62,6 +62,35 @@ class BulkLibraryMapperTest : ExpectSpec() {
             mapper.createdFilesOfPrograms(listOf(4, 7, 404)).map { it.id } shouldBe listOf(1L, 1L)
             mapper.lockFiles().map { it.id } shouldBe listOf(1L)
         }
+        expect("path lookups bind binary keys and read through the path_key index instead of scanning the table") {
+            seed()
+            sql(
+                "INSERT INTO created_file(splitted_file_id,file,path_key,size,status) " +
+                    "SELECT 2, CONCAT('base/k/', seq, '/f.mp4'), UNHEX(SHA2(CONCAT('k', seq), 256)), 1, 'FILE_MOVED' FROM seq_1_to_300",
+            )
+
+            fun key(explain: String): String? =
+                dataSource.connection.use { connection ->
+                    connection.createStatement().use { statement ->
+                        statement.executeQuery("EXPLAIN $explain").use {
+                            it.next()
+                            it.getString("key")
+                        }
+                    }
+                }
+            key("SELECT id FROM created_file WHERE path_key IN (UNHEX(SHA2('k7', 256)), UNHEX(SHA2('k9', 256)))") shouldBe "path_key"
+            key("SELECT id FROM created_file WHERE path_key IS NULL") shouldBe "path_key"
+
+            val sha = java.security.MessageDigest.getInstance("SHA-256")
+            mapper.filesWithPathKeys(listOf(sha.digest("k7".toByteArray()), sha.digest("k9".toByteArray()))).map { it.file } shouldBe
+                listOf("base/k/7/f.mp4", "base/k/9/f.mp4")
+            // Only the seeded row was written without a key.
+            mapper.filesWithoutPathKey().map { it.id } shouldBe listOf(1L)
+        }
+        expect("created_file row locks are by primary key and report the rows that exist") {
+            seed()
+            TransactionTemplate(transactionManager).execute { mapper.lockFileRows(listOf(1, 404)) shouldBe listOf(1L) }
+        }
         expect("a second bulk lock gives up after the bounded wait with a locking failure") {
             seed()
             val locked = CountDownLatch(1)
@@ -87,6 +116,7 @@ class BulkLibraryMapperTest : ExpectSpec() {
                 executor.shutdownNow()
             }
         }
+        // The guarded (cleanup) apply's full lock; the unguarded apply's path guards are covered by CatalogTransactionTest.
         expect("apply locks prevent concurrent aliases or split additions until transaction completes") {
             seed()
             val locked = CountDownLatch(1)
@@ -98,7 +128,7 @@ class BulkLibraryMapperTest : ExpectSpec() {
                     executor.submit {
                         TransactionTemplate(transactionManager).execute {
                             mapper.lockFiles().size shouldBe 1
-                            mapper.lockProgram(4) shouldBe 4
+                            mapper.lockProgramRecording(4) shouldBe 3
                             mapper.lockSplits(3) shouldBe listOf(2L)
                             mapper.lockReferences(3) shouldBe listOf(4L)
                             locked.countDown()

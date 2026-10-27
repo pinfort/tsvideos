@@ -123,12 +123,12 @@ Spring の組み立て:
 | --- | --- | --- |
 | [ProgramCommand](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/ProgramCommand.kt) | `catalog` (分割) | 読み取り、登録/状態更新、協調削除/移動を用途別の公開操作に分ける (§6.1)。#134 で検索を台帳の条件だけにした (ライブラリ絞り込みは `LibraryProgramSearchCommand`、§13 U1) |
 | [ProgramInventory](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/ProgramInventory.kt) | `catalog` | #134 で追加。library 向けの番組の読み取り (重複検出の入力 `recordedPrograms`、検証対象 `allPrograms`、`allIds`、存在確認 `exists`、複数 ID による取得 `summaries`、状態/ドロップ別 `withStatus` / `withDrops`)。結果は `Program` と `ProgramSummary` |
-| [LedgerSnapshots](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/LedgerSnapshots.kt) | `catalog` | #134 で追加。一括スナップショットの読み取り (`programSnapshot`、`allCreatedFiles`、`createdFilesOfPrograms`、`referencingPrograms`)。結果は `ProgramSnapshot` / `CreatedFileSnapshot` |
-| [LedgerLocks](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/LedgerLocks.kt) | `catalog` | #134 で追加。台帳行のロック (`lockCreatedFiles` → ガード付きのみ `lockWholeLedger` → `lockProgramGraph`、関連付け用の `lockProgramRow`)。すべて `MANDATORY` (§7.3) |
+| [LedgerSnapshots](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/LedgerSnapshots.kt) | `catalog` | #134 で追加。一括スナップショットの読み取り (`programSnapshot`、`allCreatedFiles`、`createdFilesOfPrograms`、`referencingPrograms`、#112 でパスとそのエイリアスの行を索引で引く `createdFilesAt`)。結果は `ProgramSnapshot` / `CreatedFileSnapshot` |
+| [LedgerLocks](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/LedgerLocks.kt) | `catalog` | #134 で追加。台帳行のロック (`lockCreatedFilePaths` → `lockCreatedFileRows` (ガード付きは `lockCreatedFiles` → `lockWholeLedger`) → `lockProgramGraph`、関連付け用の `lockProgramRow`)。すべて `MANDATORY` (§7.3) |
 | [CatalogStatistics](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/CatalogStatistics.kt) | `catalog` | #134 で追加。統計の集計元 (`programs` / `files`) と保存領域の参照 (`storageReferences`)。結果は `ProgramStatsRow` / `FileStatsRow` / `StorageReference` |
 | [LibraryProgramSearchCommand](../library/src/main/kotlin/me/pinfort/tsvideos/library/api/LibraryProgramSearchCommand.kt) | `library` (#157 で移動済み) | #134 で追加。`GET /api/v1/programs` の検索。絞り込みがなければ catalog の検索そのもの、あれば library の参照クエリ `LibraryProgramSearchMapper` (§5.2、§13 U1) |
-| [CreatedFileCommand](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/CreatedFileCommand.kt) | `catalog` | #131 で登録・配信を分離済み。残る協調削除・移動 (`delete` / `move` / `restoreMoved`) と読み取り (`selectBySplittedFileId`) は catalog、NAS 操作は storage (§6.2) |
-| [CreatedFileCatalog](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/CreatedFileCatalog.kt) | `catalog` | #131 で追加。`created_file` の読み取り (`find`、配信できる動画の判定 `findStreamableVideo`)、登録 (`register`、`MANDATORY`)、未設定メタデータの補完 (`fillMimeIfMissing` / `fillResolutionIfMissing`、`MANDATORY`)。NAS と HTTP の型を持たない (§6.2、§7.6、§9) |
+| [CreatedFileCommand](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/CreatedFileCommand.kt) | `catalog` | #131 で登録・配信を分離済み。残る協調削除・移動 (`delete` / `moveResource` / `recordMove` / `restoreMoved`。移動は #112 で NAS と行の更新に分けた) と読み取り (`selectBySplittedFileId`) は catalog、NAS 操作は storage (§6.2) |
+| [CreatedFileCatalog](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/CreatedFileCatalog.kt) | `catalog` | #131 で追加。`created_file` の読み取り (`find`、配信できる動画の判定 `findStreamableVideo`)、登録 (`register`、`MANDATORY`。#112 からパスと split のガードを取り、split が消えていれば拒否)、未設定メタデータの補完 (`fillMimeIfMissing` / `fillResolutionIfMissing`、`MANDATORY`)、`path_key` の埋め戻し (`fillMissingPathKeys`、`MANDATORY`、#112)。NAS と HTTP の型を持たない (§6.2、§7.6、§9) |
 | [ExecutedFileCommand](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/ExecutedFileCommand.kt) | `catalog` | `delete` はタグ/実施記録も消す |
 | [SplittedFileCommand](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/SplittedFileCommand.kt) | `catalog` | |
 | [ExecutedFileTagCommand](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/ExecutedFileTagCommand.kt) | `catalog` | 検出タグ。手動タグ (library) とは別物 |
@@ -158,7 +158,7 @@ Spring の組み立て:
 | [SplittedFileMapper](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/persistence/SplittedFileMapper.kt) | **splitted_file** | `catalog` |
 | [CreatedFileMapper](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/persistence/CreatedFileMapper.kt) | **created_file**, splitted_file | `catalog` |
 | [ExecutedFileTagMapper](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/persistence/ExecutedFileTagMapper.kt) / [ExecutedFileCheckMapper](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/persistence/ExecutedFileCheckMapper.kt) | **executed_file_tag**, **executed_file_check** | `catalog` |
-| [BulkLibraryMapper](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/persistence/BulkLibraryMapper.kt) | program, executed_file, splitted_file, created_file (読み取りと `FOR UPDATE`) | `catalog` (ロックと一括スナップショットの読み取りは台帳行に対する操作のため。library は公開操作 `LedgerLocks` / `LedgerSnapshots` 経由で使う。#134 で関連付け用の `lockProgramRow` を `LibraryOrganizationMapper.lockProgram` から移した) |
+| [BulkLibraryMapper](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/persistence/BulkLibraryMapper.kt) | program, executed_file, splitted_file, created_file (読み取りと `FOR UPDATE`)、**created_file_path_guard** (パスのガードの upsert、#112) | `catalog` (ロックと一括スナップショットの読み取りは台帳行に対する操作のため。library は公開操作 `LedgerLocks` / `LedgerSnapshots` 経由で使う。#134 で関連付け用の `lockProgramRow` を `LibraryOrganizationMapper.lockProgram` から移した) |
 | [StorageOverviewMapper](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/persistence/StorageOverviewMapper.kt) | program, splitted_file, created_file | `catalog` の用途別読み取り操作 (library 向け、#134 で `CatalogStatistics.storageReferences`) |
 | [LibraryStatsMapper](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/persistence/LibraryStatsMapper.kt) | program, executed_file, splitted_file, created_file | `catalog` の用途別読み取り操作 (library 向け、#134 で `CatalogStatistics.programs` / `files`。引数は library の `LibraryStatsQuery` ではなく録画日時の範囲だけ) |
 | [LibraryProgramSearchMapper](../library/src/main/kotlin/me/pinfort/tsvideos/library/persistence/LibraryProgramSearchMapper.kt) + `LibraryProgramSearchSql` | program, executed_file, splitted_file, created_file, library_collection_program, library_tag_program (読み取りのみ、ロックなし) | `library` (#157 で移動済み、internal)。#134 で追加した、手動コレクション/タグで絞り込む番組検索の明示的な参照クエリ (§5.2、§13 U1) |
@@ -247,7 +247,8 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 
 | テーブル | migration | 所有 |
 | --- | --- | --- |
-| `executed_file`, `splitted_file`, `created_file`, `program` | [001](../database-schema/src/main/resources/db/migrations/001_base_schema.sql), [073](../database-schema/src/main/resources/db/migrations/073_created_file_resolution.sql), [074](../database-schema/src/main/resources/db/migrations/074_created_file_chapter.sql) | `catalog` |
+| `executed_file`, `splitted_file`, `created_file`, `program` | [001](../database-schema/src/main/resources/db/migrations/001_base_schema.sql), [073](../database-schema/src/main/resources/db/migrations/073_created_file_resolution.sql), [074](../database-schema/src/main/resources/db/migrations/074_created_file_chapter.sql), [076](../database-schema/src/main/resources/db/migrations/076_created_file_path_key.sql) | `catalog` |
+| `created_file_path_guard` | [076](../database-schema/src/main/resources/db/migrations/076_created_file_path_key.sql) | `catalog` |
 | `created_file_chapter` | [074](../database-schema/src/main/resources/db/migrations/074_created_file_chapter.sql) | `catalog` |
 | `executed_file_tag`, `executed_file_check` | [002](../database-schema/src/main/resources/db/migrations/002_executed_file_tag.sql) | `catalog` |
 | `health_verification_run`, `health_verification_finding` | [051](../database-schema/src/main/resources/db/migrations/051_library_health.sql) | `library` |
@@ -272,7 +273,7 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 | `StorageOverviewMapper.references` | `StorageOverviewCommand` (library) | program, splitted_file, created_file | 同上。#134 で `CatalogStatistics.storageReferences` |
 | `ProgramMapper.selectAll` / `selectAllIds` / `selectAllOrderById` | `DuplicateProgramCommand`, `CleanupPlanCommand`, `LibraryVerificationCommand` (library) | program, executed_file | catalog の読み取り操作。#134 で `ProgramInventory.recordedPrograms` / `allIds` / `allPrograms` |
 | `CreatedFileMapper.selectMovedByExecutedFileIds` / `selectAllWithExecutedFileId` / `selectByExecutedFileId` | `DuplicateReviewCommand`, `LibraryVerificationCommand` (library) | created_file, splitted_file | catalog の読み取り操作。#134 で `CreatedFileCatalog.movedFilesByRecording` / `filesByRecording` / `filesOfRecording` |
-| `BulkLibraryMapper` の読み取り (`allFiles`, `createdFilesOfPrograms`, `references`) と `ExecutedFileMapper`/`SplittedFileMapper`/`CreatedFileMapper` の直接使用 | `BulkLibraryCommand` (library) | catalog の全テーブル | catalog の一括スナップショット操作 (§11.1)。#134 で `LedgerSnapshots` |
+| `BulkLibraryMapper` の読み取り (`allFiles`, `createdFilesOfPrograms`, `filesWithPathKeys`, `filesWithoutPathKey`, `references`) と `ExecutedFileMapper`/`SplittedFileMapper`/`CreatedFileMapper` の直接使用 | `BulkLibraryCommand` (library) | catalog の全テーブル | catalog の一括スナップショット操作 (§11.1)。#134 で `LedgerSnapshots` |
 | `CreatedFileMapper.find` | `VerifiedUploadCommand` (processing) | created_file | catalog の読み取り操作。#131 で `CreatedFileCatalog.find` に置き換え済み (`VerifiedUploadCommand` は `CreatedFileMapper` を参照しない) |
 
 読み取りの契約:
@@ -290,7 +291,7 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 | `ExecutedFileCommand.insert` / `updateStatus` / `delete`、`ProgramCommand.insert` / `deleteByExecutedFileId` / `updateStatusByExecutedFileId` / `delete`、`SplittedFileCommand.insert` / `updateStatus` / `delete`、`ExecutedFileTagCommand.recordCheck` | catalog | processing (`FileProcessingPipeline`, `AfterEncodeRunner`, `ResetRunner`) |
 | `CreatedFileCatalog.register` / `fillMimeIfMissing` / `fillResolutionIfMissing` (#131 で `CreatedFileCommand.insert` と Mapper の直接使用から置き換え。すべて `MANDATORY`) | created_file | processing (`VerifiedUploadCommand.register`) |
 | `ProgramCommand.delete` / `moveCreatedFiles`、`CreatedFileCommand.delete` | catalog の全テーブル + NAS | library (`BulkLibraryCommand`)、manager:console (`Delete`, `Modify`) |
-| `LedgerLocks.lockCreatedFiles` / `lockWholeLedger` / `lockProgramGraph` (#134。中身は `BulkLibraryMapper.lock*` の `SELECT … FOR UPDATE`) | catalog の行ロック | library (`BulkLibraryCommand`) |
+| `LedgerLocks.lockCreatedFilePaths` / `lockCreatedFileRows` / `lockCreatedFiles` / `lockWholeLedger` / `lockProgramGraph` (#134、パスのガードと行のロックは #112。中身は `BulkLibraryMapper.lock*` の `SELECT … FOR UPDATE` と、`created_file_path_guard` への主キーの upsert) | catalog の行ロック | library (`BulkLibraryCommand`) |
 | `LedgerLocks.lockProgramRow` (#134 で `LibraryOrganizationMapper.lockProgram` から移した同じ `SELECT … FOR UPDATE`) | program の行ロック | library (`LibraryOrganizationCommand`) |
 | FK `ON DELETE CASCADE` | library_collection_program, library_tag_program | catalog の `program` 削除 (`ProgramMapper.deleteById` / `deleteByExecutedFileId`) |
 
@@ -335,10 +336,11 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 | ~~`findMp4File(id)`~~ | — | — | **#131 で削除。** `CreatedFileCatalog.findStreamableVideo(id)` (§9) |
 | ~~`streamCreatedFile(id)`~~ | — | — | **#131 で削除。** catalog の判定 + storage の読み出しハンドル + manager:api の `Resource` に分割 (§9) |
 | `delete(file, dryRun)` | `REQUIRED` | `ProgramCommand.delete`、Delete (`TS_FILES`、ファイルごとに独立したトランザクション) | catalog の協調削除 (storage の削除を呼ぶ) |
-| `move(file, newFile, dryRun)` | `REQUIRED` | `ProgramCommand.moveCreatedFiles` のみ | catalog の内部操作 |
+| `moveResource(file, newFile, dryRun)` | なし (DB を触らない) | `ProgramCommand.moveCreatedFiles` のみ | catalog の内部操作 (NAS の検証付き移動) |
+| `recordMove(file, newFile, dryRun)` | `REQUIRED` | `ProgramCommand.moveCreatedFiles` のみ (すべての `moveResource` の後) | catalog の内部操作 (移動先のパスのガード → 行の `file` / `path_key` 更新) |
 | `restoreMoved(moved)` | なし | `ProgramCommand.moveCreatedFiles` のみ (失敗時の巻き戻し) | catalog の内部操作 |
 
-`delete` / `move` は戻り値として storage の公開値型 `NasStore` を返す (#130 で `SambaClient.NasType` から置き換え済み)。本番の呼び出し元は戻り値を使っていない。dry-run では NAS を確認せず `VIDEO_STORE_NAS` を返す。
+`delete` / `moveResource` は戻り値として storage の公開値型 `NasStore` を返す (#130 で `SambaClient.NasType` から置き換え済み)。本番の呼び出し元は戻り値を使っていない。dry-run では NAS を確認せず `VIDEO_STORE_NAS` を返す。
 
 ## 7. トランザクションと協調操作
 
@@ -360,7 +362,7 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 | --- | --- | --- |
 | `ProgramCommand.search`, `LibraryProgramSearchCommand.search`, `DuplicateReviewCommand.review`, `LibraryStatsCommand.summarize`, `StorageOverviewCommand.overview`, `LibraryHealthCommand.read`, `LibraryOrganizationCommand.forProgram` | `REQUIRED`, `readOnly`, `REPEATABLE_READ` | 1 スナップショットでの一貫した読み取り。#134 の catalog の読み取り (`ProgramInventory`、`LedgerSnapshots`、`CatalogStatistics`、`CreatedFileCatalog` の読み取り) はトランザクションを宣言せず、この中に参加する |
 | `LedgerLocks` の全操作 (#134) | `MANDATORY` | 呼び出し元 (`BulkLibraryCommand` の `write`、`LibraryOrganizationCommand` の更新系) のトランザクションでロックし、その終了まで保持する。トランザクション外では `IllegalTransactionStateException` |
-| `ProgramCommand.delete` / `moveCreatedFiles`, `CreatedFileCommand.delete` / `move` | `REQUIRED` | 単独で呼ばれれば独自のトランザクション、一括適用からは参加 |
+| `ProgramCommand.delete` / `moveCreatedFiles`, `CreatedFileCommand.delete` / `recordMove` | `REQUIRED` | 単独で呼ばれれば独自のトランザクション、一括適用からは参加 |
 | `ExecutedFileTagCommand.recordCheck`, `ProcessingJobCommand` の更新系, `RecordingQualityCommand.record` / `release`, `LibraryOrganizationCommand` の更新系 | `REQUIRED` | 各操作を 1 トランザクションで確定 |
 | `ProcessingJobClaimCommand.insert` / `retry`, `HealthVerificationStore` の全操作 | `REQUIRES_NEW` | 呼び出し元と独立に確定する短い記録 |
 | `ProcessingHistoryCommand` (内部の `TransactionTemplate`) | `REQUIRES_NEW` (一部 `REPEATABLE_READ`) | 履歴の書き込みを処理本体と独立に確定 |
@@ -374,23 +376,23 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 
 [BulkLibraryCommand](../library/src/main/kotlin/me/pinfort/tsvideos/library/api/BulkLibraryCommand.kt) (#158 で library に移動済み) と [BulkLibraryMapper](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/persistence/BulkLibraryMapper.kt)。運用上の説明は [bulk-library.md](bulk-library.md)。
 
-**preview**: 入力を検証し (1〜100 件の一意な正の ID、DELETE はディレクトリなし、MOVE はラベル検証と正規化)、`read` (`readOnly`, `REPEATABLE_READ`) の中で `allFiles()` を 1 回読み、対象ごとに program / executed / split / created のスナップショット、移動先、共有参照、適格性、SHA-256 フィンガープリントを作る。ロックは取らない。
+**preview**: 入力を検証し (1〜100 件の一意な正の ID、DELETE はディレクトリなし、MOVE はラベル検証と正規化)、`path_key` の欠けた行を埋めてから (`CreatedFileCatalog.fillMissingPathKeys`、独立した短いトランザクション。失敗はログのみ)、`read` (`readOnly`, `REPEATABLE_READ`) の中で選択の created_file (`createdFilesOfPrograms`) と、それらのパスと移動先のエイリアスの行 (`LedgerSnapshots.createdFilesAt`、`path_key` の索引) を 1 回ずつ読み、対象ごとに program / executed / split / created のスナップショット、移動先、共有参照、適格性、SHA-256 フィンガープリントを作る。ロックは取らない。cleanup は自分のトランザクションの中から呼ぶため、埋め戻しをしない `previewInTransaction` を使う。
 
 **apply** (`applyGuarded(input, guard = null)`):
 
-1. 入力を検証し、全対象のフィンガープリントがそろっていることを確認する。
+1. 入力を検証し、全対象のフィンガープリントがそろっていることを確認する。`path_key` の欠けた行を preview と同じく埋める。
 2. MOVE の選択全体の移動先件数 (`proposed`) を、別の `read` トランザクションで 1 回だけ計算する。
-3. 対象ごとに `write` (`REQUIRES_NEW`, `REPEATABLE_READ`) を 1 つ開く。**ロックを対象をまたいで保持しない**。スレッドが割り込まれていれば新しい対象を始めない。
-4. 対象トランザクション内のロック順序 (すべて `innodb_lock_wait_timeout = 10` の `SELECT … FOR UPDATE`。#134 から `BulkLibraryCommand` は catalog の `LedgerLocks` (`MANDATORY`) を呼び、括弧内の `BulkLibraryMapper` の文はその中で同じ順に実行される):
-   1. `LedgerLocks.lockCreatedFiles()` (`lockFiles()`): `created_file` 全行 (正規化後のエイリアス衝突を防ぐため、全件スキャンの next-key ロック)
-   2. ガード付きのときだけ `LedgerLocks.lockWholeLedger()` (`lockAllPrograms()` → `lockAllExecuted()` → `lockAllSplits()`) の全行ロックをとり、`guard(id, 成功済み ID)` を評価する (拒否なら変更せずその結果を返す)
-   3. `LedgerLocks.lockProgramGraph(id)`: `lockProgram(id)` (消えていれば null を返し NOT_FOUND)
+3. 対象ごとに、まず別の `read` トランザクションで対象の created_file を読み、触るパス (元のパスと MOVE の移動先) と行 ID を決める。次に `write` (`REQUIRES_NEW`, `REPEATABLE_READ`) を 1 つ開く。**ロックを対象をまたいで保持しない**。スレッドが割り込まれていれば新しい対象を始めない。
+4. 対象トランザクション内のロック順序 (すべて `innodb_lock_wait_timeout = 10`。#134 から `BulkLibraryCommand` は catalog の `LedgerLocks` (`MANDATORY`) を呼び、括弧内の `BulkLibraryMapper` の文はその中で同じ順に実行される):
+   1. `LedgerLocks.lockCreatedFilePaths(paths, splitIds)` (`lockPathGuard`): 触るパスの正規化キー (`CreatedFilePathKey`) と対象の split のキー (`CreatedFilePathKey.splitGuard`) ごとに `created_file_path_guard` の行を、まとめてキーの昇順に主キーの upsert でロックする (#112)。トランザクション最初の通常の読み取りより前に取る
+   2. ガードなしなら `LedgerLocks.lockCreatedFileRows(ids)` (`lockFileRows`): 対象の created_file 行を主キーでロックする。ガード付きのときは代わりに `LedgerLocks.lockCreatedFiles()` (`lockFiles()`、`created_file` 全行の next-key ロック) → `LedgerLocks.lockWholeLedger()` (`lockAllPrograms()` → `lockAllExecuted()` → `lockAllSplits()`) の全行ロックをとり、`guard(id, 成功済み ID)` を評価する (拒否なら変更せずその結果を返す)
+   3. `LedgerLocks.lockProgramGraph(id)`: `lockProgramRecording(id)` (program 行をロックしてその `executed_file_id` を返す。消えていれば null を返し NOT_FOUND)。通常の読み取り (program の読み直し) は最後のロックの後に 1 回だけ行うので、`REPEATABLE_READ` のスナップショットはすべてのロックの後に決まる
    4. 続けて同じ操作の中で `lockExecuted(executedFileId)` → `lockSplits(executedFileId)` → `lockReferences(executedFileId)` (同じ executed を参照する program)
-5. ロック下でスナップショットを作り直し (`target`。#134 から `LedgerSnapshots.programSnapshot` で読む)、フィンガープリントが違えば STALE、不適格なら FAILED を返す。
+5. ロック下でスナップショットを作り直し (`target`。#134 から `LedgerSnapshots.programSnapshot` で読む)、読み直したファイルの ID とパス、split の ID が手順 3 で決めた範囲に入っていなければ (その間に追加・改名された) STALE を返す。エイリアスの検査は `LedgerSnapshots.createdFilesAt(paths)` で対象のパスだけを読む。フィンガープリントが違えば STALE、不適格なら FAILED を返す。
 6. 一致すれば `mutating = true` にしてから `ProgramCommand.delete` または `moveCreatedFiles` を呼ぶ。これらは `REQUIRED` なので対象トランザクションに参加し、行ロックは NAS 操作が終わり commit されるまで保持される。
 7. 例外の分類: `PessimisticLockingFailureException` は変更前なら「Library is busy」の FAILED、変更後なら「NAS が部分的に変わった可能性」の FAILED。その他の例外も `mutating` で同様に分ける。原因の連鎖に `InterruptedException` があれば割り込みフラグを立て直す。ガード付き呼び出しは割り込みで `BulkInterruptedException` (完了済みの結果を保持) を投げて全体を止める。
 
-ロック順序 (契約): 現行の正確な順序は手順 4 のとおり **`created_file` 全体 → (ガード付きのみ `program` 全体 → `executed_file` 全体 → `splitted_file` 全体) → 対象 `program` → `executed_file` → `splitted_file` → 同じ executed を参照する `program` 群 (`lockReferences`)** であり、catalog のロック操作はこの列をそのまま保つ。`lockReferences` は `splitted_file` の後に `program` を再びロックするので、「created_file → program → executed_file → splitted_file」は台帳テーブル間の**基礎順序** (最初のロックを取る順) の要約であって、厳密な全順序ではない。台帳行をロックする協調操作はこの基礎順序で取り始め、`lockReferences` の後置を含む上の列を省略・並べ替えしない。この順序と 10 秒の待機上限は catalog のロック操作が守り、library はそれを呼ぶだけにする。`LibraryOrganizationCommand.assign` / `assignTag` も `program` を `FOR UPDATE` でロックする (待機上限は指定せずサーバーの既定値) が、触るのは `program` 1 行と label 行で、program → label の順に取る。
+ロック順序 (契約): 現行の正確な順序は手順 4 のとおり **`created_file_path_guard` (対象のパス、キー順) → `created_file` (ガードなしは対象の行、ガード付きは全体) → (ガード付きのみ `program` 全体 → `executed_file` 全体 → `splitted_file` 全体) → 対象 `program` → `executed_file` → `splitted_file` → 同じ executed を参照する `program` 群 (`lockReferences`)** であり、catalog のロック操作はこの列をそのまま保つ。`created_file` のパスを書く catalog の操作 (`CreatedFileCatalog.register`、`CreatedFileCommand.recordMove`) は、書くパスのガード → `created_file` の行の順で取る (`CreatedFileMapper.lockPathGuard`、待機はサーバーの既定値)。`register` は書くパスと登録先 split の 2 つのガードをキーの昇順に取ってから INSERT し、最後に `splitted_file` の行を共有ロック付きで読む (`lockSplitShared`。行がなければ自分の行を消して拒否し、孤児を残さない)。ガードは主キーのレコードロックだけなので、別のパスや別の split の書き込みは待たない。登録は INSERT の前に台帳の行ロックを持たないので、`created_file` 全体をロックするガード付き cleanup ともデッドロックしない。単独の `ProgramCommand.moveCreatedFiles` も最初の NAS 操作の前に同じ順序 (ガード → `lockCreatedFileRows` → `lockProgramGraph`) で取る (§7.4)。`lockReferences` は `splitted_file` の後に `program` を再びロックするので、「created_file → program → executed_file → splitted_file」は台帳テーブル間の**基礎順序** (最初のロックを取る順) の要約であって、厳密な全順序ではない。台帳行をロックする協調操作はこの基礎順序で取り始め、`lockReferences` の後置を含む上の列を省略・並べ替えしない。この順序と 10 秒の待機上限は catalog のロック操作が守り、library はそれを呼ぶだけにする。`LibraryOrganizationCommand.assign` / `assignTag` も `program` を `FOR UPDATE` でロックする (待機上限は指定せずサーバーの既定値) が、触るのは `program` 1 行と label 行で、program → label の順に取る。
 
 NAS の副作用と復旧: 削除/移動の NAS 操作は DB トランザクションで戻らない。NAS の手順がすべて成功した後に commit が失敗した場合も補償しない。移動はファイル単位で巻き戻しを試みる (§7.4)。結果は FAILED として返り、利用者は再プレビューと `tvmcli verify` で整合させる。詳細は [bulk-library.md](bulk-library.md) を正とする。
 
@@ -406,9 +408,9 @@ NAS の副作用と復旧: 削除/移動の NAS 操作は DB トランザクシ�
 
 途中で NAS 削除が失敗すると DB はすべてロールバックされるが、それより前に消した NAS ファイルは戻らない。
 
-`moveCreatedFiles(program, dir)` (`REQUIRED`) は各 `created_file` について `CreatedFileCommand.move` (行の `file` を更新してから `NasComponent.moveResource` で検証付き移動) を行い、完了した移動を記録する。途中で失敗すると、完了済みの移動を新しいものから順に `restoreMoved` で戻し (戻しの失敗はログのみ)、例外を再送出して DB をロールバックする。`moveResource` 自体は、排他的に作成した移動先を、移動元が無傷と確認できたときだけ削除する。
+`moveCreatedFiles(program, dir)` (`REQUIRED` 相当。内部の `TransactionTemplate` で呼び出し元のトランザクションに参加し、なければ `REPEATABLE_READ` で開く) は、最初の NAS 操作の前に、元のパスと移動先と program の split のガード (`LedgerLocks.lockCreatedFilePaths`) → 対象の created_file 行 (`lockCreatedFileRows`) → program のグラフ (`lockProgramGraph`) の順にロックし (§7.3 と同じ順序、#112)、ファイルと split を読み直して計画と違えば NAS を触らずに `IllegalStateException` で拒否する。続いて各 `created_file` について `CreatedFileCommand.moveResource` (`NasComponent.moveResource` で検証付き移動。DB は触らない) を行って完了した移動を記録し、すべての NAS 移動が終わってから各行を `CreatedFileCommand.recordMove` (移動先のパスのガードを取ってから `file` と `path_key` を更新、`REQUIRED`) で更新する (#112。`file` の更新に伴う長い UNIQUE の検査の索引ロックを、残りの転送の間に持たないため)。NAS 移動か行の更新のどこかで失敗すると、完了済みの移動を新しいものから順に `restoreMoved` で戻し (戻しの失敗はログのみ)、例外を再送出して DB をロールバックする。`moveResource` 自体は、排他的に作成した移動先を、移動元が無傷と確認できたときだけ削除する。
 
-契約: この 2 つは catalog の協調操作として、現状と同じ「DB の行を変更してから NAS を変更する」順序、`REQUIRED` の参加、巻き戻しの挙動を保つ。NAS 操作は storage の公開操作で行う。
+契約: この 2 つは catalog の協調操作として、`delete` は「DB の行を変更してから NAS を変更する」順序を、`moveCreatedFiles` は「ロックを取ってから NAS を移動し、最後に行を更新する」順序 (#112) を保ち、`REQUIRED` の参加と巻き戻しの挙動を保つ。NAS 操作は storage の公開操作で行う。
 
 ### 7.5 CleanupPlanCommand (ガード付き apply)
 

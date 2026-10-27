@@ -15,6 +15,7 @@ import me.pinfort.tsvideos.catalog.api.CreatedFileCommand
 import me.pinfort.tsvideos.catalog.api.DirectoryNameComponent
 import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
 import me.pinfort.tsvideos.catalog.api.ExecutedFileTagCommand
+import me.pinfort.tsvideos.catalog.api.LedgerLocks
 import me.pinfort.tsvideos.catalog.api.NormalizeComponent
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
@@ -292,6 +293,7 @@ class FileProcessingPipelineEvidenceTest : ExpectSpec() {
     SplittedFileCommand::class,
     CreatedFileCommand::class,
     ProgramCommand::class,
+    LedgerLocks::class,
     DirectoryNameComponent::class,
     NormalizeComponent::class,
     CreatedFileCatalog::class,

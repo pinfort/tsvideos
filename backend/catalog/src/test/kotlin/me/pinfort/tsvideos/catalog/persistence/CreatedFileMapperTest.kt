@@ -6,6 +6,7 @@ import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import me.pinfort.tsvideos.catalog.api.CreatedFilePathKey
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
@@ -35,7 +36,7 @@ class CreatedFileMapperTest : ExpectSpec() {
                 connection.commit()
 
                 val keyHolder = GeneratedKeyHolder()
-                createdFileMapper.insert(2, "test", 3, "test2", "test3", "FILE_MOVED", keyHolder)
+                createdFileMapper.insert(2, "test", CreatedFilePathKey.hash("test"), 3, "test2", "test3", "FILE_MOVED", keyHolder)
                 connection.commit()
 
                 keyHolder.id shouldNotBe 0
@@ -58,7 +59,7 @@ class CreatedFileMapperTest : ExpectSpec() {
                 connection.commit()
 
                 val keyHolder = GeneratedKeyHolder()
-                createdFileMapper.insert(2, "test", 3, null, null, "REGISTERED", keyHolder)
+                createdFileMapper.insert(2, "test", CreatedFilePathKey.hash("test"), 3, null, null, "REGISTERED", keyHolder)
                 connection.commit()
 
                 createdFileMapper.find(keyHolder.id) shouldBe
@@ -87,7 +88,8 @@ class CreatedFileMapperTest : ExpectSpec() {
                 connection.commit()
 
                 val keyHolder = GeneratedKeyHolder()
-                createdFileMapper.insert(2, "test", 3, "video/mp4", null, "FILE_MOVED", keyHolder, 1920, 1080)
+                val pathKey = CreatedFilePathKey.hash("test")
+                createdFileMapper.insert(2, "test", pathKey, 3, "video/mp4", null, "FILE_MOVED", keyHolder, 1920, 1080)
                 connection.commit()
 
                 val expected = CreatedFileDto(keyHolder.id, 2, "test", 3, "video/mp4", null, CreatedFileDto.Status.FILE_MOVED, 1920, 1080)
@@ -435,10 +437,11 @@ class CreatedFileMapperTest : ExpectSpec() {
                     ).execute()
                 connection.commit()
 
-                createdFileMapper.updateFile(7, "test4")
+                createdFileMapper.updateFile(7, "test4", CreatedFilePathKey.hash("test4"))
                 connection.commit()
 
                 createdFileMapper.find(7)?.file shouldBe "test4"
+                createdFileMapper.selectWithoutPathKey(6, 10).map { it.id } shouldBe emptyList()
                 connection.close()
             }
 
@@ -453,7 +456,7 @@ class CreatedFileMapperTest : ExpectSpec() {
                     ).execute()
                 connection.commit()
 
-                createdFileMapper.updateFile(6, "test4")
+                createdFileMapper.updateFile(6, "test4", CreatedFilePathKey.hash("test4"))
                 connection.commit()
 
                 createdFileMapper.find(7)?.file shouldBe "test"

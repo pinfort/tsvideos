@@ -28,6 +28,7 @@ import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionTemplate
+import java.util.HexFormat
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -51,9 +52,25 @@ class CreatedFileCatalogTest : ExpectSpec() {
 
     @Autowired private lateinit var dataSource: DataSource
 
+    private fun execute(statement: String) {
+        dataSource.connection.use { connection ->
+            connection.autoCommit = true
+            connection.createStatement().use { it.executeUpdate(statement) }
+        }
+    }
+
     init {
-        // Seeded splitted_file row (02_insert_data.sql).
-        val splitId = 1L
+        // This spec's own split: registration refuses a split that does not exist, and other specs sharing the container
+        // clear the seeded rows (02_insert_data.sql).
+        val splitId = 9201L
+
+        beforeTest {
+            execute(
+                "INSERT IGNORE INTO splitted_file(id,executed_file_id,file,size,duration,status) " +
+                    "VALUES($splitId,9200,'catalog-test-split',1,1,'ENCODE_TASK_ADDED')",
+            )
+        }
+        afterSpec { execute("DELETE FROM splitted_file WHERE id = $splitId") }
 
         fun uniquePath() = "catalog-test/${UUID.randomUUID()}.mp4"
 
@@ -65,7 +82,18 @@ class CreatedFileCatalogTest : ExpectSpec() {
             resolution: VideoResolution? = null,
         ): Long {
             val key = GeneratedKeyHolder()
-            files.insert(splitId, path, 10, mime, null, CreatedFile.Status.FILE_MOVED.name, key, resolution?.width, resolution?.height)
+            files.insert(
+                splitId,
+                path,
+                CreatedFilePathKey.hash(path),
+                10,
+                mime,
+                null,
+                CreatedFile.Status.FILE_MOVED.name,
+                key,
+                resolution?.width,
+                resolution?.height,
+            )
             return key.id
         }
 
@@ -210,6 +238,211 @@ class CreatedFileCatalogTest : ExpectSpec() {
                     catalog.find(id)?.mime shouldBe null
                 } finally {
                     files.delete(id)
+                }
+            }
+        }
+
+        context("path keys") {
+            fun pathKeyOf(id: Long): ByteArray? =
+                dataSource.connection.use { connection ->
+                    connection.prepareStatement("SELECT path_key FROM created_file WHERE id = ?").use { statement ->
+                        statement.setLong(1, id)
+                        statement.executeQuery().use { result ->
+                            check(result.next()) { "row $id missing" }
+                            result.getBytes(1)
+                        }
+                    }
+                }
+
+            fun rawInsert(
+                id: Long,
+                path: String,
+            ) = dataSource.connection.use { connection ->
+                connection.autoCommit = true
+                connection
+                    .prepareStatement("INSERT INTO created_file(id,splitted_file_id,file,size,status) VALUES(?,?,?,10,'FILE_MOVED')")
+                    .use { statement ->
+                        statement.setLong(1, id)
+                        statement.setLong(2, splitId)
+                        statement.setString(3, path)
+                        statement.executeUpdate()
+                    }
+            }
+
+            expect("register stores the key shared by every alias of its path") {
+                val name = UUID.randomUUID().toString()
+                val registered = checkNotNull(required.execute { catalog.register(splitId, "catalog-test/$name/file.mp4", 10, null, null) })
+                try {
+                    val stored = pathKeyOf(registered.id).shouldNotBeNull()
+                    val aliases = listOf("CATALOG-TEST\\$name\\FILE.MP4", "catalog-test./$name /file.mp4. .", "Catalog-Test/$name/File.Mp4")
+                    for (alias in aliases) {
+                        stored.toList() shouldBe CreatedFilePathKey.hash(alias).toList()
+                    }
+                    (stored.toList() == CreatedFilePathKey.hash("catalog-test/$name/other.mp4").toList()) shouldBe false
+                } finally {
+                    files.delete(registered.id)
+                }
+            }
+
+            expect("rows written without a key are filled in by id with a cursor, only inside a transaction") {
+                val path = uniquePath()
+                rawInsert(990001, path)
+                rawInsert(990002, "$path.second")
+                try {
+                    pathKeyOf(990001) shouldBe null
+                    shouldThrow<IllegalTransactionStateException> { catalog.fillMissingPathKeys(990000, 1) }
+                    required.execute { catalog.fillMissingPathKeys(990000, 1) } shouldBe 990001L
+                    pathKeyOf(990001).shouldNotBeNull().toList() shouldBe CreatedFilePathKey.hash(path).toList()
+                    pathKeyOf(990002) shouldBe null
+                    required.execute { catalog.fillMissingPathKeys(990001, 10) } shouldBe null
+                    pathKeyOf(990002).shouldNotBeNull().toList() shouldBe CreatedFilePathKey.hash("$path.second").toList()
+                } finally {
+                    files.delete(990001)
+                    files.delete(990002)
+                }
+            }
+
+            expect("migration 076 is idempotent, leaves legacy rows unkeyed and accepts existing aliases") {
+                // A scratch copy of created_file in its pre-076 shape, so that the shared tables are never altered.
+                val table = "created_file_076_check"
+                val statements =
+                    checkNotNull(CreatedFileCatalogTest::class.java.classLoader.getResource("db/migrations/076_created_file_path_key.sql"))
+                        .readText()
+                        .lines()
+                        .filterNot { it.trimStart().startsWith("--") }
+                        .joinToString("\n")
+                        .replace("created_file", table)
+                        .split(';')
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+
+                fun count(query: String): Int =
+                    dataSource.connection.use { connection ->
+                        connection.createStatement().use { statement ->
+                            statement.executeQuery(query).use { result ->
+                                result.next()
+                                result.getInt(1)
+                            }
+                        }
+                    }
+
+                fun drop() = execute("DROP TABLE IF EXISTS $table, ${table}_path_guard")
+                drop()
+                try {
+                    execute("CREATE TABLE $table LIKE created_file")
+                    execute("ALTER TABLE $table DROP INDEX path_key, DROP COLUMN path_key")
+                    execute(
+                        "INSERT INTO $table(id,splitted_file_id,file,size,status) " +
+                            "VALUES(1,1,'base/a/alpha/file.mp4',1,'FILE_MOVED'),(2,1,'BASE\\\\A\\\\ALPHA\\\\FILE.MP4',1,'FILE_MOVED')",
+                    )
+                    statements.size shouldBe 2
+                    repeat(2) { statements.forEach { execute(it) } }
+
+                    count(
+                        "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='$table' " +
+                            "AND column_name='path_key' AND column_type='binary(32)' AND is_nullable='YES'",
+                    ) shouldBe 1
+                    count(
+                        "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='$table' " +
+                            "AND index_name='path_key' AND non_unique=1",
+                    ) shouldBe 1
+                    count(
+                        "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() " +
+                            "AND table_name='${table}_path_guard' AND index_name='PRIMARY' AND column_name='path_key'",
+                    ) shouldBe 1
+                    // Rows written before the migration keep no key until a bulk preview/apply fills them in.
+                    count("SELECT COUNT(*) FROM $table WHERE path_key IS NULL") shouldBe 2
+                    // Not unique: an installation that already holds aliases still migrates, and both rows get the same key.
+                    val key = HexFormat.of().formatHex(CreatedFilePathKey.hash("base/a/alpha/file.mp4"))
+                    execute("UPDATE $table SET path_key = UNHEX('$key')")
+                    count("SELECT COUNT(*) FROM $table WHERE path_key = UNHEX('$key')") shouldBe 2
+                } finally {
+                    drop()
+                }
+            }
+
+            expect("migration 077 is idempotent and keeps file unique by a plain index instead of USING HASH") {
+                // A scratch copy of created_file in its pre-077 shape, so that the shared table is never altered.
+                val table = "created_file_077_check"
+                val migration = "db/migrations/077_created_file_file_hash_unique.sql"
+                val statements =
+                    checkNotNull(CreatedFileCatalogTest::class.java.classLoader.getResource(migration))
+                        .readText()
+                        .lines()
+                        .filterNot { it.trimStart().startsWith("--") }
+                        .joinToString("\n")
+                        .replace("created_file", table)
+                        .split(';')
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+
+                fun count(query: String): Int =
+                    dataSource.connection.use { connection ->
+                        connection.createStatement().use { statement ->
+                            statement.executeQuery(query).use { result ->
+                                result.next()
+                                result.getInt(1)
+                            }
+                        }
+                    }
+
+                fun index(name: String) =
+                    "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='$table' " +
+                        "AND index_name='$name'"
+
+                fun insert(
+                    id: Int,
+                    file: String,
+                ) = execute("INSERT INTO $table(id,splitted_file_id,file,size,status) VALUES($id,1,'$file',1,'FILE_MOVED')")
+
+                execute("DROP TABLE IF EXISTS $table")
+                try {
+                    execute("CREATE TABLE $table LIKE created_file")
+                    execute("ALTER TABLE $table DROP INDEX file_hash, DROP COLUMN file_hash, ADD UNIQUE KEY file (file) USING HASH")
+                    insert(1, "base/a/alpha/file.mp4")
+                    statements.size shouldBe 1
+                    repeat(2) { statements.forEach { execute(it) } }
+
+                    count(index("file")) shouldBe 0
+                    count(index("file_hash") + " AND non_unique=0 AND column_name='file_hash'") shouldBe 1
+                    count(
+                        "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='$table' " +
+                            "AND column_name='file_hash' AND column_type='binary(32)' AND extra LIKE '%GENERATED%'",
+                    ) shouldBe 1
+                    // Existing rows get their hash, and the same file (trailing spaces included, as under the old PAD SPACE
+                    // key) is still refused while another file, even an alias, is accepted.
+                    count("SELECT COUNT(*) FROM $table WHERE file_hash = UNHEX(SHA2('base/a/alpha/file.mp4', 256))") shouldBe 1
+                    shouldThrow<java.sql.SQLIntegrityConstraintViolationException> { insert(2, "base/a/alpha/file.mp4") }
+                    shouldThrow<java.sql.SQLIntegrityConstraintViolationException> { insert(3, "base/a/alpha/file.mp4  ") }
+                    insert(4, "BASE/A/ALPHA/FILE.MP4")
+                    count("SELECT COUNT(*) FROM $table") shouldBe 2
+                } finally {
+                    execute("DROP TABLE IF EXISTS $table")
+                }
+            }
+
+            expect("a row another transaction holds locked is skipped without waiting and filled in by a later call") {
+                val path = uniquePath()
+                rawInsert(990011, path)
+                rawInsert(990012, "$path.second")
+                try {
+                    dataSource.connection.use { holder ->
+                        holder.autoCommit = false
+                        holder.createStatement().use { it.executeQuery("SELECT id FROM created_file WHERE id = 990011 FOR UPDATE").close() }
+                        val started = System.nanoTime()
+                        required.execute { catalog.fillMissingPathKeys(990010, 10) } shouldBe null
+                        // Far below the default lock wait (50 s) it would otherwise sit out.
+                        (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 5000) shouldBe true
+                        holder.rollback()
+                    }
+                    pathKeyOf(990011) shouldBe null
+                    pathKeyOf(990012).shouldNotBeNull().toList() shouldBe CreatedFilePathKey.hash("$path.second").toList()
+
+                    required.execute { catalog.fillMissingPathKeys(990010, 10) } shouldBe null
+                    pathKeyOf(990011).shouldNotBeNull().toList() shouldBe CreatedFilePathKey.hash(path).toList()
+                } finally {
+                    files.delete(990011)
+                    files.delete(990012)
                 }
             }
         }
