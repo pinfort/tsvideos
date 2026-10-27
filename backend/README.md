@@ -62,7 +62,23 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 
 チャプタ（[docs/video-chapters.md](docs/video-chapters.md)）を含むビルドをデプロイする前に、既存の DB へ `database-schema/src/main/resources/db/migrations/074_created_file_chapter.sql` を一度適用してください（073 の後。`IF NOT EXISTS` なので再実行しても安全です）。manager:api のチャプタ API と processor の after-encode / バックフィルが `created_file.chapters_probed` と `created_file_chapter` を参照します。
 
-一括操作のパス単位のロック（#112、[docs/bulk-library.md](docs/bulk-library.md)）を含むビルドをデプロイする前に、既存の DB へ `database-schema/src/main/resources/db/migrations/076_created_file_path_key.sql` を一度適用してください（075 の後。`IF NOT EXISTS` なので再実行しても安全です）。`created_file.path_key` 列（索引付き）と `created_file_path_guard` テーブルを作ります。既存の行の `path_key` は、最初の一括プレビュー/適用が自動で埋めます。processor と manager は同時に更新してください（一括適用は、`created_file` を登録・移動するすべての書き込みがパスのガードを取ることを前提にしており、古い processor はガードを取りません）。続けて `077_created_file_file_hash_unique.sql` も一度適用してください（076 の後。`IF NOT EXISTS` / `IF EXISTS` なので再実行しても安全です）。`created_file.file` の `UNIQUE ... USING HASH` を、生成列 `created_file.file_hash`（`file` の SHA-256）の通常の UNIQUE 索引に置き換えます。`USING HASH` の重複検査はギャップロックを残すため、無関係なパスの登録どうしが互いの commit を待ち、デッドロックしうるためです。一意性（末尾の空白を区別しない従来の比較を含む）は変わりません。
+一括操作のパス単位のロック（#112、[docs/bulk-library.md](docs/bulk-library.md)）を含むビルドは、停止時間を取って次の順に適用してください。
+
+1. manager（`manager:api` / `manager:console`）と processor（`processor:console`、Amatsukaze の実行後バッチを含む）をすべて停止する。
+2. 下記の重複確認クエリを実行する。
+3. `076_created_file_path_key.sql` を適用する。
+4. `077_created_file_file_hash_unique.sql` を適用する。
+5. 更新後の manager と processor を両方デプロイしてから起動する（片方だけ古い版で動かさない）。
+
+`database-schema/src/main/resources/db/migrations/076_created_file_path_key.sql`（075 の後。`IF NOT EXISTS` なので再実行しても安全です）は `created_file.path_key` 列（索引付き）と `created_file_path_guard` テーブルを作ります。既存の行の `path_key` は、最初の一括プレビュー/適用が自動で埋めます。processor と manager を同時に更新するのは、一括適用が `created_file` を登録・移動するすべての書き込みがパスのガードを取ることを前提にしており、古い processor はガードを取らないためです。
+
+`077_created_file_file_hash_unique.sql`（076 の後。`IF NOT EXISTS` / `IF EXISTS` なので再実行しても安全です）は `created_file.file` の `UNIQUE ... USING HASH` を、生成列 `created_file.file_hash`（`file` の SHA-256）の通常の UNIQUE 索引に置き換えます。`USING HASH` の重複検査はギャップロックを残すため、無関係なパスの登録どうしが互いの commit を待ち、デッドロックしうるためです。一意性（末尾の空白を区別しない従来の比較を含む）は変わりません。削除する旧索引は、`001` が作成した名前どおりの `file`（`UNIQUE KEY file (file) USING HASH`）であることを前提にしています。この `ALTER TABLE` は `created_file` テーブルを再構築し、メタデータロックを取るため、実行中は同テーブルへの読み書きが待たされます。台帳が大きいと時間がかかることがあります。
+
+077 の前に、次の読み取り専用クエリで、末尾の空白を除くと同じになる `file` がないか確認してください。結果が 1 行でもあれば UNIQUE 索引を作れないため、作業を中止して該当行を手動で突き合わせてください（自動で削除しないでください）。
+
+```sql
+SELECT RTRIM(file), COUNT(*) FROM created_file GROUP BY RTRIM(file) HAVING COUNT(*) > 1;
+```
 
 `after-encode` は Amatsukaze が実行後バッチに渡す以下の環境変数を読みます（同名のオプションでも指定できます）。
 
