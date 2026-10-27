@@ -1,10 +1,13 @@
 package me.pinfort.tsvideos.processing.persistence
 
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.types.shouldBeInstanceOf
 import me.pinfort.tsvideos.processing.api.ProcessingJobClaimCommand
 import me.pinfort.tsvideos.processing.api.ProcessingJobCommand
 import me.pinfort.tsvideos.processing.domain.ProcessingIdentity
@@ -14,18 +17,23 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase
 import org.springframework.boot.testcontainers.context.ImportTestcontainers
 import org.springframework.context.annotation.Import
+import org.springframework.dao.DuplicateKeyException
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionTemplate
+import java.sql.SQLException
 import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.sql.DataSource
+
+private const val MIGRATION_075 = "075_processing_job_executed_file_unique.sql"
+private const val UNIQUE_INDEX = "executed_file_id_unique"
 
 @ImportTestcontainers
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -74,6 +82,23 @@ class ProcessingJobMapperTest : ExpectSpec() {
             if (!connection.autoCommit) connection.commit()
         }
     }
+
+    private fun execute(sql: String) {
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { it.execute(sql) }
+            if (!connection.autoCommit) connection.commit()
+        }
+    }
+
+    private fun count(sql: String): Long =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery(sql).use { result ->
+                    check(result.next())
+                    result.getLong(1)
+                }
+            }
+        }
 
     init {
         expect("every state is persisted and read back by its exact constant name") {
@@ -296,6 +321,93 @@ class ProcessingJobMapperTest : ExpectSpec() {
                 mapper.reconcile(job.id, State.REJECTED) shouldBe 0
                 mapper.find(key) shouldBe before
             }
+        }
+        expect("an executed file links to at most one job while any number of jobs stay unlinked") {
+            val first = UUID.randomUUID().toString()
+            val second = UUID.randomUUID().toString()
+            val third = UUID.randomUUID().toString()
+            claim(first, "/unique-first") shouldBe 1
+            claim(second, "/unique-second") shouldBe 1
+            claim(third, "/unique-third") shouldBe 1
+            // Unlinked jobs (NULL executed_file_id) never conflict with each other.
+            listOf(first, second, third).map { mapper.find(it)?.executedFileId } shouldBe listOf(null, null, null)
+            val owner = checkNotNull(mapper.find(first))
+            val other = checkNotNull(mapper.find(second))
+            mapper.link(owner.id, 88100, State.CLAIMED) shouldBe 1
+            shouldThrow<DuplicateKeyException> { mapper.link(other.id, 88100, State.CLAIMED) }
+            val conflict = shouldThrow<IllegalStateException> { command.link(other, 88100) }
+            conflict.message shouldContain "Executed file 88100 is already linked to another job"
+            conflict.cause.shouldBeInstanceOf<DuplicateKeyException>()
+            // The losing job keeps no link and the owner is the only job found for the executed file.
+            mapper.find(second)?.executedFileId shouldBe null
+            mapper.findByExecutedFile(88100)?.id shouldBe owner.id
+            command.link(other, 88101)
+            mapper.findByExecutedFile(88101)?.id shouldBe other.id
+        }
+        expect("documented legacy adoption cannot add a second job to an executed file even without its NOT EXISTS guard") {
+            val key = UUID.randomUUID().toString()
+            claim(key, "/adoption-conflict") shouldBe 1
+            mapper.link(checkNotNull(mapper.find(key)).id, 88200, State.CLAIMED) shouldBe 1
+            shouldThrow<SQLException> {
+                execute(
+                    "INSERT INTO processing_job(identity_key,input_path,input_size,modified_millis,state,executed_file_id) " +
+                        "VALUES (SHA2('legacy:88200',256),'legacy-conflict',1,-1,'SUBMITTED',88200)",
+                )
+            }.message shouldContain "Duplicate entry"
+            mapper.findByExecutedFile(88200)?.identityKey shouldBe key
+        }
+        expect("migration 075 refuses duplicate links without deleting rows and applies once they are reconciled") {
+            // A scratch copy of processing_job, so that the shared table never holds the duplicates.
+            val table = "processing_job_075_check"
+
+            fun migration(name: String) =
+                checkNotNull(ProcessingJobMapperTest::class.java.classLoader.getResource("db/migrations/$name"))
+                    .readText()
+                    .replace("processing_job", table)
+                    .trim()
+                    .removeSuffix(";")
+
+            fun indexes(name: String) =
+                count(
+                    "SELECT COUNT(*) FROM information_schema.statistics " +
+                        "WHERE table_schema=DATABASE() AND table_name='$table' AND index_name='$name' " +
+                        "AND non_unique=${if (name == UNIQUE_INDEX) 0 else 1}",
+                )
+            execute("DROP TABLE IF EXISTS $table")
+            execute(migration("064_processing_job.sql"))
+            val insert = "INSERT INTO $table(identity_key,input_path,input_size,modified_millis,state,executed_file_id) VALUES "
+            execute(
+                insert +
+                    "('a','/a',1,1,'SUBMITTED',7), ('b','/b',1,1,'RETRYABLE',7), " +
+                    "('c','/c',1,1,'CLAIMED',NULL), ('d','/d',1,1,'CLAIMED',NULL)",
+            )
+            // The preflight query documented in processing-idempotency.md.
+            val preflight =
+                "SELECT COUNT(*) FROM (SELECT executed_file_id FROM $table WHERE executed_file_id IS NOT NULL " +
+                    "GROUP BY executed_file_id HAVING COUNT(*) > 1) duplicates"
+            count(preflight) shouldBe 1
+            shouldThrow<SQLException> { execute(migration(MIGRATION_075)) }.message shouldContain "Duplicate entry"
+            // The failed ALTER is atomic: every row and the original index survive.
+            count("SELECT COUNT(*) FROM $table") shouldBe 4
+            indexes("executed_file_id") shouldBe 1
+            indexes(UNIQUE_INDEX) shouldBe 0
+            // The documented remediation for a RETRYABLE duplicate: clear only its link, as retry() would.
+            execute(
+                "UPDATE $table SET executed_file_id=NULL " +
+                    "WHERE identity_key='b' AND executed_file_id=7 AND state='RETRYABLE' AND callback_claim IS NULL",
+            )
+            count(preflight) shouldBe 0
+            execute(migration(MIGRATION_075))
+            // Rerunning is a no-op.
+            execute(migration(MIGRATION_075))
+            indexes("executed_file_id") shouldBe 0
+            indexes(UNIQUE_INDEX) shouldBe 1
+            count("SELECT COUNT(*) FROM $table") shouldBe 4
+            // Multiple NULLs stay allowed, a second link is rejected.
+            execute(insert + "('e','/e',1,1,'CLAIMED',NULL)")
+            count("SELECT COUNT(*) FROM $table WHERE executed_file_id IS NULL") shouldBe 4
+            shouldThrow<SQLException> { execute(insert + "('f','/f',1,1,'CLAIMED',7)") }.message shouldContain "Duplicate entry"
+            execute("DROP TABLE $table")
         }
         expect("reconciliation rejects a callback-claimed SUBMISSION_UNKNOWN job until the claim is released") {
             val key = UUID.randomUUID().toString()

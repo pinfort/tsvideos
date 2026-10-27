@@ -38,13 +38,12 @@ internal interface ProcessingJobMapper {
     )
     fun find(key: String): ProcessingJob?
 
+    /** Migration 075 makes executed_file_id unique; on a database without it a duplicate fails here instead of picking one. */
     @Select(
         """
         SELECT $JOB_COLUMNS
         FROM processing_job
         WHERE executed_file_id = #{id}
-        ORDER BY id DESC
-        LIMIT 1
         """,
     )
     fun findByExecutedFile(id: Long): ProcessingJob?

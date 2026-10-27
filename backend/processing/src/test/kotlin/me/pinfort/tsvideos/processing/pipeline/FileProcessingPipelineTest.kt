@@ -11,6 +11,7 @@ import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.spyk
 import io.mockk.verify
 import io.mockk.verifyOrder
 import me.pinfort.tsvideos.catalog.api.CreatedFileCommand
@@ -51,6 +52,7 @@ import me.pinfort.tsvideos.storage.api.NasPaths
 import me.pinfort.tsvideos.storage.api.NasStore
 import org.slf4j.Logger
 import java.io.File
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.time.LocalDateTime
 
@@ -74,6 +76,7 @@ class FileProcessingPipelineTest :
         lateinit var quality: RecordingQualityInspector
         lateinit var qualityReports: RecordingQualityCommand
         lateinit var logger: Logger
+        lateinit var compressComponent: CompressComponent
         lateinit var fileProcessingPipeline: FileProcessingPipeline
 
         val properties =
@@ -121,6 +124,8 @@ class FileProcessingPipelineTest :
             every { createdFileCommand.selectBySplittedFileId(any()) } returns emptyList()
             every { nasComponent.matchesSize(any(), any(), any()) } returns true
             every { nasPaths.resolvePathUnderBaseDir(any(), any()) } answers { secondArg() }
+            // A spy so that a test can replace real compression, e.g. to lose the exclusive-create race.
+            compressComponent = spyk(CompressComponent(logger))
             fileProcessingPipeline =
                 FileProcessingPipeline(
                     executedFileCommand = executedFileCommand,
@@ -133,7 +138,7 @@ class FileProcessingPipelineTest :
                     amatsukazeAddTaskClient = amatsukazeAddTaskClient,
                     durationProbeClient = durationProbeClient,
                     mainSplittedFileFinderComponent = MainSplittedFileFinderComponent(),
-                    compressComponent = CompressComponent(logger),
+                    compressComponent = compressComponent,
                     nasDestinationResolver = NasDestinationResolver(NormalizeComponent(), nasPaths),
                     processorToolConfigurationProperties = properties,
                     logger = logger,
@@ -325,8 +330,13 @@ class FileProcessingPipelineTest :
                     if (dryRun) {
                         verify(exactly = 0) { history.begin(any(), any()) }
                     } else {
+                        // The claim precedes inspection, so a failed inspection leaves a RETRYABLE job behind.
+                        verifyOrder {
+                            jobs.claim(any())
+                            tsSelectClient.check(original, any())
+                            jobs.transition(any(), State.CLAIMED, State.RETRYABLE)
+                        }
                         verify { history.failed(44, any()) }
-                        verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
                     }
                 }
             }
@@ -749,19 +759,63 @@ class FileProcessingPipelineTest :
                 }
 
                 archive.exists() shouldBe false
-                verify(exactly = 0) { nasComponent.uploadResource(any(), any(), any(), any()) }
+                verify(exactly = 0) { uploads.upload(any(), any(), any(), any(), any(), any()) }
                 verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
             }
 
-            expect("an upload failure keeps the job claimed for reconciliation") {
+            expect("an archive created by someone else after the existence check is kept and never uploaded or submitted") {
                 val original = newOriginalFile()
-                stubThroughUpload(original)
-                every { nasComponent.uploadResource(any(), any(), any(), any()) } throws RuntimeException("smb timeout")
+                val archive = stubThroughUpload(original)
+                // Another writer wins the race between the existence check and CREATE_NEW: the open fails before any
+                // progress is reported, so this attempt never owned the archive.
+                every { compressComponent.compress(any(), any(), false, any()) } answers {
+                    secondArg<File>().writeText("foreign")
+                    throw FileAlreadyExistsException(secondArg<File>().path)
+                }
 
-                shouldThrow<RuntimeException> { fileProcessingPipeline.processFile(original) }
+                shouldThrow<FileAlreadyExistsException> { fileProcessingPipeline.processFile(original) }
 
-                verify(exactly = 0) { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
-                verify { logger.error(match<String> { it.contains("requires reconciliation") }, any<Throwable>()) }
+                // The rollback deletes only an archive this attempt created, so the foreign bytes survive.
+                archive.readText() shouldBe "foreign"
+                verify(exactly = 0) { uploads.upload(any(), any(), any(), any(), any(), any()) }
+                verify(exactly = 0) { jobs.transition(any(), State.CLAIMED, State.SUBMISSION_UNKNOWN) }
+                verify { amatsukazeAddTaskClient wasNot Called }
+                verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
+            }
+
+            fun postUpload() = RuntimeException("post-upload")
+            mapOf<String, () -> Unit>(
+                "upload" to {
+                    every { uploads.upload(any(), any(), any(), any(), any(), any()) } throws postUpload()
+                },
+                "created_file registration" to {
+                    every { uploads.register(any(), any(), any(), any()) } throws postUpload()
+                },
+                "split status update" to {
+                    every { splittedFileCommand.updateStatus(any(), any(), any()) } throws postUpload()
+                },
+                "local archive deletion" to {
+                    every { uploads.deleteLocal(any()) } throws postUpload()
+                },
+            ).forEach { (point, inject) ->
+                expect("a $point failure after the upload started rolls nothing back and keeps the job claimed") {
+                    val original = newOriginalFile()
+                    val archive = stubThroughUpload(original)
+                    every { splittedFileCommand.updateStatus(any(), any(), any()) } answers { firstArg() }
+                    inject()
+
+                    shouldThrow<RuntimeException> { fileProcessingPipeline.processFile(original) }.message shouldBe "post-upload"
+
+                    verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
+                    verify(exactly = 0) { programCommand.deleteByExecutedFileId(any(), any()) }
+                    verify(exactly = 0) { splittedFileCommand.delete(any(), any()) }
+                    verify(exactly = 0) { jobs.transition(any(), any(), any()) }
+                    verify { amatsukazeAddTaskClient wasNot Called }
+                    verify { logger.error(match<String> { it.contains("requires reconciliation") }, any<Throwable>()) }
+                    File(archive.parentFile, "${original.nameWithoutExtension}_1.m2ts").exists() shouldBe true
+                    // The relaxed upload mock never deletes the archive, so it is still the one compress created.
+                    archive.exists() shouldBe true
+                }
             }
 
             expect("a clean rollback releases the job for retry") {
@@ -864,17 +918,66 @@ class FileProcessingPipelineTest :
                     )
                 }
                 every { executedFileCommand.updateStatus(any(), any(), any()) } returns executedFile
+                every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } answers {
+                    listOf(SplittedFile(200, executedFile.id, splitFile.absolutePath, 13, 100.0, SplittedFile.Status.REGISTERED))
+                }
+                every { splittedFileCommand.delete(any(), any()) } just Runs
+                every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+                every { executedFileCommand.delete(any(), any()) } just Runs
 
                 every { executedFileCommand.find(executedFile.id) } returns executedFile
                 every { amatsukazeAddTaskClient.addTask(any(), any(), any()) } returns 0
 
-                shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
+                val e = shouldThrow<IllegalStateException> { fileProcessingPipeline.processFile(original) }
+                e.message shouldContain "already exists and is not reused"
                 original.exists() shouldBe true
                 // Nothing reached the NAS: the split is rolled back, but the archive this attempt did not create is kept.
                 splitFile.exists() shouldBe false
-                File(outDir, "${splitFile.name}.gz").exists() shouldBe true
+                File(outDir, "${splitFile.name}.gz").readText() shouldBe "stale"
+                verify { executedFileCommand.delete(executedFile, false) }
                 verify(exactly = 0) { uploads.upload(any(), any(), any(), any(), any(), any()) }
                 verify(exactly = 0) { amatsukazeAddTaskClient.addTask(any(), any(), any()) }
+                verify(exactly = 0) { jobs.transition(any(), State.CLAIMED, State.SUBMISSION_UNKNOWN) }
+                // A clean rollback with nothing on the NAS is retryable, but every rerun stops here until the operator
+                // reconciles the leftover archive.
+                verify { jobs.transition(any(), State.CLAIMED, State.RETRYABLE) }
+            }
+        }
+
+        context("processFile - fatal errors") {
+            // Error is never recovered: no rollback, no failed history, no RETRYABLE. The durable claim stays for reconciliation.
+            expect("an Error after registration propagates without rollback and keeps the job claimed") {
+                val original = newOriginalFile()
+                val executedFile = executedFileFixture(original)
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+                every { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns executedFile
+                every { programCommand.insert(any(), any(), any()) } returns mockk()
+                val fatal = OutOfMemoryError("simulated")
+                every { tsSplitterClient.split(any(), any(), any()) } throws fatal
+
+                shouldThrow<OutOfMemoryError> { fileProcessingPipeline.processFile(original) } shouldBe fatal
+
+                verify(exactly = 0) { executedFileCommand.delete(any(), any()) }
+                verify(exactly = 0) { programCommand.deleteByExecutedFileId(any(), any()) }
+                verify(exactly = 0) { history.failed(any(), any()) }
+                verify(exactly = 0) { jobs.transition(any(), any(), any()) }
+                verify { jobs.link(any(), executedFile.id) }
+                original.exists() shouldBe true
+            }
+
+            expect("an Error during inspection propagates and leaves the claim in place") {
+                val original = newOriginalFile()
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } throws StackOverflowError()
+
+                shouldThrow<StackOverflowError> { fileProcessingPipeline.processFile(original) }
+
+                verify { jobs.claim(any()) }
+                verify(exactly = 0) { history.failed(any(), any()) }
+                verify(exactly = 0) { jobs.transition(any(), any(), any()) }
+                verify(exactly = 0) { executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any()) }
             }
         }
 

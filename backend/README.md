@@ -162,7 +162,7 @@ DB 上のパスは SMB 共有からの相対パスであるため、`..`・`.`�
 
 The web `/health` page shows failed recordings, dropped frames, and the last saved NAS verification results. See [library-health.md](docs/library-health.md) for the required migration, UTC timestamps, explicit scan behavior, and interrupted-run recovery. GET never triggers a NAS scan.
 
-Processor deployment and recovery: [processing identity and reconciliation](docs/processing-idempotency.md). Apply migration 064 before upgrading.
+Processor deployment and recovery: [processing identity and reconciliation](docs/processing-idempotency.md), including a runbook for each blocked-job message. Apply migration 064 before upgrading, and `075_processing_job_executed_file_unique.sql` (at most one job per executed file) only after its duplicate preflight query returns no rows; with duplicates the migration fails without changing any row.
 
 Processor upload ownership, verification, migration and recovery: [verified-uploads.md](docs/verified-uploads.md). By default the NAS copy is checked by size only before local files (including the only copy of the raw recording) are deleted; set `PROCESSOR_UPLOAD_VERIFY_SHA256=true` to read every upload back and compare SHA-256, at the cost of an extra full read over SMB.
 
@@ -170,7 +170,7 @@ Processor status/history, migration, activity semantics and explicit retention: 
 
 Processor interruption: on SIGINT/SIGTERM `tvpcli` stops cooperatively, records the attempt as INTERRUPTED, keeps partial evidence instead of rolling back, and exits 130 (a native signal shutdown may report 143). `PROCESSOR_SHUTDOWN_GRACE_SECONDS` (default 30, 1–300) bounds the whole shutdown; see [graceful-shutdown.md](docs/graceful-shutdown.md).
 
-既存の DB には次のテーブルを一度だけ作成してください（DDL は `database-schema/src/main/resources/db/migrations/064_processing_job.sql` と `067_processing_history.sql`、`071_recording_quality.sql`、`072_upload_manifest.sql` をこの順に適用してください）。**processor を停止してから、この機能を含むビルドをデプロイする前に**作成する必要があります。
+既存の DB には次のテーブルを一度だけ作成してください（DDL は `database-schema/src/main/resources/db/migrations/064_processing_job.sql` と `067_processing_history.sql`、`071_recording_quality.sql`、`072_upload_manifest.sql` をこの順に適用し、074 の後に [processing-idempotency.md](docs/processing-idempotency.md) の重複の事前確認をしてから `075_processing_job_executed_file_unique.sql` を適用してください）。**processor を停止してから、この機能を含むビルドをデプロイする前に**作成する必要があります。
 
 ### DDL の管理
 
