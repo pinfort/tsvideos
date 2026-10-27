@@ -10,7 +10,7 @@
 
 | パッケージ | 内容 |
 | --- | --- |
-| `me.pinfort.tsvideos.catalog.api` (公開) | 公開操作: `ProgramCommand`、`CreatedFileCommand`、`ExecutedFileCommand`、`SplittedFileCommand`、`ExecutedFileTagCommand`、`CreatedFileCatalog`、`ProgramInventory`、`LedgerSnapshots`、`LedgerLocks`、`CatalogStatistics`。移動先パスの規則 `DirectoryNameComponent` / `NormalizeComponent`。結果型 `ProgramSummary`、`ProgramSnapshot`、`CreatedFileSnapshot`、`ProgramStatsRow`、`FileStatsRow`、`StorageReference`、`StreamableVideo`。Mapper の登録先 `CatalogPersistence.MAPPER_PACKAGE` |
+| `me.pinfort.tsvideos.catalog.api` (公開) | 公開操作: `ProgramCommand`、`CreatedFileCommand`、`ExecutedFileCommand`、`SplittedFileCommand`、`ExecutedFileTagCommand`、`CreatedFileCatalog`、`ProgramInventory`、`LedgerSnapshots`、`LedgerLocks`、`CatalogStatistics`。移動先パスの規則 `DirectoryNameComponent` / `NormalizeComponent`。NAS パスのエイリアスの正規化キー `CreatedFilePathKey`。結果型 `ProgramSummary`、`ProgramSnapshot`、`CreatedFileSnapshot`、`ProgramStatsRow`、`FileStatsRow`、`StorageReference`、`StreamableVideo`。Mapper の登録先 `CatalogPersistence.MAPPER_PACKAGE` |
 | `me.pinfort.tsvideos.catalog.domain` (公開) | `Program`、`ProgramDetail`、`ExecutedFile`、`SplittedFile`、`CreatedFile`、`VideoResolution`、`VideoChapter` / `VideoChapters` (作成ファイルのチャプタ。[video-chapters.md](../docs/video-chapters.md))、検出タグ/実施記録の名前 (`ExecutedFileTag` / `ExecutedFileCheck`)、検索条件と結果 (`ProgramSearchQuery` / `ProgramSearchPage`) |
 | `me.pinfort.tsvideos.catalog.persistence` (internal) | MyBatis の Mapper (アノテーションと SQL プロバイダ `ProgramSearchSql`。XML はない)、DTO、`GeneratedKeyHolder`。トップレベルの宣言はすべて `internal` |
 
@@ -21,15 +21,16 @@
 - catalog は DataSource・`PlatformTransactionManager`・`SqlSessionFactory` を定義しない。3 つの実行アプリは `scanBasePackages` に `me.pinfort.tsvideos.catalog` を含め、`@MapperScan` に `CatalogPersistence.MAPPER_PACKAGE` を (manager では `LibraryPersistence.MAPPER_PACKAGE`、processor では `ProcessingPersistence.MAPPER_PACKAGE` と並べて) 加え、catalog の Mapper も自分の 1 組の `SqlSessionFactory` とトランザクションマネージャに登録する。`persistence` のパッケージ名は catalog の外に書かない。
 - 注入先ごとの slf4j `Logger` は実行アプリ (各アプリの `config/LoggerConfig`) が提供する。catalog は `Logger` 型の注入だけを要求する。
 - 設定ファイルとプロファイルを持たない。DB 接続の設定は実行アプリ (各アプリの `application-datasource.yaml`) のもの。
-- NAS は storage の公開操作 (`NasComponent`) を使う。協調削除/移動は「DB の行を変更してから NAS を変更する」順序を保つ (module-boundaries.md §7.4)。
+- NAS は storage の公開操作 (`NasComponent`) を使う。協調削除は「DB の行を変更してから NAS を変更する」順序を保つ。協調移動は #112 から、program のすべての NAS 移動を終えてから行を更新し、行の更新に失敗しても移動済みのファイルを戻す (module-boundaries.md §7.4)。
+- `created_file` のパスを書く操作 (`CreatedFileCatalog.register`、`CreatedFileCommand.recordMove`) は、書くパスの正規化キー (`CreatedFilePathKey`) を `path_key` に保存し、先に `created_file_path_guard` のそのキーの行をロックする (migration 076、[bulk-library.md](../docs/bulk-library.md))。`register` は登録先 split のガード (`CreatedFilePathKey.splitGuard`) も同じキー順に取り、INSERT の後で split を共有ロック付きで読み直して、消えていれば拒否する (孤児を残さない)。`ProgramCommand.moveCreatedFiles` は最初の NAS 操作の前にガード → 行 → program のグラフをロックする。`created_file` のパスを書く新しい操作も同じ手順を踏むこと。
 
 ## トランザクション
 
 core にあったときと同じ (module-boundaries.md §7.2)。
 
 - `ProgramCommand.search`: `readOnly` + `REPEATABLE_READ`。
-- `ProgramCommand.delete` / `moveCreatedFiles`、`CreatedFileCommand.delete` / `move`、`ExecutedFileTagCommand.recordCheck`: `REQUIRED`。
-- `LedgerLocks` の全操作、`CreatedFileCatalog.register` / `fillMimeIfMissing` / `fillResolutionIfMissing` / `recordChaptersIfMissing`: `MANDATORY`。
+- `ProgramCommand.delete` / `moveCreatedFiles`、`CreatedFileCommand.delete` / `recordMove`、`ExecutedFileTagCommand.recordCheck`: `REQUIRED`。`CreatedFileCommand.moveResource` (NAS だけ) は宣言なし。
+- `LedgerLocks` の全操作、`CreatedFileCatalog.register` / `fillMimeIfMissing` / `fillResolutionIfMissing` / `recordChaptersIfMissing` / `fillMissingPathKeys`: `MANDATORY`。
 - `ProgramInventory`、`LedgerSnapshots`、`CatalogStatistics`、`CreatedFileCatalog` の読み取り: 宣言なし (呼び出し元のトランザクションに参加)。
 - 宣言のない登録・状態更新 (`ProgramCommand.insert` など) は、トランザクション外で呼ばれれば文単位で確定する。
 - ロックの順序と 10 秒の待機上限は `LedgerLocks` が守る (§7.3)。

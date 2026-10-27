@@ -62,6 +62,8 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 
 チャプタ（[docs/video-chapters.md](docs/video-chapters.md)）を含むビルドをデプロイする前に、既存の DB へ `database-schema/src/main/resources/db/migrations/074_created_file_chapter.sql` を一度適用してください（073 の後。`IF NOT EXISTS` なので再実行しても安全です）。manager:api のチャプタ API と processor の after-encode / バックフィルが `created_file.chapters_probed` と `created_file_chapter` を参照します。
 
+一括操作のパス単位のロック（#112、[docs/bulk-library.md](docs/bulk-library.md)）を含むビルドをデプロイする前に、既存の DB へ `database-schema/src/main/resources/db/migrations/076_created_file_path_key.sql` を一度適用してください（075 の後。`IF NOT EXISTS` なので再実行しても安全です）。`created_file.path_key` 列（索引付き）と `created_file_path_guard` テーブルを作ります。既存の行の `path_key` は、最初の一括プレビュー/適用が自動で埋めます。processor と manager は同時に更新してください（一括適用は、`created_file` を登録・移動するすべての書き込みがパスのガードを取ることを前提にしており、古い processor はガードを取りません）。
+
 `after-encode` は Amatsukaze が実行後バッチに渡す以下の環境変数を読みます（同名のオプションでも指定できます）。
 
 | 環境変数 | オプション | 内容 |

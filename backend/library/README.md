@@ -36,7 +36,7 @@ core にあったときと同じ (module-boundaries.md §7.2)。
 - `HealthVerificationStore` の全操作 (`start` / `complete` / `fail` / `failAbandoned`): `REQUIRES_NEW`。NAS の確認 (`LibraryVerificationCommand.verify`、storage の `NasFileVerifier` のセッション 1 つ) はトランザクションの外で行う。`LibraryHealthScanCommand.scan` は宣言なしで、実行中の run を 1 つに限る (`active_marker` の一意制約、重複は `HealthScanAlreadyRunning`)。
 - `LibraryOrganizationCommand.list` / `find`、`DuplicateProgramCommand.detect`、`LibraryVerificationCommand.verify`: 宣言なし。
 - `BulkLibraryCommand.preview`、`CleanupPlanCommand.plan` と dry-run の `apply`: `TransactionTemplate` で `readOnly` + `REPEATABLE_READ`。
-- `BulkLibraryCommand.apply` (と `CleanupPlanCommand.apply` が使う `internal` の `applyGuarded`): 対象ごとに `REQUIRES_NEW` + `REPEATABLE_READ` のトランザクションを開き、対象をまたいでロックを持たない。ロックは catalog の `LedgerLocks` (`MANDATORY`) で `lockCreatedFiles` → (ガード付きのみ `lockWholeLedger` → ガード評価) → `lockProgramGraph` の順に取る。ロック下でスナップショットとフィンガープリントを作り直し、一致したときだけ catalog の `ProgramCommand.delete` / `moveCreatedFiles` (`REQUIRED`) で変更する (module-boundaries.md §7.3、§7.5)。
+- `BulkLibraryCommand.apply` (と `CleanupPlanCommand.apply` が使う `internal` の `applyGuarded`): 対象ごとに `REQUIRES_NEW` + `REPEATABLE_READ` のトランザクションを開き、対象をまたいでロックを持たない。対象のパスを別の読み取りトランザクションで決めてから、ロックは catalog の `LedgerLocks` (`MANDATORY`) で `lockCreatedFilePaths` (触るパスとそのエイリアスのガード、#112) → `lockCreatedFileRows` (ガード付きは代わりに `lockCreatedFiles` → `lockWholeLedger` → ガード評価) → `lockProgramGraph` の順に取る。ロック下でスナップショットとフィンガープリントを作り直し (ガードの範囲外のファイルが現れていれば STALE)、エイリアスは `LedgerSnapshots.createdFilesAt` で対象のパスだけを引いて検査し、一致したときだけ catalog の `ProgramCommand.delete` / `moveCreatedFiles` (`REQUIRED`) で変更する (module-boundaries.md §7.3、§7.5)。
 
 ## 境界チェック
 

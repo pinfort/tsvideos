@@ -71,8 +71,11 @@ class CreatedFileCommand internal constructor(
         }
     }
 
-    @Transactional
-    fun move(
+    /**
+     * Verified NAS move of [createdFile] to [newFile]. The row is changed separately by [recordMove]: ProgramCommand
+     * moves every NAS file of a program first and records the rows last (see ProgramCommand.moveCreatedFiles).
+     */
+    fun moveResource(
         createdFile: CreatedFile,
         newFile: String,
         dryRun: Boolean = false,
@@ -80,7 +83,6 @@ class CreatedFileCommand internal constructor(
         try {
             val movedFrom =
                 if (!dryRun) {
-                    createdFileMapper.updateFile(createdFile.id, newFile)
                     nasComponent.moveResource(createdFile.file, newFile)
                 } else {
                     NasStore.VIDEO_STORE_NAS
@@ -95,4 +97,19 @@ class CreatedFileCommand internal constructor(
             // RuntimeExceptionにしないとロールバック対象にならない
             throw RuntimeException(e)
         }
+
+    /** Points the row of [createdFile] at [newFile], claiming the path guard of [newFile] first like every path write. */
+    @Transactional
+    fun recordMove(
+        createdFile: CreatedFile,
+        newFile: String,
+        dryRun: Boolean = false,
+    ) {
+        if (!dryRun) {
+            val pathKey = CreatedFilePathKey.hash(newFile)
+            createdFileMapper.lockPathGuard(pathKey)
+            createdFileMapper.updateFile(createdFile.id, newFile, pathKey)
+        }
+        logger.info("Record moved created file, id=${createdFile.id}, newFile=$newFile")
+    }
 }

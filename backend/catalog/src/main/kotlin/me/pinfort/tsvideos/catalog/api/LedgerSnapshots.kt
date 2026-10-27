@@ -28,6 +28,26 @@ class LedgerSnapshots internal constructor(
     /** Every `created_file` row by id, including rows whose `splitted_file` is gone. */
     fun allCreatedFiles(): List<CreatedFileSnapshot> = bulk.allFiles().map { it.toSnapshot() }
 
+    /**
+     * Every `created_file` row registered at one of [paths] or at a normalized alias of one ([CreatedFilePathKey]), by
+     * id: an indexed `path_key` lookup, plus the rows without a stored key (written before migration 076 or by SQL
+     * outside catalog, see [CreatedFileCatalog.fillMissingPathKeys]), whose paths are compared here.
+     */
+    fun createdFilesAt(paths: Collection<String>): List<CreatedFileSnapshot> {
+        val byKey = paths.associateBy(CreatedFilePathKey::of)
+        if (byKey.isEmpty()) return emptyList()
+        val keyed =
+            byKey.values
+                .map(CreatedFilePathKey::hash)
+                .chunked(KEY_CHUNK_SIZE)
+                .flatMap { bulk.filesWithPathKeys(it) }
+        return (keyed + bulk.filesWithoutPathKey())
+            .filter { CreatedFilePathKey.of(it.file) in byKey }
+            .distinctBy { it.id }
+            .sortedBy { it.id }
+            .map { it.toSnapshot() }
+    }
+
     /** Every created file of [programIds], one entry per (program, file), so a shared recording counts twice. */
     fun createdFilesOfPrograms(programIds: List<Long>): List<CreatedFileSnapshot> =
         bulk.createdFilesOfPrograms(programIds).map { it.toSnapshot() }
@@ -45,6 +65,11 @@ class LedgerSnapshots internal constructor(
 
     /** IDs of the programs that reference [executedFileId], ascending. */
     fun referencingPrograms(executedFileId: Long): List<Long> = bulk.references(executedFileId)
+
+    private companion object {
+        // Keeps a large selection within placeholder limits.
+        const val KEY_CHUNK_SIZE = 500
+    }
 }
 
 /** A program with the ledger rows its coordinated delete or move would change. */

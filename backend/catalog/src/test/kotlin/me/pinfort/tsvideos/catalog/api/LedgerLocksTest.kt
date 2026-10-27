@@ -13,6 +13,7 @@ import me.pinfort.tsvideos.catalog.persistence.CreatedFileDto
 import me.pinfort.tsvideos.catalog.persistence.ProgramDto
 import me.pinfort.tsvideos.catalog.persistence.ProgramMapper
 import java.time.LocalDateTime
+import java.util.HexFormat
 
 /**
  * The statement order inside each lock (backend/docs/module-boundaries.md §7.3). The MANDATORY propagation and the
@@ -30,7 +31,7 @@ class LedgerLocksTest :
 
         beforeTest {
             clearMocks(mapper, programs)
-            every { mapper.lockProgram(any()) } answers { firstArg() }
+            every { mapper.lockProgramRecording(1) } returns 10
             every { programs.find(1) } returns program
         }
 
@@ -52,14 +53,38 @@ class LedgerLocksTest :
                 )
         }
 
-        expect("lockProgramGraph locks the program, reads it, then its recording, splits and referencing programs") {
+        expect("lockCreatedFilePaths claims one guard per normalized path and per split, all in one ascending key order") {
+            val claimed = mutableListOf<String>()
+            every { mapper.lockPathGuard(any()) } answers {
+                claimed += HexFormat.of().formatHex(firstArg<ByteArray>())
+                1
+            }
+            val paths = listOf("base/b/beta/video.mp4", "BASE\\B\\BETA\\VIDEO.MP4", "base/a/alpha/video.mp4", "base/a/alpha/video.mp4. ")
+            locks.lockCreatedFilePaths(paths, listOf(20, 21, 20))
+            val expected =
+                listOf("base/a/alpha/video.mp4", "base/b/beta/video.mp4").map { CreatedFilePathKey.hash(it) } +
+                    listOf(20L, 21L).map { CreatedFilePathKey.splitGuard(it) }
+            claimed shouldBe expected.map { HexFormat.of().formatHex(it) }.sorted()
+            // A split key never equals a path key, not even of a path spelling the same text.
+            (CreatedFilePathKey.splitGuard(20).toList() == CreatedFilePathKey.hash("20").toList()) shouldBe false
+        }
+
+        expect("lockCreatedFileRows locks distinct ids in ascending order and skips the query when there are none") {
+            every { mapper.lockFileRows(listOf(3, 7)) } returns listOf(3)
+            locks.lockCreatedFileRows(listOf(7, 3, 7)) shouldBe listOf(3L)
+            locks.lockCreatedFileRows(emptyList()) shouldBe emptyList()
+            verify(exactly = 1) { mapper.lockFileRows(any()) }
+        }
+
+        expect("lockProgramGraph locks the program, its recording, splits and referencing programs, and only then reads it") {
             locks.lockProgramGraph(1) shouldBe program.toDomain()
+            // The plain read comes last, so its snapshot cannot miss a registration that committed while a lock waited.
             verifyOrder {
-                mapper.lockProgram(1)
-                programs.find(1)
+                mapper.lockProgramRecording(1)
                 mapper.lockExecuted(10)
                 mapper.lockSplits(10)
                 mapper.lockReferences(10)
+                programs.find(1)
             }
             verify(exactly = 0) {
                 mapper.lockAllPrograms()
@@ -69,14 +94,13 @@ class LedgerLocksTest :
         }
 
         expect("lockProgramGraph stops after the program lookup when the program is gone") {
-            every { mapper.lockProgram(2) } returns null
+            every { mapper.lockProgramRecording(2) } returns null
             locks.lockProgramGraph(2) shouldBe null
-            every { programs.find(3) } returns null
-            locks.lockProgramGraph(3) shouldBe null
             verify(exactly = 0) {
                 mapper.lockExecuted(any())
                 mapper.lockSplits(any())
                 mapper.lockReferences(any())
+                programs.find(any())
             }
         }
 

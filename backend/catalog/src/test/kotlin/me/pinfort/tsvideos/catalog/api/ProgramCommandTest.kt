@@ -5,6 +5,7 @@ import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.matchers.shouldBe
 import io.mockk.Runs
 import io.mockk.clearAllMocks
+import io.mockk.confirmVerified
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -28,6 +29,8 @@ import me.pinfort.tsvideos.catalog.persistence.SplittedFileDto
 import me.pinfort.tsvideos.catalog.persistence.SplittedFileMapper
 import me.pinfort.tsvideos.storage.api.NasStore
 import org.slf4j.Logger
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.SimpleTransactionStatus
 import java.nio.file.Path
 import java.time.LocalDateTime
 
@@ -43,6 +46,8 @@ class ProgramCommandTest :
         lateinit var splittedFileCommand: SplittedFileCommand
         lateinit var directoryNameComponent: DirectoryNameComponent
         lateinit var executedFileTagCommand: ExecutedFileTagCommand
+        lateinit var ledgerLocks: LedgerLocks
+        lateinit var transactionManager: PlatformTransactionManager
         lateinit var programCommand: ProgramCommand
 
         beforeTest {
@@ -57,6 +62,11 @@ class ProgramCommandTest :
             splittedFileCommand = mockk<SplittedFileCommand>()
             directoryNameComponent = mockk<DirectoryNameComponent>()
             executedFileTagCommand = mockk<ExecutedFileTagCommand>()
+            ledgerLocks = mockk<LedgerLocks>()
+            transactionManager = mockk<PlatformTransactionManager>()
+            every { transactionManager.getTransaction(any()) } returns SimpleTransactionStatus()
+            every { transactionManager.commit(any()) } just Runs
+            every { transactionManager.rollback(any()) } just Runs
             programCommand =
                 ProgramCommand(
                     programMapper,
@@ -68,6 +78,8 @@ class ProgramCommandTest :
                     splittedFileCommand,
                     directoryNameComponent,
                     executedFileTagCommand,
+                    ledgerLocks,
+                    transactionManager,
                 )
         }
 
@@ -586,9 +598,18 @@ class ProgramCommandTest :
         }
 
         context("moveCreatedFiles") {
-            expect("success") {
+            fun lockAll() {
+                every { splittedFileMapper.selectByExecutedFileId(program.executedFileId) } returns listOf(splittedFileDto)
+                every { ledgerLocks.lockCreatedFilePaths(any(), any()) } just Runs
+                every { ledgerLocks.lockCreatedFileRows(any()) } answers { firstArg<Collection<Long>>().sorted() }
+                every { ledgerLocks.lockProgramGraph(program.id) } returns program
+            }
+
+            expect("locks the paths, the splits, the rows and the program graph, then re-reads, before any NAS move") {
+                lockAll()
                 every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto)
-                every { createdFileCommand.move(any(), any()) } returns NasStore.ORIGINAL_STORE_NAS
+                every { createdFileCommand.moveResource(any(), any()) } returns NasStore.ORIGINAL_STORE_NAS
+                every { createdFileCommand.recordMove(any(), any()) } just Runs
                 every { logger.info(any()) } just Runs
                 every { directoryNameComponent.replaceWithGivenDirectoryName(any(), any()) } returns Path.of("newPath")
 
@@ -596,28 +617,121 @@ class ProgramCommandTest :
 
                 verifySequence {
                     createdFileMapper.selectByExecutedFileId(program.executedFileId)
-                    createdFileCommand.move(createdFile, "newPath")
+                    splittedFileMapper.selectByExecutedFileId(program.executedFileId)
+                    ledgerLocks.lockCreatedFilePaths(listOf("file\\file1", "newPath"), listOf(splittedFileDto.id))
+                    ledgerLocks.lockCreatedFileRows(listOf(1L))
+                    ledgerLocks.lockProgramGraph(program.id)
+                    createdFileMapper.selectByExecutedFileId(program.executedFileId)
+                    splittedFileMapper.selectByExecutedFileId(program.executedFileId)
+                    createdFileCommand.moveResource(createdFile, "newPath")
+                    createdFileCommand.recordMove(createdFile, "newPath")
+                    logger.info(any())
+                }
+                verify(exactly = 1) { transactionManager.commit(any()) }
+            }
+
+            expect("a file added or changed before the locks were granted refuses the move before any NAS change") {
+                lockAll()
+                val added = createdFileDto.copy(id = 2, file = "file\\file2")
+                val changed = createdFileDto.copy(file = "x\\y")
+                every { createdFileMapper.selectByExecutedFileId(any()) } returnsMany
+                    listOf(listOf(createdFileDto), listOf(createdFileDto, added), listOf(createdFileDto), listOf(changed))
+                every { directoryNameComponent.replaceWithGivenDirectoryName(any(), any()) } returns Path.of("newPath")
+
+                shouldThrow<IllegalStateException> { programCommand.moveCreatedFiles(program, "newDirectory") }
+                shouldThrow<IllegalStateException> { programCommand.moveCreatedFiles(program, "newDirectory") }
+
+                // A split added meanwhile (a registration on it would not be held up by the guards taken).
+                every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto)
+                every { splittedFileMapper.selectByExecutedFileId(program.executedFileId) } returnsMany
+                    listOf(listOf(splittedFileDto), listOf(splittedFileDto, splittedFileDto.copy(id = 5)))
+                shouldThrow<IllegalStateException> { programCommand.moveCreatedFiles(program, "newDirectory") }
+
+                verify(exactly = 0) {
+                    createdFileCommand.moveResource(any(), any(), any())
+                    createdFileCommand.recordMove(any(), any(), any())
+                }
+                verify(exactly = 3) { transactionManager.rollback(any()) }
+            }
+
+            expect("a program deleted or re-pointed before the locks were granted refuses the move before any NAS change") {
+                lockAll()
+                every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto)
+                every { directoryNameComponent.replaceWithGivenDirectoryName(any(), any()) } returns Path.of("newPath")
+                every { ledgerLocks.lockProgramGraph(program.id) } returnsMany listOf(null, program.copy(executedFileId = 99))
+
+                shouldThrow<IllegalStateException> { programCommand.moveCreatedFiles(program, "newDirectory") }
+                shouldThrow<IllegalStateException> { programCommand.moveCreatedFiles(program, "newDirectory") }
+
+                verify(exactly = 0) { createdFileCommand.moveResource(any(), any(), any()) }
+            }
+
+            expect("every NAS file is moved before the first row is updated") {
+                lockAll()
+                val second = createdFileDto.copy(id = 2, file = "file\\file2")
+                every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto, second)
+                every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file1"), any()) } returns Path.of("new/file1")
+                every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file2"), any()) } returns Path.of("new/file2")
+                every { createdFileCommand.moveResource(any(), any(), any()) } returns NasStore.VIDEO_STORE_NAS
+                every { createdFileCommand.recordMove(any(), any(), any()) } just Runs
+                every { logger.info(any()) } just Runs
+
+                programCommand.moveCreatedFiles(program, "newDirectory")
+
+                verifySequence {
+                    createdFileMapper.selectByExecutedFileId(program.executedFileId)
+                    splittedFileMapper.selectByExecutedFileId(program.executedFileId)
+                    ledgerLocks.lockCreatedFilePaths(listOf("file\\file1", "new\\file1", "file\\file2", "new\\file2"), listOf(1L))
+                    ledgerLocks.lockCreatedFileRows(listOf(1L, 2L))
+                    ledgerLocks.lockProgramGraph(program.id)
+                    createdFileMapper.selectByExecutedFileId(program.executedFileId)
+                    splittedFileMapper.selectByExecutedFileId(program.executedFileId)
+                    createdFileCommand.moveResource(createdFile, "new\\file1", false)
+                    createdFileCommand.moveResource(second.toDomain(), "new\\file2", false)
+                    createdFileCommand.recordMove(createdFile, "new\\file1", false)
+                    createdFileCommand.recordMove(second.toDomain(), "new\\file2", false)
                     logger.info(any())
                 }
             }
 
             expect("a later failure moves earlier files back and rethrows") {
+                lockAll()
                 val second = createdFileDto.copy(id = 2, file = "file\\file2")
                 every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto, second)
                 every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file1"), any()) } returns Path.of("new/file1")
                 every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file2"), any()) } returns Path.of("new/file2")
-                every { createdFileCommand.move(createdFile, "new\\file1") } returns NasStore.VIDEO_STORE_NAS
-                every { createdFileCommand.move(second.toDomain(), "new\\file2") } throws RuntimeException("nas")
+                every { createdFileCommand.moveResource(createdFile, "new\\file1") } returns NasStore.VIDEO_STORE_NAS
+                every { createdFileCommand.moveResource(second.toDomain(), "new\\file2") } throws RuntimeException("nas")
                 every { createdFileCommand.restoreMoved(any()) } just Runs
 
                 shouldThrow<RuntimeException> { programCommand.moveCreatedFiles(program, "newDirectory") }
 
                 verify(exactly = 1) { createdFileCommand.restoreMoved(listOf("file\\file1" to "new\\file1")) }
+                verify(exactly = 0) { createdFileCommand.recordMove(any(), any(), any()) }
+            }
+
+            expect("a row update failure after the NAS moves moves every file back and rethrows") {
+                lockAll()
+                val second = createdFileDto.copy(id = 2, file = "file\\file2")
+                every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto, second)
+                every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file1"), any()) } returns Path.of("new/file1")
+                every { directoryNameComponent.replaceWithGivenDirectoryName(Path.of("file/file2"), any()) } returns Path.of("new/file2")
+                every { createdFileCommand.moveResource(any(), any(), any()) } returns NasStore.VIDEO_STORE_NAS
+                every { createdFileCommand.recordMove(createdFile, "new\\file1", false) } just Runs
+                every { createdFileCommand.recordMove(second.toDomain(), "new\\file2", false) } throws RuntimeException("db")
+                every { createdFileCommand.restoreMoved(any()) } just Runs
+
+                shouldThrow<RuntimeException> { programCommand.moveCreatedFiles(program, "newDirectory") }
+
+                verify(exactly = 1) {
+                    createdFileCommand.restoreMoved(listOf("file\\file1" to "new\\file1", "file\\file2" to "new\\file2"))
+                }
             }
 
             expect("dryRun") {
                 every { createdFileMapper.selectByExecutedFileId(any()) } returns listOf(createdFileDto)
-                every { createdFileCommand.move(any(), any(), any()) } returns NasStore.ORIGINAL_STORE_NAS
+                every { createdFileCommand.moveResource(any(), any(), any()) } returns NasStore.ORIGINAL_STORE_NAS
+                every { createdFileCommand.recordMove(any(), any(), any()) } just Runs
                 every { logger.info(any()) } just Runs
                 every { directoryNameComponent.replaceWithGivenDirectoryName(any(), any()) } returns Path.of("newPath")
 
@@ -625,9 +739,12 @@ class ProgramCommandTest :
 
                 verifySequence {
                     createdFileMapper.selectByExecutedFileId(program.executedFileId)
-                    createdFileCommand.move(createdFile, "newPath", true)
+                    createdFileCommand.moveResource(createdFile, "newPath", true)
+                    createdFileCommand.recordMove(createdFile, "newPath", true)
                     logger.info(any())
                 }
+                verify(exactly = 0) { transactionManager.getTransaction(any()) }
+                confirmVerified(ledgerLocks)
             }
         }
     })

@@ -10,16 +10,31 @@ import org.apache.ibatis.annotations.Update
 
 @Mapper
 internal interface CreatedFileMapper {
+    // Claims the guard of pathKey (a path or split key, migration 076), creating its row on first use; held until the
+    // transaction ends. A primary-key upsert locks that one record (no gap lock), so writers of other keys never wait.
+    @Insert("INSERT INTO created_file_path_guard(path_key) VALUES(#{pathKey}) ON DUPLICATE KEY UPDATE path_key = path_key")
+    fun lockPathGuard(
+        @Param("pathKey") pathKey: ByteArray,
+    ): Int
+
+    // Shared lock on the split a registration attaches to (created_file has no foreign key to splitted_file): a locking
+    // read, so it sees the latest committed state and finds nothing once a delete of the split has committed.
+    @Select("SELECT id FROM splitted_file WHERE id = #{splittedFileId} LOCK IN SHARE MODE")
+    fun lockSplitShared(
+        @Param("splittedFileId") splittedFileId: Long,
+    ): Long?
+
     @Insert(
         """
-            INSERT INTO created_file(splitted_file_id, file, size, mime, encoding, status, width, height)
-            VALUES(#{splittedFileId}, #{file}, #{size}, #{mime}, #{encoding}, #{status}, #{width}, #{height})
+            INSERT INTO created_file(splitted_file_id, file, path_key, size, mime, encoding, status, width, height)
+            VALUES(#{splittedFileId}, #{file}, #{pathKey}, #{size}, #{mime}, #{encoding}, #{status}, #{width}, #{height})
         """,
     )
     @Options(useGeneratedKeys = true, keyProperty = "keyHolder.id")
     fun insert(
         splittedFileId: Long,
         file: String,
+        pathKey: ByteArray,
         size: Long,
         mime: String?,
         encoding: String?,
@@ -149,7 +164,8 @@ internal interface CreatedFileMapper {
             UPDATE
                 created_file
             SET
-                file = #{file}
+                file = #{file},
+                path_key = #{pathKey}
             WHERE
                 id = #{createdFileId}
         """,
@@ -157,6 +173,45 @@ internal interface CreatedFileMapper {
     fun updateFile(
         createdFileId: Long,
         file: String,
+        pathKey: ByteArray,
+    ): Int
+
+    // Rows without a stored path_key (registered before migration 076 or by SQL outside catalog), in id order after afterId.
+    @Select(
+        """
+            SELECT id, splitted_file_id, file, size, mime, encoding, status, width, height
+            FROM created_file
+            WHERE path_key IS NULL AND id > #{afterId}
+            ORDER BY id
+            LIMIT #{limit}
+        """,
+    )
+    fun selectWithoutPathKey(
+        afterId: Long,
+        limit: Int,
+    ): List<CreatedFileDto>
+
+    // Row locks on the ids nobody else holds (primary-key equality, record locks only); a row locked by a running move or
+    // bulk apply is skipped instead of waited for. ids must be non-empty.
+    @Select(
+        """
+        <script>
+        SELECT id FROM created_file WHERE id IN
+        <foreach item="id" collection="ids" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY id FOR UPDATE SKIP LOCKED
+        </script>
+        """,
+    )
+    fun lockUnlockedRows(
+        @Param("ids") ids: List<Long>,
+    ): List<Long>
+
+    // Only while the row still has no key and the same file, so a concurrent move (which writes its own key) wins.
+    @Update("UPDATE created_file SET path_key = #{pathKey} WHERE id = #{id} AND file = #{file} AND path_key IS NULL")
+    fun fillPathKey(
+        id: Long,
+        file: String,
+        pathKey: ByteArray,
     ): Int
 
     @Update(

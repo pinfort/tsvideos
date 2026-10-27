@@ -1,11 +1,14 @@
 package me.pinfort.tsvideos.library.api
 
+import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.api.CreatedFilePathKey
 import me.pinfort.tsvideos.catalog.api.CreatedFileSnapshot
 import me.pinfort.tsvideos.catalog.api.DirectoryNameComponent
 import me.pinfort.tsvideos.catalog.api.LedgerLocks
 import me.pinfort.tsvideos.catalog.api.LedgerSnapshots
 import me.pinfort.tsvideos.catalog.api.NormalizeComponent
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
+import me.pinfort.tsvideos.catalog.api.ProgramSnapshot
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.library.domain.BulkAction
@@ -31,13 +34,13 @@ import java.nio.file.Path
 import java.security.DigestOutputStream
 import java.security.MessageDigest
 import java.time.LocalDateTime
-import java.util.Locale
 
 @Component
 class BulkLibraryCommand(
     private val programs: ProgramCommand,
     private val snapshots: LedgerSnapshots,
     private val locks: LedgerLocks,
+    private val createdFiles: CreatedFileCatalog,
     private val directories: DirectoryNameComponent,
     private val normalize: NormalizeComponent,
     transactionManager: PlatformTransactionManager,
@@ -61,11 +64,21 @@ class BulkLibraryCommand(
 
     fun preview(input: BulkRequest): BulkPlan {
         val request = validate(input)
-        return read.execute {
-            val context = Context(snapshots.allCreatedFiles(), proposed(request))
-            BulkPlan(request, request.ids.map { target(it, request, context) })
-        }
+        fillPathKeys()
+        return plan(request)
     }
+
+    /** [preview] without filling in missing path keys, for a caller that already runs inside its own transaction (cleanup). */
+    internal fun previewInTransaction(input: BulkRequest): BulkPlan = plan(validate(input))
+
+    private fun plan(request: BulkRequest): BulkPlan =
+        read.execute {
+            val files = snapshots.createdFilesOfPrograms(request.ids)
+            // Only the paths of the selection and their destinations are looked up, never the whole table.
+            val paths = pathsOf(files, request)
+            val context = Context(snapshots.createdFilesAt(paths), paths, proposed(request, files))
+            BulkPlan(request, request.ids.map { target(it, request, context, snapshots.programSnapshot(it)) })
+        }
 
     fun apply(input: BulkApplyRequest): BulkResult = applyGuarded(input, null)
 
@@ -82,9 +95,10 @@ class BulkLibraryCommand(
         val request = validate(input.request)
         ensure(input.fingerprints.keys == request.ids.toSet()) { "Every target requires its preview fingerprint" }
         ensure(input.fingerprints.values.all { it.matches(fingerprintPattern) }) { "Invalid fingerprint" }
+        fillPathKeys()
         // Selection-wide destination counts are computed once: other programs' existing paths are still
-        // re-checked per target against the locked alias scan, and any change to a target's own files is STALE.
-        val proposed = read.execute { proposed(request) }
+        // re-checked per target under its path guards, and any change to a target's own files is STALE.
+        val proposed = read.execute { proposed(request, snapshots.createdFilesOfPrograms(request.ids)) }
         val successful = mutableSetOf<Long>()
         val outcomes = mutableListOf<BulkOutcome>()
         for (id in request.ids) {
@@ -117,17 +131,45 @@ class BulkLibraryCommand(
         // Set just before the first NAS/DB mutation, so a lock failure is only reported as harmless before it.
         var mutating = false
         return try {
+            // Read in a transaction of its own: the target's transaction must take its path guards before its first
+            // plain read fixes the REPEATABLE_READ snapshot (LedgerLocks.lockCreatedFilePaths).
+            val plannedSnapshot = read.execute { snapshots.programSnapshot(id) }
+            val planned = plannedSnapshot?.createdFiles.orEmpty()
+            val plannedPaths = pathsOf(planned, request)
+            val plannedIds = planned.map { it.id }.toSet()
+            val plannedSplits =
+                plannedSnapshot
+                    ?.splitFiles
+                    .orEmpty()
+                    .map { it.id }
+                    .toSet()
             write.execute {
                 // Same lock order for every bulk operation (see LedgerLocks). Do not hold locks across targets.
-                val all = locks.lockCreatedFiles()
+                // The split guards hold up registrations on the target's splits (at any path) before they write.
+                locks.lockCreatedFilePaths(plannedPaths, plannedSplits)
                 if (guard != null) {
+                    locks.lockCreatedFiles()
                     locks.lockWholeLedger()
                     guard(id, successful)?.let { return@execute it }
+                } else {
+                    locks.lockCreatedFileRows(plannedIds)
                 }
                 val program =
                     locks.lockProgramGraph(id)
                         ?: return@execute BulkOutcome(id, BulkOutcomeStatus.NOT_FOUND, "Recording no longer exists")
-                val current = target(id, request, Context(all, proposed))
+                val snapshot = snapshots.programSnapshot(id)
+                val files = snapshot?.createdFiles.orEmpty()
+                val paths = pathsOf(files, request)
+                // A file added or renamed, or a split added, since the read above is not covered by the guards and row
+                // locks just taken.
+                val lockedKeys = plannedPaths.map { key(it) }.toSet()
+                if (!lockedKeys.containsAll(paths.map { key(it) }) ||
+                    !plannedIds.containsAll(files.map { it.id }) ||
+                    !plannedSplits.containsAll(snapshot?.splitFiles.orEmpty().map { it.id })
+                ) {
+                    return@execute BulkOutcome(id, BulkOutcomeStatus.STALE, "Recording changed; preview again")
+                }
+                val current = target(id, request, Context(snapshots.createdFilesAt(paths), paths, proposed), snapshot)
                 when {
                     current.fingerprint != fingerprint ->
                         BulkOutcome(id, BulkOutcomeStatus.STALE, "Recording changed; preview again")
@@ -235,19 +277,47 @@ class BulkLibraryCommand(
             label != ".." &&
             label.none { it == '/' || it == '\\' || it == '#' || it == '%' || it.isISOControl() }
 
-    /** Per-request data shared by every target, so each target costs a constant number of queries instead of O(N). */
+    /**
+     * Per-request data shared by every target, so each target costs a constant number of queries instead of O(N).
+     * [files] are the rows at [paths] (LedgerSnapshots.createdFilesAt); a path outside them was never looked up.
+     */
     private inner class Context(
-        all: List<CreatedFileSnapshot>,
+        files: List<CreatedFileSnapshot>,
+        paths: Collection<String>,
         val proposed: Map<String, Int>,
     ) {
+        private val covered = paths.map { key(it) }.toSet()
+
         // Normalized path key -> created_file ids registered at that path (not program ids).
-        val owners: Map<String, Set<Long>> = all.groupBy({ key(it.file) }, { it.id }).mapValues { it.value.toSet() }
+        private val byKey: Map<String, Set<Long>> = files.groupBy({ key(it.file) }, { it.id }).mapValues { it.value.toSet() }
+
+        fun owners(key: String): Set<Long> {
+            check(key in covered) { "Path was not looked up for this bulk request" }
+            return byKey[key].orEmpty()
+        }
     }
 
-    private fun proposed(request: BulkRequest): Map<String, Int> =
+    /** Every path [files] occupy, plus each safe file's destination for a MOVE: the paths an operation would touch. */
+    private fun pathsOf(
+        files: List<CreatedFileSnapshot>,
+        request: BulkRequest,
+    ): List<String> {
+        val destinations =
+            if (request.action == BulkAction.MOVE) {
+                val directory = requireNotNull(request.directory) { "MOVE requires a directory" }
+                files.filter { safePath(it.file) }.map { destination(it, directory) }
+            } else {
+                emptyList()
+            }
+        return (files.map { it.file } + destinations).distinct()
+    }
+
+    private fun proposed(
+        request: BulkRequest,
+        files: List<CreatedFileSnapshot>,
+    ): Map<String, Int> =
         if (request.action == BulkAction.MOVE) {
-            snapshots
-                .createdFilesOfPrograms(request.ids)
+            files
                 .filter { safePath(it.file) }
                 .map { key(destination(it, requireNotNull(request.directory) { "MOVE requires a directory" })) }
                 .groupingBy { it }
@@ -255,6 +325,26 @@ class BulkLibraryCommand(
         } else {
             emptyMap()
         }
+
+    /**
+     * Stores the path keys of rows written without one, in short transactions of their own and outside any target's.
+     * Best effort: a row without a key is still compared by [LedgerSnapshots.createdFilesAt], only not by index.
+     */
+    private fun fillPathKeys() {
+        try {
+            var cursor = 0L
+            while (true) {
+                val next = write.execute { createdFiles.fillMissingPathKeys(cursor, PATH_KEY_CHUNK_SIZE) } ?: break
+                if (next <= cursor) break
+                cursor = next
+            }
+        } catch (error: Exception) {
+            if (generateSequence<Throwable>(error) { it.cause }.any { it is InterruptedException }) {
+                Thread.currentThread().interrupt()
+            }
+            logger.warn("Could not fill in created_file path keys; unkeyed rows are still checked, without the index", error)
+        }
+    }
 
     private fun destination(
         file: CreatedFileSnapshot,
@@ -269,8 +359,9 @@ class BulkLibraryCommand(
         id: Long,
         request: BulkRequest,
         context: Context,
+        programSnapshot: ProgramSnapshot?,
     ): BulkTarget {
-        val snapshot = snapshots.programSnapshot(id)?.let { BulkSnapshot(it) }
+        val snapshot = programSnapshot?.let { BulkSnapshot(it) }
         val program = snapshot?.program
         val files = snapshot?.createdFiles.orEmpty()
         val destinations =
@@ -281,11 +372,11 @@ class BulkLibraryCommand(
             }
         val refs = program?.let { snapshots.referencingPrograms(it.executedFileId) }.orEmpty()
         val ownIds = files.map { it.id }.toSet()
-        val shared = files.any { file -> context.owners[key(file.file)].orEmpty().any { it !in ownIds } }
+        val shared = files.any { file -> context.owners(key(file.file)).any { it !in ownIds } }
         val duplicate = files.map { key(it.file) }.distinct().size != files.size
         val destinationKeys = destinations.mapValues { key(it.value) }
         val proposedTwice = destinationKeys.values.any { context.proposed[it] != 1 }
-        val alreadyReferenced = destinationKeys.any { (fileId, k) -> context.owners[k].orEmpty().any { it != fileId } }
+        val alreadyReferenced = destinationKeys.any { (fileId, k) -> context.owners(k).any { it != fileId } }
         val collision = proposedTwice || alreadyReferenced || destinationKeys.values.distinct().size != destinationKeys.size
         val unchanged = files.any { destinationKeys[it.id] == key(it.file) }
         val reason =
@@ -408,7 +499,7 @@ class BulkLibraryCommand(
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun key(path: String) = path.replace('\\', '/').split('/').joinToString("/") { it.trimEnd(' ', '.').lowercase(Locale.ROOT) }
+    private fun key(path: String) = CreatedFilePathKey.of(path)
 
     // Stricter than NasComponent.validateFilePath on purpose: bulk refuses URL-special and alias-prone names
     // that single-program delete still accepts.
@@ -424,4 +515,8 @@ class BulkLibraryCommand(
             !segment.endsWith('.') &&
             !segment.endsWith(' ') &&
             segment.none { c -> c in ":?#%" || c.isISOControl() }
+
+    private companion object {
+        const val PATH_KEY_CHUNK_SIZE = 500
+    }
 }

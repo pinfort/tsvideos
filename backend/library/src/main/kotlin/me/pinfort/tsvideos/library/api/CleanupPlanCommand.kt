@@ -185,7 +185,9 @@ class CleanupPlanCommand(
         if (ids.isEmpty()) {
             emptyList()
         } else {
-            bulk.preview(BulkRequest(ids, BulkAction.DELETE)).targets.map { target ->
+            // Runs inside this command's transactions (including a guarded apply holding every created_file lock), so the
+            // preview must not fill in path keys in transactions of its own.
+            bulk.previewInTransaction(BulkRequest(ids, BulkAction.DELETE)).targets.map { target ->
                 CleanupTarget(
                     target.id,
                     target.fingerprint,

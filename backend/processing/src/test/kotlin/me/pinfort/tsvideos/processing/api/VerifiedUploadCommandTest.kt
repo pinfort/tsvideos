@@ -82,6 +82,24 @@ class VerifiedUploadCommandTest : ExpectSpec() {
             }
         }
 
+    // catalog refuses to register a created_file on a split that does not exist, so the splits these tests register on
+    // are created here (outside catalog, like the created_file reads above).
+    private fun ensureSplits(ids: Collection<Long>) {
+        dataSource.connection.use { connection ->
+            connection.autoCommit = true
+            connection
+                .prepareStatement(
+                    "INSERT IGNORE INTO splitted_file(id,executed_file_id,file,size,duration,status) VALUES(?,0,?,1,1,'ENCODE_TASK_ADDED')",
+                ).use { statement ->
+                    ids.forEach {
+                        statement.setLong(1, it)
+                        statement.setString(2, "verified-upload-split-$it")
+                        statement.executeUpdate()
+                    }
+                }
+        }
+    }
+
     private fun deleteCreatedFile(id: Long) {
         dataSource.connection.use { connection ->
             connection.autoCommit = true
@@ -93,6 +111,9 @@ class VerifiedUploadCommandTest : ExpectSpec() {
     }
 
     init {
+        val splitIds = listOf(1L) + (876543L..876549L)
+        beforeTest { ensureSplits(splitIds) }
+
         data class Fixture(
             val command: VerifiedUploadCommand,
             val nas: VerifiedUploadNas,
@@ -1104,6 +1125,7 @@ class VerifiedUploadCommandTest : ExpectSpec() {
                 val created = catalog
                 val command = VerifiedUploadCommand(failing, f.nas, created, transactions)
                 val splitId = f.job
+                ensureSplits(listOf(splitId))
                 shouldThrow<IllegalStateException> { command.register(receipt, splitId, "video/mp4", null) }
                 createdFiles(splitId) shouldBe 0
                 f.manifest().state shouldBe State.FINALIZED

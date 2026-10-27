@@ -57,6 +57,20 @@ class CreatedFileCatalog internal constructor(
         return StreamableVideo(createdFile.id, NasStore.VIDEO_STORE_NAS, createdFile.file)
     }
 
+    /**
+     * Inserts a `FILE_MOVED` row for [file] on the split [splittedFileId] and returns it. Refused with
+     * [IllegalStateException] (nothing kept) when the split does not exist, so a registration that lost a race with a
+     * program delete never leaves an orphan row behind (`created_file` has no foreign key to `splitted_file`).
+     *
+     * Lock order (backend/docs/module-boundaries.md §7.3):
+     * 1. the guards of [file] and of the split, in ascending key order like every guard claim
+     *    ([LedgerLocks.lockCreatedFilePaths]). A bulk apply or move holding either guard makes the registration wait
+     *    here, before it has written or locked anything else, until that change commits.
+     * 2. the insert. It holds no ledger lock while it waits, so a guarded cleanup (whose full `created_file` scan stops
+     *    every insert and which then locks every split) cannot deadlock with it.
+     * 3. a share lock on the split, read as committed: absent once a delete has committed, and held so that the split
+     *    cannot be deleted before this registration commits.
+     */
     @Transactional(propagation = Propagation.MANDATORY)
     fun register(
         splittedFileId: Long,
@@ -68,9 +82,14 @@ class CreatedFileCatalog internal constructor(
     ): CreatedFile {
         val status = CreatedFile.Status.FILE_MOVED
         val keyHolder = GeneratedKeyHolder()
+        val pathKey = CreatedFilePathKey.hash(file)
+        CreatedFilePathKey
+            .claimOrder(listOf(pathKey, CreatedFilePathKey.splitGuard(splittedFileId)))
+            .forEach { createdFileMapper.lockPathGuard(it) }
         createdFileMapper.insert(
             splittedFileId,
             file,
+            pathKey,
             size,
             mime,
             encoding,
@@ -79,6 +98,11 @@ class CreatedFileCatalog internal constructor(
             resolution?.width,
             resolution?.height,
         )
+        if (createdFileMapper.lockSplitShared(splittedFileId) == null) {
+            // Removed here as well as by the caller's rollback, so no orphan row can commit even if the failure is swallowed.
+            createdFileMapper.delete(keyHolder.id)
+            throw IllegalStateException("Split $splittedFileId does not exist; created file $file was not registered")
+        }
         val createdFile =
             CreatedFile(
                 id = keyHolder.id,
@@ -108,6 +132,27 @@ class CreatedFileCatalog internal constructor(
         id: Long,
         resolution: VideoResolution,
     ): Boolean = createdFileMapper.updateResolutionIfMissing(id, resolution.width, resolution.height) > 0
+
+    /**
+     * Stores the path key ([CreatedFilePathKey]) of up to [limit] rows without one, in id order after [afterId]: rows
+     * registered before migration 076 or written by SQL outside catalog. Returns the last id examined while more rows may
+     * remain, or null when none is left after [afterId]. A row whose file changed meanwhile, or that another transaction
+     * holds locked (a move or bulk apply in progress), is left for a later call: this never waits for a row lock.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    fun fillMissingPathKeys(
+        afterId: Long,
+        limit: Int,
+    ): Long? {
+        require(limit > 0) { "limit must be positive: $limit" }
+        val rows = createdFileMapper.selectWithoutPathKey(afterId, limit)
+        if (rows.isEmpty()) return null
+        val unlocked = createdFileMapper.lockUnlockedRows(rows.map { it.id }).toSet()
+        rows
+            .filter { it.id in unlocked }
+            .forEach { createdFileMapper.fillPathKey(it.id, it.file, CreatedFilePathKey.hash(it.file)) }
+        return if (rows.size < limit) null else rows.last().id
+    }
 
     /**
      * Whether the chapters of [createdFileId] were probed, and the chapters in index order; null when the row does not

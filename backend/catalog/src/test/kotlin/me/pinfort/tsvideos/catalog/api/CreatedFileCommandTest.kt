@@ -150,32 +150,29 @@ class CreatedFileCommandTest :
             }
         }
 
-        context("move") {
-            expect("success") {
-                every { createdFileMapper.updateFile(any(), any()) } returns 1
+        context("moveResource") {
+            expect("moves the NAS file only") {
                 every { nasComponent.moveResource(createdFile.file, "newFile") } returns NasStore.ORIGINAL_STORE_NAS
                 every { logger.info(any()) } just Runs
 
-                createdFileCommand.move(createdFile, "newFile") shouldBe NasStore.ORIGINAL_STORE_NAS
+                createdFileCommand.moveResource(createdFile, "newFile") shouldBe NasStore.ORIGINAL_STORE_NAS
 
                 verifySequence {
-                    createdFileMapper.updateFile(1, "newFile")
                     nasComponent.moveResource(createdFile.file, "newFile")
                     logger.info(any())
                 }
+                verify(exactly = 0) { createdFileMapper.updateFile(any(), any(), any()) }
             }
 
             expect("noHit") {
-                every { createdFileMapper.updateFile(any(), any()) } returns 1
                 every { nasComponent.moveResource(any(), any()) } throws Exception("err")
                 every { logger.error(any(), any<Exception>()) } just Runs
 
                 shouldThrow<RuntimeException> {
-                    createdFileCommand.move(createdFile, "newFile")
+                    createdFileCommand.moveResource(createdFile, "newFile")
                 }.message shouldBe "java.lang.Exception: err"
 
                 verifySequence {
-                    createdFileMapper.updateFile(1, "newFile")
                     nasComponent.moveResource(createdFile.file, "newFile")
                     logger.error(
                         "Failed to move file. id=1, file=${createdFile.file}, newFile=newFile, createdFile=$createdFile",
@@ -187,14 +184,37 @@ class CreatedFileCommandTest :
             expect("dryRun") {
                 every { logger.info(any()) } just Runs
 
-                createdFileCommand.move(createdFile, "newFile", true) shouldBe NasStore.VIDEO_STORE_NAS
+                createdFileCommand.moveResource(createdFile, "newFile", true) shouldBe NasStore.VIDEO_STORE_NAS
+
+                verify(exactly = 0) { nasComponent.moveResource(any(), any()) }
+            }
+        }
+
+        context("recordMove") {
+            expect("claims the destination's path guard before pointing the row at it, with the destination's key") {
+                val key = CreatedFilePathKey.hash("newFile")
+                every { createdFileMapper.lockPathGuard(any()) } returns 1
+                every { createdFileMapper.updateFile(any(), any(), any()) } returns 1
+                every { logger.info(any()) } just Runs
+
+                createdFileCommand.recordMove(createdFile, "newFile")
 
                 verifySequence {
+                    createdFileMapper.lockPathGuard(match { it.contentEquals(key) })
+                    createdFileMapper.updateFile(1, "newFile", match { it.contentEquals(key) })
                     logger.info(any())
                 }
+                verify(exactly = 0) { nasComponent.moveResource(any(), any()) }
+            }
+
+            expect("dryRun") {
+                every { logger.info(any()) } just Runs
+
+                createdFileCommand.recordMove(createdFile, "newFile", true)
+
                 verify(exactly = 0) {
-                    createdFileMapper.updateFile(any(), any())
-                    nasComponent.moveResource(any(), any())
+                    createdFileMapper.lockPathGuard(any())
+                    createdFileMapper.updateFile(any(), any(), any())
                 }
             }
         }
