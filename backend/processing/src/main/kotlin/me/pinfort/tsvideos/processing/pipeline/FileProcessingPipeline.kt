@@ -172,8 +172,8 @@ internal class FileProcessingPipeline(
                     }
                 }
             var splitInvoked = false
-            // A history write failing around SPLIT/COMPRESS rolls back work that succeeded. That is wasteful but
-            // safe: nothing has reached the NAS yet, so the job is released as RETRYABLE.
+            // A history write failing around SPLIT/COMPRESS happens outside runner.stage, so nothing is rolled back and
+            // the registration survives: markRetryable then finds it and the job stays CLAIMED for reconciliation.
             val mainSplittedFile =
                 history.stage(
                     attempt.id,
@@ -209,6 +209,9 @@ internal class FileProcessingPipeline(
             }
             history.finish(attempt.id, ProcessingOutcome.COMPLETED)
         } catch (e: Exception) {
+            // Deliberately Exception, here and in RollbackRunner: a fatal Error (OutOfMemoryError, ...) propagates without
+            // rollback, history or RETRYABLE. The job keeps its last committed state (CLAIMED, SUBMISSION_UNKNOWN, or
+            // SUBMITTED/COMPLETED once acknowledged) for manual reconciliation (processing-idempotency.md).
             if (submitted) {
                 // The job is SUBMITTED and owned by the encoder now; only the history write failed.
                 logger.error("Recording history of submitted job ${job.id} failed; processing itself succeeded", e)
@@ -452,9 +455,16 @@ internal class FileProcessingPipeline(
         val splitFile = File(splittedFile.file)
         val compressedFile = File(splitFile.parentFile, "${splitFile.name}.gz")
 
-        if (!compressedFile.exists()) onArchiveCreating(compressedFile)
-        if (!compressComponent.compress(splitFile, compressedFile, false, onCompressProgress)) {
-            error("Compressed file already exists; reconcile before processing")
+        // Progress is first reported after the exclusive (CREATE_NEW) open, so only an archive this attempt created is
+        // owned. A leftover archive is never reused, overwritten or deleted, and nothing is uploaded or submitted.
+        val created =
+            compressComponent.compress(splitFile, compressedFile, false) { transferred, total ->
+                onArchiveCreating(compressedFile)
+                onCompressProgress(transferred, total)
+            }
+        check(created) {
+            "Compressed file $compressedFile already exists and is not reused; reconcile it before processing " +
+                "(see docs/processing-idempotency.md)"
         }
         return compressedFile
     }

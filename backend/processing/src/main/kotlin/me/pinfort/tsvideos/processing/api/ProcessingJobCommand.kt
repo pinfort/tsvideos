@@ -38,7 +38,16 @@ class ProcessingJobCommand internal constructor(
         job: ProcessingJob,
         executedId: Long,
     ) {
-        check(mapper.link(job.id, executedId, State.CLAIMED) == 1) {
+        val linked =
+            try {
+                mapper.link(job.id, executedId, State.CLAIMED)
+            } catch (conflict: DuplicateKeyException) {
+                throw IllegalStateException(
+                    "Executed file $executedId is already linked to another job; reconcile before processing",
+                    conflict,
+                )
+            }
+        check(linked == 1) {
             "Cannot link job ${job.id} to executed file $executedId; it is no longer CLAIMED or already linked"
         }
     }

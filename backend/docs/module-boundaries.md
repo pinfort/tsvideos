@@ -252,7 +252,7 @@ DDL „ÅØ [db/migrations](../database-schema/src/main/resources/db/migrations/) „Å
 | `executed_file_tag`, `executed_file_check` | [002](../database-schema/src/main/resources/db/migrations/002_executed_file_tag.sql) | `catalog` |
 | `health_verification_run`, `health_verification_finding` | [051](../database-schema/src/main/resources/db/migrations/051_library_health.sql) | `library` |
 | `library_collection`, `library_tag`, `library_collection_program`, `library_tag_program` | [053](../database-schema/src/main/resources/db/migrations/053_library_organization.sql) | `library` |
-| `processing_job` | [064](../database-schema/src/main/resources/db/migrations/064_processing_job.sql) | `processing` |
+| `processing_job` | [064](../database-schema/src/main/resources/db/migrations/064_processing_job.sql), [075](../database-schema/src/main/resources/db/migrations/075_processing_job_executed_file_unique.sql) | `processing` |
 | `processing_history_identity`, `processing_attempt`, `processing_stage_event` | [067](../database-schema/src/main/resources/db/migrations/067_processing_history.sql) | `processing` |
 | `processing_quality_report` | [071](../database-schema/src/main/resources/db/migrations/071_recording_quality.sql) | `processing` |
 | `upload_manifest` | [072](../database-schema/src/main/resources/db/migrations/072_upload_manifest.sql) | `processing` |
