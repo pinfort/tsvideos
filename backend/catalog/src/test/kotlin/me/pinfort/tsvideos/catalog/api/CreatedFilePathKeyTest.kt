@@ -30,6 +30,16 @@ class CreatedFilePathKeyTest :
             CreatedFilePathKey.of("base/a/Ｂeta/v.mp4") shouldBe CreatedFilePathKey.of("base/a/ｂETA/v.mp4")
         }
 
+        expect("dotless and dotted i follow the root locale, never the Turkish mappings") {
+            // Dotless ı upper-cases to I, so ı, I and i share one key.
+            for (alias in listOf("base/a/ıd/v.mp4", "base/a/ID/v.mp4", "BASE/A/Id/V.MP4")) {
+                CreatedFilePathKey.of(alias) shouldBe "base/a/id/v.mp4"
+            }
+            // Dotted İ lower-cases to i + U+0307 in the root locale; its decomposed form joins it after NFC.
+            CreatedFilePathKey.of("base/a/İd/v.mp4") shouldBe "base/a/i̇d/v.mp4"
+            CreatedFilePathKey.of("base/a/İd/v.mp4") shouldBe CreatedFilePathKey.of("base/a/İd/v.mp4")
+        }
+
         expect("different files keep different keys, and only trailing characters are trimmed") {
             for (other in listOf(
                 "base/a/alpha/video2.mp4",

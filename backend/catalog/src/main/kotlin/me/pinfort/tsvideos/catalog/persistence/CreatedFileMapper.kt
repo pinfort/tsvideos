@@ -12,6 +12,8 @@ import org.apache.ibatis.annotations.Update
 internal interface CreatedFileMapper {
     // Claims the guard of pathKey (a path or split key, migration 076), creating its row on first use; held until the
     // transaction ends. A primary-key upsert locks that one record (no gap lock), so writers of other keys never wait.
+    // A writer of the same key waits up to the server's innodb_lock_wait_timeout (not unbounded); bulk operations take
+    // the same guard through BulkLibraryMapper with a 10-second override instead.
     @Insert("INSERT INTO created_file_path_guard(path_key) VALUES(#{pathKey}) ON DUPLICATE KEY UPDATE path_key = path_key")
     fun lockPathGuard(
         @Param("pathKey") pathKey: ByteArray,

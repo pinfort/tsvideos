@@ -361,6 +361,66 @@ class CreatedFileCatalogTest : ExpectSpec() {
                 }
             }
 
+            expect("migration 077 is idempotent and keeps file unique by a plain index instead of USING HASH") {
+                // A scratch copy of created_file in its pre-077 shape, so that the shared table is never altered.
+                val table = "created_file_077_check"
+                val migration = "db/migrations/077_created_file_file_hash_unique.sql"
+                val statements =
+                    checkNotNull(CreatedFileCatalogTest::class.java.classLoader.getResource(migration))
+                        .readText()
+                        .lines()
+                        .filterNot { it.trimStart().startsWith("--") }
+                        .joinToString("\n")
+                        .replace("created_file", table)
+                        .split(';')
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+
+                fun count(query: String): Int =
+                    dataSource.connection.use { connection ->
+                        connection.createStatement().use { statement ->
+                            statement.executeQuery(query).use { result ->
+                                result.next()
+                                result.getInt(1)
+                            }
+                        }
+                    }
+
+                fun index(name: String) =
+                    "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='$table' " +
+                        "AND index_name='$name'"
+
+                fun insert(
+                    id: Int,
+                    file: String,
+                ) = execute("INSERT INTO $table(id,splitted_file_id,file,size,status) VALUES($id,1,'$file',1,'FILE_MOVED')")
+
+                execute("DROP TABLE IF EXISTS $table")
+                try {
+                    execute("CREATE TABLE $table LIKE created_file")
+                    execute("ALTER TABLE $table DROP INDEX file_hash, DROP COLUMN file_hash, ADD UNIQUE KEY file (file) USING HASH")
+                    insert(1, "base/a/alpha/file.mp4")
+                    statements.size shouldBe 1
+                    repeat(2) { statements.forEach { execute(it) } }
+
+                    count(index("file")) shouldBe 0
+                    count(index("file_hash") + " AND non_unique=0 AND column_name='file_hash'") shouldBe 1
+                    count(
+                        "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='$table' " +
+                            "AND column_name='file_hash' AND column_type='binary(32)' AND extra LIKE '%GENERATED%'",
+                    ) shouldBe 1
+                    // Existing rows get their hash, and the same file (trailing spaces included, as under the old PAD SPACE
+                    // key) is still refused while another file, even an alias, is accepted.
+                    count("SELECT COUNT(*) FROM $table WHERE file_hash = UNHEX(SHA2('base/a/alpha/file.mp4', 256))") shouldBe 1
+                    shouldThrow<java.sql.SQLIntegrityConstraintViolationException> { insert(2, "base/a/alpha/file.mp4") }
+                    shouldThrow<java.sql.SQLIntegrityConstraintViolationException> { insert(3, "base/a/alpha/file.mp4  ") }
+                    insert(4, "BASE/A/ALPHA/FILE.MP4")
+                    count("SELECT COUNT(*) FROM $table") shouldBe 2
+                } finally {
+                    execute("DROP TABLE IF EXISTS $table")
+                }
+            }
+
             expect("a row another transaction holds locked is skipped without waiting and filled in by a later call") {
                 val path = uniquePath()
                 rawInsert(990011, path)

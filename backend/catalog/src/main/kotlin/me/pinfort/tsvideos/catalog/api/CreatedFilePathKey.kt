@@ -11,6 +11,8 @@ import java.util.Locale
  * trims each segment and folds case (upper then lower case with Java's full Unicode mappings, after NFC composition).
  * It may join paths the NAS keeps apart, which only refuses or serializes more, but must never split paths the NAS
  * joins. Its SHA-256 is stored as `created_file.path_key` and keys `created_file_path_guard` (migration 076).
+ * It is an alias key, not a traversal resolver: `.` and `..` segments are kept as they are (trimmed to empty), since
+ * they are invalid NAS paths that `SambaNasComponent` and the bulk operations' `safePath` reject before any NAS effect.
  */
 object CreatedFilePathKey {
     fun of(path: String): String =

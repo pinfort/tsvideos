@@ -102,6 +102,16 @@ class BulkLibraryApplyTest : ExpectSpec() {
         }
     }
 
+    private fun pathKeyIsNull(id: Long): Boolean =
+        dataSource.connection.use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT path_key IS NULL FROM created_file WHERE id = $id").use {
+                    check(it.next())
+                    it.getBoolean(1)
+                }
+            }
+        }
+
     init {
         fun seed() {
             listOf("created_file", "splitted_file", "program", "executed_file").forEach { sql("DELETE FROM $it") }
@@ -382,6 +392,45 @@ class BulkLibraryApplyTest : ExpectSpec() {
                     .status shouldBe BulkOutcomeStatus.STALE
                 verify(exactly = 0) { nas.moveResource(any(), any()) }
                 snapshots.programSnapshot(4)?.createdFiles?.map { it.file } shouldBe listOf(source)
+            }
+
+            expect("an unkeyed alias of the destination that the backfill cannot lock still refuses the move without NAS changes") {
+                seedRecording()
+                val plan = command.preview(move)
+                plan.targets.single().eligible shouldBe true
+                // Written by SQL outside catalog (or before migration 076): no path_key, at an alias of the destination.
+                sql("INSERT INTO created_file(id,splitted_file_id,file,size,status) VALUES(50,99,'base/b/beta/FILE.MP4.',1,'FILE_MOVED')")
+                val refused = "Destination is already referenced or duplicated"
+                dataSource.connection.use { holder ->
+                    holder.autoCommit = false
+                    try {
+                        // Another transaction holds the row, so the backfill (FOR UPDATE SKIP LOCKED) passes over it.
+                        holder.createStatement().use { it.executeQuery("SELECT id FROM created_file WHERE id = 50 FOR UPDATE").close() }
+                        val again = command.preview(move)
+                        pathKeyIsNull(50) shouldBe true
+                        again.targets.single().eligible shouldBe false
+                        again.targets.single().reason shouldBe refused
+
+                        // The earlier plan is stale; the current one is refused for the alias, not for a busy lock.
+                        val stale = command.apply(BulkApplyRequest(move, plan.targets.associate { it.id to it.fingerprint }))
+                        stale.outcomes.single().status shouldBe BulkOutcomeStatus.STALE
+                        val failed = command.apply(BulkApplyRequest(move, again.targets.associate { it.id to it.fingerprint }))
+                        failed.outcomes.single().status shouldBe BulkOutcomeStatus.FAILED
+                        failed.outcomes.single().message shouldBe refused
+                        pathKeyIsNull(50) shouldBe true
+                    } finally {
+                        holder.rollback()
+                    }
+                }
+                verify(exactly = 0) { nas.moveResource(any(), any()) }
+                snapshots.programSnapshot(4)?.createdFiles?.map { it.file } shouldBe listOf(source)
+                // Once released, the next preview stores the key and still refuses through the index.
+                command
+                    .preview(move)
+                    .targets
+                    .single()
+                    .reason shouldBe refused
+                pathKeyIsNull(50) shouldBe false
             }
 
             expect("an alias of the source registered after preview makes a delete stale") {

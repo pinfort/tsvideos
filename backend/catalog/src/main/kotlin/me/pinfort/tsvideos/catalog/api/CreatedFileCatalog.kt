@@ -67,7 +67,9 @@ class CreatedFileCatalog internal constructor(
      *    ([LedgerLocks.lockCreatedFilePaths]). A bulk apply or move holding either guard makes the registration wait
      *    here, before it has written or locked anything else, until that change commits.
      * 2. the insert. It holds no ledger lock while it waits, so a guarded cleanup (whose full `created_file` scan stops
-     *    every insert and which then locks every split) cannot deadlock with it.
+     *    every insert and which then locks every split) cannot deadlock with it. Its uniqueness check (`file_hash`,
+     *    migration 077) locks nothing unless the same file exists, so inserts of other files never wait for this
+     *    transaction; the former `USING HASH` key gap-locked its hidden index and deadlocked unrelated registrations.
      * 3. a share lock on the split, read as committed: absent once a delete has committed, and held so that the split
      *    cannot be deleted before this registration commits.
      */

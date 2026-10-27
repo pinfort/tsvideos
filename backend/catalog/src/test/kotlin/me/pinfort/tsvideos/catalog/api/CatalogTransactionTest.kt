@@ -25,6 +25,7 @@ import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.testcontainers.context.ImportTestcontainers
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
+import org.springframework.dao.DuplicateKeyException
 import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig
@@ -303,6 +304,85 @@ class CatalogTransactionTest : ExpectSpec() {
                     count("created_file") shouldBe 1L + unrelated.size + 1 + aliases.size + 1
                 } finally {
                     release.countDown()
+                    executor.shutdownNow()
+                }
+            }
+
+            expect("uncommitted registrations and moves of unrelated paths never wait for each other, and a file stays unique") {
+                // An empty created_file: under the former UNIQUE KEY file USING HASH every key fell into the one gap of its
+                // hidden hash index, whose duplicate check gap-locked it until commit, so the second registration below
+                // waited for the first and the third (back in the first transaction) deadlocked with it. Each transaction
+                // registers on a split of its own, as concurrent recordings do: registrations on one split share its guard.
+                seedOtherRecording()
+                sql(
+                    listOf(
+                        "INSERT INTO splitted_file(id,executed_file_id,file,size,duration,status) " +
+                            "VALUES(10,7,'other-2',3,1,'ENCODE_TASK_ADDED'),(11,7,'other-3',3,1,'ENCODE_TASK_ADDED')",
+                    ),
+                )
+                val first = CountDownLatch(1)
+                val resume = CountDownLatch(1)
+                val third = CountDownLatch(1)
+                val second = CountDownLatch(1)
+                val moved = CountDownLatch(1)
+                val release = CountDownLatch(1)
+                val executor = Executors.newFixedThreadPool(3)
+                try {
+                    val holder =
+                        executor.submit<CreatedFile> {
+                            checkNotNull(
+                                required.execute {
+                                    catalog.register(8, "base/p/one/a.mp4", 1, null, null)
+                                    first.countDown()
+                                    check(resume.await(30, TimeUnit.SECONDS))
+                                    catalog.register(8, "base/q/two/c.mp4", 1, null, null).also {
+                                        third.countDown()
+                                        check(release.await(30, TimeUnit.SECONDS))
+                                    }
+                                },
+                            )
+                        }
+                    check(first.await(10, TimeUnit.SECONDS))
+                    val other =
+                        executor.submit<CreatedFile> {
+                            checkNotNull(
+                                required.execute {
+                                    catalog.register(10, "base/r/three/b.mp4", 1, null, null).also {
+                                        second.countDown()
+                                        check(release.await(30, TimeUnit.SECONDS))
+                                    }
+                                },
+                            )
+                        }
+                    second.await(5, TimeUnit.SECONDS) shouldBe true
+                    resume.countDown()
+                    third.await(5, TimeUnit.SECONDS) shouldBe true
+
+                    // A move of a committed row to an unrelated path, while both registrations are still open.
+                    val committed = register("base/s/four/d.mp4", split = 11)
+                    val moving =
+                        executor.submit {
+                            required.execute {
+                                createdFiles.recordMove(committed, "base/t/five/e.mp4")
+                                moved.countDown()
+                                check(release.await(30, TimeUnit.SECONDS))
+                            }
+                        }
+                    moved.await(5, TimeUnit.SECONDS) shouldBe true
+
+                    release.countDown()
+                    holder.get(10, TimeUnit.SECONDS).file shouldBe "base/q/two/c.mp4"
+                    other.get(10, TimeUnit.SECONDS).file shouldBe "base/r/three/b.mp4"
+                    moving.get(10, TimeUnit.SECONDS)
+                    count("created_file") shouldBe 4
+
+                    // The exact file (trailing spaces aside, as before) is still refused once its writer has committed.
+                    shouldThrow<DuplicateKeyException> { register("base/r/three/b.mp4") }
+                    shouldThrow<DuplicateKeyException> { register("base/t/five/e.mp4 ") }
+                    count("created_file") shouldBe 4
+                } finally {
+                    release.countDown()
+                    resume.countDown()
                     executor.shutdownNow()
                 }
             }
