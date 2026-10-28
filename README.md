@@ -7,6 +7,7 @@ TS抜きした録画データを処理、管理するためのアプリケーシ
 
 ## ドキュメント
 
+- [docs/architecture.md](docs/architecture.md): システム全体の構成 (コンポーネント、モジュールの依存方向、処理の流れ)
 - [docs/](docs/README.md): 横断的なドキュメント (用語集など) と、ドキュメントの置き場所の方針
 - [backend/docs/](backend/docs/README.md): backend の機能別の運用・設計ドキュメント
 
