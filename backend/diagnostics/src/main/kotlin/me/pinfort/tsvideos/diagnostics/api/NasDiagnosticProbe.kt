@@ -33,7 +33,7 @@ class NasDiagnosticProbe(
                     DiagnosticCheck(
                         "$id.read",
                         DiagnosticStatus.FAIL,
-                        "Check NAS availability, credentials, base directory and list permissions",
+                        "Check NAS availability, credentials, base directory and list permissions (${failureType(error)})",
                     )
             } else {
                 checks +=
@@ -116,6 +116,16 @@ class NasDiagnosticProbe(
                         )
                 }
             }
+        }
+    }
+
+    // Class names only: messages may carry the share URL or credentials.
+    private fun failureType(error: Throwable): String {
+        val cause = error.cause
+        return if (cause == null || cause === error) {
+            error.javaClass.simpleName
+        } else {
+            "${error.javaClass.simpleName} caused by ${cause.javaClass.simpleName}"
         }
     }
 

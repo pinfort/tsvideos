@@ -16,7 +16,7 @@ import java.io.OutputStream
 import java.util.Properties
 
 /**
- * Short-timeout NAS connection for doctor/preflight, usable without Spring ([DiagnosticNasClient.create]).
+ * Bounded-timeout (15s, enough for a cold first connection) NAS connection for doctor/preflight, usable without Spring ([DiagnosticNasClient.create]).
  * jcifs types stay internal, and jcifs failures of every operation, handle and stream surface as storage
  * exceptions ([SambaFailures]). Each connection owns its own context and share root.
  */
@@ -32,9 +32,9 @@ internal class SambaDiagnosticNasClient : DiagnosticNasClient {
                 Properties().apply {
                     setProperty("jcifs.smb.client.minVersion", "SMB202")
                     setProperty("jcifs.smb.client.maxVersion", "SMB311")
-                    setProperty("jcifs.smb.client.connTimeout", "3000")
-                    setProperty("jcifs.smb.client.responseTimeout", "3000")
-                    setProperty("jcifs.smb.client.soTimeout", "3000")
+                    setProperty("jcifs.smb.client.connTimeout", "15000")
+                    setProperty("jcifs.smb.client.responseTimeout", "15000")
+                    setProperty("jcifs.smb.client.soTimeout", "15000")
                     setProperty("jcifs.smb.client.maxRequestRetries", "1")
                 }
             val base = BaseContext(PropertyConfiguration(properties))
