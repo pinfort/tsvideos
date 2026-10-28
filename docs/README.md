@@ -4,6 +4,7 @@
 
 | ファイル | 役割 |
 | --- | --- |
+| [architecture.md](architecture.md) | システム全体の構成。コンポーネント、モジュールの責務と依存方向、処理の流れとロールバック境界、永続化、テスト戦略、再編の履歴 (Mermaid の図付き) |
 | [ubiquitous-language.md](ubiquitous-language.md) | 用語集。コード・DB・UI・ドキュメントで同じ言葉を同じ意味で使うための辞書 |
 | [agent-workflow.md](agent-workflow.md) | Codex が管理・レビュー、Claude Code が実装を担当する作業手順 |
 
@@ -12,7 +13,7 @@
 | 場所 | 役割 |
 | --- | --- |
 | `README.md` (ルート) | プロジェクト概要と、各パートの README への入口 |
-| `AGENTS.md` / `CLAUDE.md` | コーディングエージェント向けの規約・コマンド・アーキテクチャ概要 |
+| `AGENTS.md` / `CLAUDE.md` | コーディングエージェント向けの役割分担・コマンド・開発規約。アーキテクチャの説明は持たず [architecture.md](architecture.md) を参照する |
 | `docs/` (ここ) | backend/frontend をまたぐ横断的なドキュメント |
 | `backend/README.md`, `frontend/README.md` | 各パートのセットアップ・設定・デプロイ手順 |
 | `backend/docs/` | backend の機能別の運用・設計ドキュメント ([索引](../backend/docs/README.md)) |

@@ -2,6 +2,8 @@ This is the backend for tsvideos, built with Kotlin, Spring Boot, and Gradle.
 
 ## モジュール構成
 
+システム全体の中での位置付け、モジュールの依存図、処理の流れとロールバック境界は [docs/architecture.md](../docs/architecture.md) を参照してください。
+
 - `storage`: NAS の公開契約 (`me.pinfort.tsvideos.storage.api`) と Samba (jcifs) 実装、`samba.*` 設定。業務モジュールに依存しない（[storage/README.md](storage/README.md)）
 - `database-schema`: 番号付き migration (スキーマの単一の情報源)、テスト DDL の生成、DB テスト用のテストフィクスチャ。データ操作 API を持たず、本番の依存先にならない（[database-schema/README.md](database-schema/README.md)）
 - `catalog`: 録画・番組・分割ファイル・作成ファイルの台帳と検出タグ/実施記録。公開操作 (`me.pinfort.tsvideos.catalog.api` / `domain`) と internal の Mapper・DTO。`storage` にだけ依存する（[catalog/README.md](catalog/README.md)）
