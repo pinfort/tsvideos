@@ -2,7 +2,7 @@
 
 tsvideos の現在の構造を、人が全体を把握するためにまとめた文書。2026-10-28 時点のコード (各 `build.gradle.kts`、[module-graph.gradle.kts](../backend/module-graph.gradle.kts)、各実行アプリの起動クラスと設定) を確かめて書いている。
 
-この文書は全体像と各部品の位置付けを扱う。モジュール境界・テーブル所有権・トランザクション境界の契約は [backend/docs/module-boundaries.md](../backend/docs/module-boundaries.md) が正本で、各機能の仕様・運用手順は [backend/docs/](../backend/docs/README.md) の個別文書にある。ここでは詳細を繰り返さず、それらへの入口を示す。用語は [ubiquitous-language.md](ubiquitous-language.md) に従う。
+この文書は全体像と各部品の位置付けを説明するためのもので、規則の正本ではない。許可するプロジェクト依存の正本は [module-graph.gradle.kts](../backend/module-graph.gradle.kts) の `ModuleGraphRules`、モジュール境界・テーブル所有権・トランザクション境界の契約の正本は [backend/docs/module-boundaries.md](../backend/docs/module-boundaries.md) で、本書と食い違う場合はそちらに従う。各機能の仕様・運用手順は [backend/docs/](../backend/docs/README.md) の個別文書にある。ここでは詳細を繰り返さず、それらへの入口を示す。用語は [ubiquitous-language.md](ubiquitous-language.md) に従う。
 
 ## 目次
 
@@ -159,7 +159,7 @@ flowchart TD
 | `checkDatabaseSchemaRuntimeIsolation` ([database-schema/runtime-isolation.gradle.kts](../backend/database-schema/runtime-isolation.gradle.kts)) | 3 つの実行アプリ | 実行時クラスパスに database-schema やそのテストフィクスチャが入ること |
 | `check<Module>Boundaries` (各モジュールの `build.gradle.kts`) | storage・database-schema・catalog・library・diagnostics・processing | 許可外の依存、他モジュールからの internal パッケージの参照など |
 
-新しいモジュールや依存を加えるときは、`ModuleGraphRules` の表と [module-boundaries.md §2](../backend/docs/module-boundaries.md#2-目標モジュールと依存方向) を一緒に更新する。
+新しいモジュールや依存を加えるときは、`ModuleGraphRules` の表と [module-boundaries.md §2](../backend/docs/module-boundaries.md#2-目標モジュールと依存方向) を一緒に更新し、本節の図とモジュール表も合わせて直す。
 
 ## 3. 公開と内部の境界
 
