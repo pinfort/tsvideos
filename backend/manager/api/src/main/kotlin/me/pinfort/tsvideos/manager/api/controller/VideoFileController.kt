@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.manager.api.controller
 
 import jakarta.servlet.http.HttpServletRequest
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.manager.api.response.VideoChaptersResponse
 import me.pinfort.tsvideos.manager.api.stream.NasVideoResource
 import me.pinfort.tsvideos.manager.api.stream.ResponseResources
@@ -49,7 +50,7 @@ class VideoFileController(
                 return ResponseEntity.notFound().build()
             }
         val resource = NasVideoResource(handle)
-        val contentType = MediaType.asMediaType(MimeType.valueOf("video/mp4"))
+        val contentType = MediaType.asMediaType(MimeType.valueOf(CreatedFile.MP4_MIME))
         val contentLength = resource.contentLength()
 
         val (status, region) =

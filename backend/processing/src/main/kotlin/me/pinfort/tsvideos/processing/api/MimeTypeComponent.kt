@@ -1,12 +1,12 @@
 package me.pinfort.tsvideos.processing.api
 
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import org.springframework.stereotype.Component
 
 /**
  * ファイル名から mime / encoding を判定する。
  * Files.probeContentType はプラットフォーム依存で Windows では期待した値を返さないため、
  * 扱う拡張子を明示したテーブルで解決する。
- * mime の文字列は CreatedFile.isMp4 / CreatedFile.isTs と一致している必要がある。
  */
 @Component
 class MimeTypeComponent {
@@ -23,9 +23,9 @@ class MimeTypeComponent {
 
         private val MIME_BY_EXTENSION =
             mapOf(
-                "mp4" to "video/mp4",
-                "m2ts" to "video/vnd.dlna.mpeg-tts",
-                "ts" to "video/vnd.dlna.mpeg-tts",
+                "mp4" to CreatedFile.MP4_MIME,
+                "m2ts" to CreatedFile.TS_MIME,
+                "ts" to CreatedFile.TS_MIME,
                 // Amatsukaze が動画と一緒に出力する字幕・補助ファイル。video/ 以外なので統計・検索では動画として数えられない。
                 // 追加・変更したら backend/docs/verified-uploads.md の埋め戻し SQL も合わせて更新する。
                 "ass" to "text/x-ssa",
@@ -43,7 +43,7 @@ class MimeTypeComponent {
     fun guess(fileName: String): MimeType {
         val lowered = fileName.lowercase()
         return if (lowered.endsWith(GZIP_SUFFIX)) {
-            MimeType(mimeOf(lowered.removeSuffix(GZIP_SUFFIX)), "gzip")
+            MimeType(mimeOf(lowered.removeSuffix(GZIP_SUFFIX)), CreatedFile.GZIP_ENCODING)
         } else {
             MimeType(mimeOf(lowered), null)
         }

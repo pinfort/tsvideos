@@ -17,11 +17,13 @@ data class CreatedFile(
         FILE_MOVED,
     }
 
-    val isMp4 = mime == "video/mp4"
+    val isMp4 = mime == MP4_MIME
 
     val isTs = mime == TS_MIME
 
     companion object {
+        const val MP4_MIME = "video/mp4"
         const val TS_MIME = "video/vnd.dlna.mpeg-tts"
+        const val GZIP_ENCODING = "gzip"
     }
 }

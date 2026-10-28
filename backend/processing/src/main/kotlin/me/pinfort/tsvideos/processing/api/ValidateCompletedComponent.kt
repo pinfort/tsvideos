@@ -3,6 +3,7 @@ package me.pinfort.tsvideos.processing.api
 import me.pinfort.tsvideos.catalog.api.CreatedFileCommand
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.storage.api.NasComponent
 import org.slf4j.Logger
 import org.springframework.stereotype.Component
@@ -38,7 +39,7 @@ class ValidateCompletedComponent(
                 .filter { nasComponent.resourceExists(it.file) }
         logger.info("Created files existing on NAS, programId=${program.id}, createdFiles=$existingCreatedFiles")
 
-        val gzipFileExists = existingCreatedFiles.any { it.encoding == "gzip" && it.isTs }
+        val gzipFileExists = existingCreatedFiles.any { it.encoding == CreatedFile.GZIP_ENCODING && it.isTs }
         val movieFileExists = existingCreatedFiles.any { it.isMp4 }
 
         if (gzipFileExists && movieFileExists) {
