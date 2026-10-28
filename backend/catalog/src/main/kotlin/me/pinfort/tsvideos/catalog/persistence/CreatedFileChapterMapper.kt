@@ -1,5 +1,6 @@
 package me.pinfort.tsvideos.catalog.persistence
 
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.VideoChapter
 import org.apache.ibatis.annotations.Insert
 import org.apache.ibatis.annotations.Mapper
@@ -65,7 +66,7 @@ internal interface CreatedFileChapterMapper {
             FROM
                 created_file
             WHERE
-                mime = 'video/mp4'
+                mime = '${CreatedFile.MP4_MIME}'
                 AND chapters_probed = FALSE
                 AND id > #{afterId}
             ORDER BY

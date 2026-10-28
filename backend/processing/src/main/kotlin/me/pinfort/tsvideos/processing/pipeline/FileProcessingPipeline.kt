@@ -4,6 +4,7 @@ import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
 import me.pinfort.tsvideos.catalog.api.ExecutedFileTagCommand
 import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
+import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.ExecutedFile
 import me.pinfort.tsvideos.catalog.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
@@ -499,7 +500,7 @@ internal class FileProcessingPipeline(
                         targetFile,
                         onUploadProgress,
                     )
-                verifiedUploadCommand.register(uploaded, splittedFile.id, "video/vnd.dlna.mpeg-tts", "gzip")
+                verifiedUploadCommand.register(uploaded, splittedFile.id, CreatedFile.TS_MIME, CreatedFile.GZIP_ENCODING)
                 splittedFileCommand.updateStatus(splittedFile, SplittedFile.Status.COMPRESS_SAVED)
                 uploaded
             }

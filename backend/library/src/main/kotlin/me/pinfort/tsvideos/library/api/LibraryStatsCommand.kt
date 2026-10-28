@@ -82,6 +82,6 @@ class LibraryStatsCommand(
 
     private companion object {
         const val TS_MIME = CreatedFile.TS_MIME
-        const val GZIP = "gzip"
+        const val GZIP = CreatedFile.GZIP_ENCODING
     }
 }
