@@ -2,7 +2,10 @@ package me.pinfort.tsvideos.processing.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -53,10 +56,7 @@ class ProcessingPreflightCommandTest :
         expect("same filesystem sums inputs from different directories and does not double count aliases") {
             val report = command.diagnose(listOf(one, two, one))
             report.checks.single { it.id == "space.0" }.status shouldBe DiagnosticStatus.FAIL
-            report.checks
-                .single { it.id == "space.0" }
-                .reason
-                .contains("60 bytes") shouldBe true
+            report.checks.single { it.id == "space.0" }.reason shouldContain "60 bytes"
             report.checks.count { it.id.endsWith(".execution") && it.status == DiagnosticStatus.UNCHECKED } shouldBe 2
             verify(exactly = 1) { shared.diagnose(false) }
         }
@@ -78,8 +78,7 @@ class ProcessingPreflightCommandTest :
                 .diagnose(listOf(one))
                 .checks
                 .single { it.id == "space.0" }
-                .reason
-                .contains("supported byte range") shouldBe true
+                .reason shouldContain "supported byte range"
         }
         expect("all local and config problems are reported without secrets") {
             every { local.inspect(any()) } throws IllegalStateException("credential-secret")
@@ -101,7 +100,7 @@ class ProcessingPreflightCommandTest :
                     "config.encoder.port",
                     "config.space-multiplier",
                 )
-            report.toString().contains("secret") shouldBe false
+            report.toString() shouldNotContain "secret"
             verify(exactly = 0) { tcp.check(any(), any()) }
         }
         expect("missing tool and encoder settings skip their probes") {
@@ -115,16 +114,25 @@ class ProcessingPreflightCommandTest :
                 tcp.check(any(), any())
             }
         }
-        expect("LAN hostnames with underscores and bracketed IPv6 literals are accepted") {
-            listOf("win_pc", "my-encoder.local", "192.168.0.10", "[::1]", "[fe80::1%eth0]").forEach { host ->
+        context("LAN hostnames with underscores and bracketed IPv6 literals are accepted") {
+            withData(
+                nameFn = { (host, status) -> "$host -> $status" },
+                "win_pc" to DiagnosticStatus.PASS,
+                "my-encoder.local" to DiagnosticStatus.PASS,
+                "192.168.0.10" to DiagnosticStatus.PASS,
+                "[::1]" to DiagnosticStatus.PASS,
+                "[fe80::1%eth0]" to DiagnosticStatus.PASS,
+                "host:80" to DiagnosticStatus.FAIL,
+                "host/path" to DiagnosticStatus.FAIL,
+                "-host" to DiagnosticStatus.FAIL,
+                "a b" to DiagnosticStatus.FAIL,
+                "a..b" to DiagnosticStatus.FAIL,
+                "host." to DiagnosticStatus.FAIL,
+                "win_" to DiagnosticStatus.FAIL,
+            ) { (host, status) ->
                 env.withProperty("processor-tool.amatsukaze.host", host)
                 val report = command.diagnose(listOf(one))
-                report.checks.single { it.id == "config.encoder.host" }.status shouldBe DiagnosticStatus.PASS
-            }
-            listOf("host:80", "host/path", "-host", "a b", "a..b", "host.", "win_").forEach { host ->
-                env.withProperty("processor-tool.amatsukaze.host", host)
-                val report = command.diagnose(listOf(one))
-                report.checks.single { it.id == "config.encoder.host" }.status shouldBe DiagnosticStatus.FAIL
+                report.checks.single { it.id == "config.encoder.host" }.status shouldBe status
             }
         }
         expect("multiplier beyond double range fails") {

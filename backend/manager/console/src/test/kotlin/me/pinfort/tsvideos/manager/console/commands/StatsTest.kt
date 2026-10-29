@@ -2,7 +2,10 @@ package me.pinfort.tsvideos.manager.console.commands
 
 import com.github.ajalt.clikt.testing.test
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -80,7 +83,7 @@ class StatsTest :
         expect("invalid date names the offending option") {
             val result = Stats(mockk()).invoke("--recorded-to 2026-13-01")
             result.statusCode shouldBe 2
-            result.stderr.contains("--recorded-to") shouldBe true
+            result.stderr shouldContain "--recorded-to"
         }
         expect("date-only bounds mean start of day") {
             val command = mockk<LibraryStatsCommand>()
@@ -111,18 +114,19 @@ class StatsTest :
                     .drop(1)
                     .map { it.substringBefore(':') }
             labels shouldBe listOf("TOTAL", "(unknown)", "2026-01")
-            result.stdout.contains("2026-01: programs=2") shouldBe true
+            result.stdout shouldContain "2026-01: programs=2"
         }
         expect("human output labels metadata and unverified physical usage") {
             val command = mockk<LibraryStatsCommand>()
             every { command.summarize(any()) } returns LibraryStats(empty, emptyList())
             val result = Stats(command).invoke("")
             result.statusCode shouldBe 0
-            result.stdout.contains("programs=0") shouldBe true
-            result.stdout.contains("physical usage: unverified") shouldBe true
+            result.stdout shouldContain "programs=0"
+            result.stdout shouldContain "physical usage: unverified"
         }
-        expect("invalid options have exit two before database access") {
-            listOf(
+        context("invalid options have exit two before database access") {
+            withData(
+                nameFn = { "args='$it'" },
                 "--group-by bad",
                 "--recorded-from bad",
                 "--recorded-from 2026-01-01T00:00:00Z",
@@ -131,7 +135,7 @@ class StatsTest :
                 "--recorded-from 2026-02-01T00:00 --recorded-to 2026-01-01T00:00",
                 "--ids-only",
                 "--json --ids-only",
-            ).forEach {
+            ) {
                 Stats(mockk()).invoke(it).statusCode shouldBe 2
             }
         }
@@ -142,7 +146,7 @@ class StatsTest :
             val result = Stats(command).invoke("--json")
             result.statusCode shouldBe 1
             result.stdout shouldBe ""
-            result.stderr.contains("secret") shouldBe false
+            result.stderr shouldNotContain "secret"
         }
     })
 

@@ -2,7 +2,9 @@ package me.pinfort.tsvideos.manager.console.commands
 
 import com.github.ajalt.clikt.testing.test
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldNotBeBlank
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -97,8 +99,9 @@ class SearchFiltersTest :
             result.statusCode shouldBe 0
         }
 
-        expect("invalid filters fail before DB calls with exit two and no stdout") {
-            listOf(
+        context("invalid filters fail before DB calls with exit two and no stdout") {
+            withData(
+                nameFn = { "options='$it'" },
                 "--limit 0",
                 "--limit 501",
                 "--offset -1",
@@ -111,12 +114,12 @@ class SearchFiltersTest :
                 "--file-type jpg",
                 "--sort name",
                 "--direction sideways",
-            ).forEach { options ->
+            ) { options ->
                 val command = Search(mockk(), mockk())
                 val result = command.test(("$options --json").split(' ')) { command.parseManager(it) }
                 result.statusCode shouldBe 2
                 result.stdout shouldBe ""
-                result.stderr.isNotBlank() shouldBe true
+                result.stderr.shouldNotBeBlank()
             }
         }
     })

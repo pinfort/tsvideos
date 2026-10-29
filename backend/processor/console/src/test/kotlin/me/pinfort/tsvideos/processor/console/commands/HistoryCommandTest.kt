@@ -2,7 +2,9 @@ package me.pinfort.tsvideos.processor.console.commands
 
 import com.github.ajalt.clikt.testing.test
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldNotContain
 import io.mockk.every
 import io.mockk.mockk
 import me.pinfort.tsvideos.processing.api.ProcessingHistoryCommand
@@ -74,17 +76,22 @@ class HistoryCommandTest :
             json.readTree(HistoryCommand(history).readTest("--all --json").stdout)["attempts"].size() shouldBe 0
             HistoryCommand(history).readTest("--job-id 3 --json").statusCode shouldBe 0
         }
-        expect("missing requested job returns 3 without partial stdout") {
-            val history = mockk<ProcessingHistoryCommand>()
-            every { history.status(9) } returns emptyList()
-            listOf(StatusCommand(history), HistoryCommand(history)).forEach {
-                val result = it.readTest("--job-id 9 --json")
+        context("missing requested job returns 3 without partial stdout") {
+            withData(
+                mapOf<String, (ProcessingHistoryCommand) -> HistoryReadCommand>(
+                    "status" to ::StatusCommand,
+                    "history" to ::HistoryCommand,
+                ),
+            ) { newCommand ->
+                val history = mockk<ProcessingHistoryCommand>()
+                every { history.status(9) } returns emptyList()
+                val result = newCommand(history).readTest("--job-id 9 --json")
                 result.statusCode shouldBe 3
                 result.stdout shouldBe ""
             }
         }
-        expect("invalid and conflicting selectors return 2") {
-            listOf("--job-id 0", "--job-id nope", "--job-id -1", "--job-id 3 --all").forEach {
+        context("invalid and conflicting selectors return 2") {
+            withData(nameFn = { "args='$it'" }, "--job-id 0", "--job-id nope", "--job-id -1", "--job-id 3 --all") {
                 StatusCommand(mockk()).readTest(it).statusCode shouldBe 2
             }
         }
@@ -94,8 +101,8 @@ class HistoryCommandTest :
             val result = StatusCommand(history).readTest("--json")
             result.statusCode shouldBe 1
             result.stdout shouldBe ""
-            result.stderr.contains("secret-value") shouldBe false
-            result.stderr.contains("sensitive") shouldBe false
+            result.stderr shouldNotContain "secret-value"
+            result.stderr shouldNotContain "sensitive"
         }
     })
 

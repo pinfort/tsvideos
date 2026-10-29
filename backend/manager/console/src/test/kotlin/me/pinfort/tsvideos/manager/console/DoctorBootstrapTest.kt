@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.manager.console
 
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -14,9 +15,8 @@ class DoctorBootstrapTest :
         expect("loads the actual application datasource and storage profile defaults without any application context") {
             val environment = DoctorBootstrap.loadEnvironment(emptyArray())
             // spring.datasource.* lives in this console's own application-datasource.yaml (core's until #139)
-            environment.activeProfiles.toList().contains("datasource") shouldBe true
             // samba.* defaults live in the storage module's application-storage.yaml
-            environment.activeProfiles.toList().contains("storage") shouldBe true
+            environment.activeProfiles.toList() shouldContainAll listOf("datasource", "storage")
             environment.getProperty("spring.datasource.url").shouldNotBeNull() shouldContain "jdbc:"
             environment.getProperty("spring.datasource.hikari.auto-commit") shouldBe "false"
             environment.getProperty("samba.video-store-nas.url").shouldNotBeNull() shouldContain "smb:"

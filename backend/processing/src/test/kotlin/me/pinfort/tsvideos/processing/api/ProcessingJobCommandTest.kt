@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.processing.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
@@ -38,18 +39,19 @@ class ProcessingJobCommandTest :
             val expected = listOf(State.CLAIMED to State.RETRYABLE, State.CLAIMED to State.SUBMISSION_UNKNOWN)
             allowed shouldBe expected
         }
-        expect("unsupported transitions are rejected before database mutation") {
-            val mapper = mockk<ProcessingJobMapper>()
-            val command = ProcessingJobCommand(mapper, ProcessingJobClaimCommand(mapper))
-            listOf(
+        context("unsupported transitions are rejected before database mutation") {
+            withData(
+                nameFn = { (from, to) -> "$from -> $to" },
                 State.COMPLETED to State.CLAIMED,
                 State.CLAIMED to State.SUBMITTED,
                 State.SUBMISSION_UNKNOWN to State.RETRYABLE,
                 State.CLAIMED to State.QUARANTINED,
-            ).forEach { (from, to) ->
+            ) { (from, to) ->
+                val mapper = mockk<ProcessingJobMapper>()
+                val command = ProcessingJobCommand(mapper, ProcessingJobClaimCommand(mapper))
                 shouldThrow<IllegalArgumentException> { command.transition(job, from, to) }
+                verify(exactly = 0) { mapper.transition(any(), any(), any()) }
             }
-            verify(exactly = 0) { mapper.transition(any(), any(), any()) }
         }
         expect("stale state fails instead of overwriting a newer state") {
             val mapper = mockk<ProcessingJobMapper>()
@@ -83,13 +85,19 @@ class ProcessingJobCommandTest :
             }
             shouldThrow<IllegalStateException> { ProcessingJobCommand(mapper, ProcessingJobClaimCommand(mapper)).complete(job) }
         }
-        expect("reset refuses states in which the encoder or an invocation may still use the files") {
-            val mapper = mockk<ProcessingJobMapper>()
-            val command = ProcessingJobCommand(mapper, ProcessingJobClaimCommand(mapper))
-            listOf(State.CLAIMED, State.QUARANTINED, State.SUBMISSION_UNKNOWN, State.SUBMITTED).forEach { state ->
+        context("reset refuses states in which the encoder or an invocation may still use the files") {
+            withData(
+                nameFn = { "state=$it" },
+                State.CLAIMED,
+                State.QUARANTINED,
+                State.SUBMISSION_UNKNOWN,
+                State.SUBMITTED,
+            ) { state ->
+                val mapper = mockk<ProcessingJobMapper>()
+                val command = ProcessingJobCommand(mapper, ProcessingJobClaimCommand(mapper))
                 every { mapper.findByExecutedFile(10) } returns job.copy(state = state, executedFileId = 10)
                 shouldThrow<IllegalStateException> { command.reset(10) }
+                verify(exactly = 0) { mapper.removeReset(any(), any()) }
             }
-            verify(exactly = 0) { mapper.removeReset(any(), any()) }
         }
     })

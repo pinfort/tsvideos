@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.processing.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
@@ -58,8 +59,16 @@ class ProcessingRetryTest :
             calls shouldBe 3
             delays.size shouldBe 2
         }
-        expect("permanent or ambiguous state never retries") {
-            for (failure in listOf(IOException(), AccessDeniedException("input"), IllegalArgumentException(), IllegalStateException())) {
+        context("permanent or ambiguous state never retries") {
+            withData(
+                mapOf<String, () -> Exception>(
+                    "IOException" to { IOException() },
+                    "AccessDeniedException" to { AccessDeniedException("input") },
+                    "IllegalArgumentException" to { IllegalArgumentException() },
+                    "IllegalStateException" to { IllegalStateException() },
+                ),
+            ) { newFailure ->
+                val failure = newFailure()
                 var calls = 0
                 val delays = mutableListOf<Long>()
                 shouldThrow<Exception> {
@@ -67,10 +76,12 @@ class ProcessingRetryTest :
                         calls++
                         throw failure
                     }
-                }
+                } shouldBe failure
                 calls shouldBe 1
                 delays.size shouldBe 0
             }
+        }
+        expect("a transient failure of an ineligible operation never retries") {
             val delays = mutableListOf<Long>()
             shouldThrow<SocketTimeoutException> {
                 retry(
@@ -106,17 +117,21 @@ class ProcessingRetryTest :
             original.suppressed.single() shouldBe proofFailure
             delays.size shouldBe 0
         }
-        expect("permanent outer types override nested transient errors") {
-            val failures =
-                listOf(
-                    java.io.FileNotFoundException().apply { initCause(SocketTimeoutException()) },
-                    java.nio.file
-                        .NoSuchFileException("missing")
-                        .apply { initCause(SocketTimeoutException()) },
-                    java.sql.SQLNonTransientException("invalid", SocketTimeoutException()),
-                    NasAuthenticationException("NAS upload failed: credentials rejected", SocketTimeoutException()),
-                )
-            failures.forEach { TransientProcessingFailure.reason(it) shouldBe null }
+        context("permanent outer types override nested transient errors") {
+            withData(
+                mapOf<String, () -> Throwable>(
+                    "FileNotFoundException" to { java.io.FileNotFoundException().apply { initCause(SocketTimeoutException()) } },
+                    "NoSuchFileException" to {
+                        java.nio.file
+                            .NoSuchFileException("missing")
+                            .apply { initCause(SocketTimeoutException()) }
+                    },
+                    "SQLNonTransientException" to { java.sql.SQLNonTransientException("invalid", SocketTimeoutException()) },
+                    "NasAuthenticationException" to {
+                        NasAuthenticationException("NAS upload failed: credentials rejected", SocketTimeoutException())
+                    },
+                ),
+            ) { newFailure -> TransientProcessingFailure.reason(newFailure()) shouldBe null }
         }
         expect("eligibility is rechecked after backoff and changed ownership prevents next attempt") {
             var proofs = 0

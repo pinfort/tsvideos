@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.processing.api
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
@@ -285,8 +286,9 @@ class ChapterBackfillRunnerTest :
                     root.toAbsolutePath().resolve("videos").resolve("video.mp4")
             }
 
-            expect("rejects paths that are not plain relative share paths") {
-                listOf(
+            context("rejects paths that are not plain relative share paths") {
+                withData(
+                    nameFn = { "path='${it.replace("\u0000", "\\u0000").replace("\n", "\\n")}'" },
                     "",
                     " ",
                     "/videos/a.mp4",
@@ -304,7 +306,7 @@ class ChapterBackfillRunnerTest :
                     "videos/",
                     "videos/a\u0000.mp4",
                     "videos/a\n.mp4",
-                ).forEach { ChapterBackfillRunner.resolveUnder(root, it) shouldBe null }
+                ) { ChapterBackfillRunner.resolveUnder(root, it) shouldBe null }
             }
 
             // Windows paths only parse on Windows, where the processor runs next to Amatsukaze.

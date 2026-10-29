@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.processing.api.tool
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
@@ -125,10 +126,13 @@ class ChapterProbeClientTest :
                 )
         }
 
-        expect("non-zero exit, malformed JSON or an unexpected shape is not probed") {
+        expect("non-zero exit is not probed") {
             returns(chapters(chapter(0, "0", "1")), exitCode = 1)
             client.probe(file) shouldBe null
-            listOf("", "not json", "{}", """{"chapters":{}}""", """{"chapters":[1]}""", "[]").forEach {
+        }
+
+        context("malformed JSON or an unexpected shape is not probed") {
+            withData(nameFn = { "stdout='$it'" }, "", "not json", "{}", """{"chapters":{}}""", """{"chapters":[1]}""", "[]") {
                 returns(it)
                 client.probe(file) shouldBe null
             }

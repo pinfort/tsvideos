@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.catalog.persistence
 
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.Program
@@ -78,42 +79,30 @@ class ProgramDtoTest :
                     )
             }
 
-            expect("status REGISTERED") {
-                val dto =
-                    ProgramDto(
-                        id = 1,
-                        name = "name",
-                        executedFileId = 2,
-                        status = ProgramDto.Status.REGISTERED,
-                        drops = null,
-                        size = null,
-                        recordedAt = null,
-                        channel = null,
-                        title = null,
-                        channelName = null,
-                        duration = null,
-                    )
+            context("status") {
+                withData(
+                    nameFn = { (dto, domain) -> "$dto -> $domain" },
+                    ProgramDto.Status.REGISTERED to Program.Status.REGISTERED,
+                    ProgramDto.Status.COMPLETED to Program.Status.COMPLETED,
+                    ProgramDto.Status.ERROR to Program.Status.ERROR,
+                ) { (dtoStatus, domainStatus) ->
+                    val dto =
+                        ProgramDto(
+                            id = 1,
+                            name = "name",
+                            executedFileId = 2,
+                            status = dtoStatus,
+                            drops = null,
+                            size = null,
+                            recordedAt = null,
+                            channel = null,
+                            title = null,
+                            channelName = null,
+                            duration = null,
+                        )
 
-                dto.toDomain().status shouldBe Program.Status.REGISTERED
-            }
-
-            expect("status ERROR") {
-                val dto =
-                    ProgramDto(
-                        id = 1,
-                        name = "name",
-                        executedFileId = 2,
-                        status = ProgramDto.Status.ERROR,
-                        drops = null,
-                        size = null,
-                        recordedAt = null,
-                        channel = null,
-                        title = null,
-                        channelName = null,
-                        duration = null,
-                    )
-
-                dto.toDomain().status shouldBe Program.Status.ERROR
+                    dto.toDomain().status shouldBe domainStatus
+                }
             }
         }
 
