@@ -18,6 +18,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.OutputStream
+import java.net.SocketTimeoutException
 
 /**
  * The probe over the storage diagnostic contract. The Samba adapter itself (O_EXCL flags, close ownership and
@@ -165,6 +166,24 @@ class NasDiagnosticProbeTest :
             checks.single { it.id.endsWith(".read") }.status shouldBe DiagnosticStatus.FAIL
             checks.single { it.id.endsWith(".write") }.status shouldBe DiagnosticStatus.UNCHECKED
             checks.toString() shouldNotContain "secret"
+        }
+        expect("a read failure without a cause names only its class") {
+            every { client.open(any(), any(), any()) } throws NasAccessException("smb://user:secret@host")
+            val reason = run().single { it.id.endsWith(".read") }.reason
+            reason shouldContain "(NasAccessException)"
+            reason shouldNotContain "caused by"
+            reason shouldNotContain "secret"
+        }
+        expect("a wrapped read failure names the outer class and the root cause, never the messages") {
+            every { client.open(any(), any(), any()) } throws
+                NasAccessException(
+                    "NAS connect failed",
+                    IOException("smb://user:secret@host", SocketTimeoutException("secret timeout")),
+                )
+            val reason = run().single { it.id.endsWith(".read") }.reason
+            reason shouldContain "(NasAccessException caused by SocketTimeoutException)"
+            reason shouldNotContain "secret"
+            reason shouldNotContain "connect failed"
         }
         expect("a failure after a successful read is a separate operation failure") {
             every { directory.close() } throws IOException("secret")

@@ -119,13 +119,20 @@ class NasDiagnosticProbe(
         }
     }
 
-    // Class names only: messages may carry the share URL or credentials.
+    // Class names only: messages may carry the share URL or credentials. The root cause names the actual
+    // failure (e.g. a socket timeout) that storage wraps.
     private fun failureType(error: Throwable): String {
-        val cause = error.cause
-        return if (cause == null || cause === error) {
+        var root = error
+        val seen = mutableSetOf<Throwable>(error)
+        while (true) {
+            val cause = root.cause ?: break
+            if (!seen.add(cause)) break
+            root = cause
+        }
+        return if (root === error) {
             error.javaClass.simpleName
         } else {
-            "${error.javaClass.simpleName} caused by ${cause.javaClass.simpleName}"
+            "${error.javaClass.simpleName} caused by ${root.javaClass.simpleName}"
         }
     }
 

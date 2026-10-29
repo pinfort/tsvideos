@@ -34,7 +34,7 @@ interface DiagnosticNasClient {
         fun delete()
     }
 
-    /** Connects with an independent short-timeout context, closed with the returned connection. */
+    /** Connects with an independent bounded-timeout (15s per I/O) context, closed with the returned connection. */
     fun open(
         url: String,
         username: String,
