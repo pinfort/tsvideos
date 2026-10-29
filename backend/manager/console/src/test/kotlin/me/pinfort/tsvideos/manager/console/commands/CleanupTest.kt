@@ -1,9 +1,14 @@
 package me.pinfort.tsvideos.manager.console.commands
 
 import com.github.ajalt.clikt.testing.test
+import io.kotest.assertions.assertSoftly
 import io.kotest.assertions.throwables.shouldThrowAny
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -29,28 +34,41 @@ class CleanupTest :
                 targets = emptyList(),
                 keptTargets = emptyList(),
             )
-        expect("strict JSON round trips Unicode and rejects ambiguous or unsupported imports") {
-            val json = CleanupPlanJson.write(plan)
-            CleanupPlanJson.read(json) shouldBe plan
-            for (bad in listOf(
-                json.replace("\"schemaVersion\":1", "\"schemaVersion\":4294967297"),
-                json.replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"schemaVersion\":1"),
-                json.replace("\"action\":", "\"extra\":0,\"action\":"),
-                json.replace("\"keepIds\":[]", "\"keepIds\":[1.5]"),
-            )) {
+        expect("strict JSON round trips Unicode") {
+            CleanupPlanJson.read(CleanupPlanJson.write(plan)) shouldBe plan
+        }
+        context("strict JSON rejects ambiguous or unsupported imports") {
+            withData(
+                mapOf<String, (String) -> String>(
+                    "schemaVersion overflow" to { json: String -> json.replace("\"schemaVersion\":1", "\"schemaVersion\":4294967297") },
+                    "duplicate schemaVersion" to { json: String ->
+                        json.replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"schemaVersion\":1")
+                    },
+                    "unknown property" to { json: String -> json.replace("\"action\":", "\"extra\":0,\"action\":") },
+                    "fractional keep ID" to { json: String -> json.replace("\"keepIds\":[]", "\"keepIds\":[1.5]") },
+                ),
+            ) { corrupt ->
+                val json = CleanupPlanJson.write(plan)
+                val bad = corrupt(json)
+                bad shouldNotBe json
                 shouldThrowAny { CleanupPlanJson.read(bad) }
             }
         }
-        expect("plan requires one explicit mode and preserves repeated keep IDs") {
-            val core = mockk<CleanupPlanCommand>()
-            every { core.plan(any()) } returns plan
-            for (args in listOf(
+        context("plan without exactly one explicit mode is a usage error") {
+            withData(
+                nameFn = { it.joinToString(" ") },
                 listOf("plan"),
                 listOf("plan", "--duplicates", "--recorded-before", "2026-01-01T00:00:00"),
                 listOf("plan", "--recorded-before", "2026-01-01T00:00:00", "--keep", "2"),
-            )) {
+            ) { args ->
+                val core = mockk<CleanupPlanCommand>()
+                every { core.plan(any()) } returns plan
                 Cleanup(core).testCleanup(args).statusCode shouldBe 2
             }
+        }
+        expect("plan preserves repeated keep IDs") {
+            val core = mockk<CleanupPlanCommand>()
+            every { core.plan(any()) } returns plan
             val result = Cleanup(core).testCleanup(listOf("plan", "--duplicates", "--keep", "2", "--keep", "4"))
             result.statusCode shouldBe 0
             CleanupPlanJson.read(result.stdout) shouldBe plan
@@ -65,12 +83,12 @@ class CleanupTest :
                 Cleanup(core).testCleanup(listOf("apply", file.toString())).statusCode shouldBe 2
                 val dry = Cleanup(core).testCleanup(listOf("apply", file.toString(), "--dry-run"))
                 dry.statusCode shouldBe 0
-                dry.stdout.contains("\"dryRun\":true") shouldBe true
+                dry.stdout shouldContain "\"dryRun\":true"
                 verify(exactly = 0) { core.apply(any(), false) }
                 every { core.apply(plan, false) } returns BulkResult(listOf(BulkOutcome(2, BulkOutcomeStatus.STALE, "Changed")))
                 val partial = Cleanup(core).testCleanup(listOf("apply", file.toString(), "--yes"))
                 partial.statusCode shouldBe 4
-                partial.stdout.contains("STALE") shouldBe true
+                partial.stdout shouldContain "STALE"
                 every { core.apply(plan, false) } returns BulkResult(listOf(BulkOutcome(2, BulkOutcomeStatus.NOT_FOUND, "Missing")))
                 Cleanup(core).testCleanup(listOf("apply", file.toString(), "--yes")).statusCode shouldBe 3
                 every { core.apply(plan, false) } returns
@@ -139,9 +157,11 @@ class CleanupTest :
                             }
                         }.get(10, java.util.concurrent.TimeUnit.SECONDS)
                 result.statusCode shouldBe 130
-                result.stdout.contains("\"interrupted\":true") shouldBe true
-                result.stdout.contains("\"interruptedTargetId\":3") shouldBe true
-                result.stdout.contains("\"status\":\"SUCCESS\"") shouldBe true
+                assertSoftly(result.stdout) {
+                    shouldContain("\"interrupted\":true")
+                    shouldContain("\"interruptedTargetId\":3")
+                    shouldContain("\"status\":\"SUCCESS\"")
+                }
             } finally {
                 executor.shutdownNow()
                 Files.deleteIfExists(file)
@@ -154,7 +174,7 @@ class CleanupTest :
             val failure = Cleanup(core).testCleanup(listOf("plan", "--duplicates"))
             failure.statusCode shouldBe 1
             failure.stdout shouldBe ""
-            failure.stderr.contains("secret") shouldBe false
+            failure.stderr shouldNotContain "secret"
         }
     })
 

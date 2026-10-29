@@ -2,6 +2,7 @@ package me.pinfort.tsvideos.storage.samba
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldNotContain
@@ -75,12 +76,15 @@ class SambaFailuresTest :
                     failure
             }
 
-            expect("non-jcifs failures propagate unchanged") {
-                val validation = IllegalArgumentException("Unsafe NAS path")
-                val interrupted = InterruptedException()
-                val callback = IllegalStateException("claim lost")
-
-                listOf(validation, interrupted, callback).forEach { failure ->
+            context("non-jcifs failures propagate unchanged") {
+                withData(
+                    mapOf<String, () -> Exception>(
+                        "validation" to { IllegalArgumentException("Unsafe NAS path") },
+                        "interruption" to { InterruptedException() },
+                        "callback" to { IllegalStateException("claim lost") },
+                    ),
+                ) { newFailure ->
+                    val failure = newFailure()
                     shouldThrow<Exception> { sambaOperation("upload") { throw failure } } shouldBeSameInstanceAs failure
                 }
             }

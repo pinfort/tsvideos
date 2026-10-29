@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.storage.samba
 
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
@@ -102,13 +103,29 @@ class NasFileVerifierTest :
             verifier.verify(name, 12).status shouldBe Status.VERIFIED
             verify(exactly = 1) { video.resolve(name) }
         }
-        expect("directories and invalid metadata remain unchecked") {
+        expect("directories remain unchecked") {
             every { videoFile.exists() } returns true
             every { videoFile.isFile } returns false
             verifier.verify("base/path/file.mp4", 12).status shouldBe Status.UNCHECKED
-            listOf("", "../escape", "/absolute", "C:\\local", "smb://host/file", "base/./file.mp4", "base//file.mp4", "base/dir/").forEach {
-                verifier.verify(it, 12).status shouldBe Status.UNCHECKED
+        }
+        context("invalid metadata remains unchecked without opening a store") {
+            withData(
+                nameFn = { (path, bytes) -> "path='$path' bytes=$bytes" },
+                "" to 12L,
+                "../escape" to 12L,
+                "/absolute" to 12L,
+                "C:\\local" to 12L,
+                "smb://host/file" to 12L,
+                "base/./file.mp4" to 12L,
+                "base//file.mp4" to 12L,
+                "base/dir/" to 12L,
+                "base/path/file.mp4" to -1L,
+            ) { (path, bytes) ->
+                verifier.verify(path, bytes).status shouldBe Status.UNCHECKED
+                verify(exactly = 0) {
+                    client.videoStoreNas()
+                    client.originalStoreNas()
+                }
             }
-            verifier.verify("base/path/file.mp4", -1).status shouldBe Status.UNCHECKED
         }
     })

@@ -1,6 +1,7 @@
 package me.pinfort.tsvideos.catalog.persistence
 
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
 
@@ -33,34 +34,26 @@ class CreatedFileDtoTest :
                     )
             }
 
-            expect("status REGISTERED") {
-                val dto =
-                    CreatedFileDto(
-                        id = 1,
-                        splittedFileId = 2,
-                        file = "file.ts",
-                        size = 100,
-                        mime = null,
-                        encoding = null,
-                        status = CreatedFileDto.Status.REGISTERED,
-                    )
+            context("status") {
+                withData(
+                    nameFn = { (dto, domain) -> "$dto -> $domain" },
+                    CreatedFileDto.Status.REGISTERED to CreatedFile.Status.REGISTERED,
+                    CreatedFileDto.Status.ENCODE_SUCCESS to CreatedFile.Status.ENCODE_SUCCESS,
+                    CreatedFileDto.Status.FILE_MOVED to CreatedFile.Status.FILE_MOVED,
+                ) { (dtoStatus, domainStatus) ->
+                    val dto =
+                        CreatedFileDto(
+                            id = 1,
+                            splittedFileId = 2,
+                            file = "file.ts",
+                            size = 100,
+                            mime = null,
+                            encoding = null,
+                            status = dtoStatus,
+                        )
 
-                dto.toDomain().status shouldBe CreatedFile.Status.REGISTERED
-            }
-
-            expect("status FILE_MOVED") {
-                val dto =
-                    CreatedFileDto(
-                        id = 1,
-                        splittedFileId = 2,
-                        file = "file.ts",
-                        size = 100,
-                        mime = null,
-                        encoding = null,
-                        status = CreatedFileDto.Status.FILE_MOVED,
-                    )
-
-                dto.toDomain().status shouldBe CreatedFile.Status.FILE_MOVED
+                    dto.toDomain().status shouldBe domainStatus
+                }
             }
         }
     })

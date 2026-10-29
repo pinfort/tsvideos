@@ -2,7 +2,11 @@ package me.pinfort.tsvideos.manager.console.commands
 
 import com.github.ajalt.clikt.testing.test
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotBeBlank
+import io.kotest.matchers.string.shouldNotContain
 import io.mockk.every
 import io.mockk.mockk
 import me.pinfort.tsvideos.catalog.api.ExecutedFileCommand
@@ -51,7 +55,7 @@ class ReadOutputTest :
             val result = Search(programs, mockk()).testRead("--name x")
             result.statusCode shouldBe 0
             result.stderr shouldBe "1 of 7 programs (limit=1, offset=3)\n"
-            result.stdout.contains("of 7 programs") shouldBe false
+            result.stdout shouldNotContain "of 7 programs"
         }
 
         expect("ID-only search warns on stderr when more programs match than the page holds") {
@@ -156,18 +160,27 @@ class ReadOutputTest :
             Duplicates(duplicates, programs, mockk()).testRead("--ids-only").stdout shouldBe "1\n2\n9\n"
         }
 
-        expect("missing resources and invalid input use stderr with predictable exits") {
-            val programs = mockk<ProgramCommand>()
-            every { programs.findDetail(9) } returns null
-            val missing = Get(programs, mockk(), mockk()).testRead("program 9 --json")
+        fun missingProgram() = mockk<ProgramCommand> { every { findDetail(9) } returns null }
+
+        expect("missing resources use stderr with exit 3") {
+            val missing = Get(missingProgram(), mockk(), mockk()).testRead("program 9 --json")
             missing.statusCode shouldBe 3
             missing.stdout shouldBe ""
-            missing.stderr.isNotBlank() shouldBe true
-            listOf("program nope --json", "program 0 --json", "program -1 --json", "program 9 --json --ids-only").forEach {
-                val invalid = Get(programs, mockk(), mockk()).testRead(it)
+            missing.stderr.shouldNotBeBlank()
+        }
+
+        context("invalid input uses stderr with exit 2") {
+            withData(
+                nameFn = { "args='$it'" },
+                "program nope --json",
+                "program 0 --json",
+                "program -1 --json",
+                "program 9 --json --ids-only",
+            ) {
+                val invalid = Get(missingProgram(), mockk(), mockk()).testRead(it)
                 invalid.statusCode shouldBe 2
                 invalid.stdout shouldBe ""
-                invalid.stderr.isNotBlank() shouldBe true
+                invalid.stderr.shouldNotBeBlank()
             }
         }
 
@@ -177,8 +190,8 @@ class ReadOutputTest :
             val result = Search(programs, mockk()).testRead("--name x --json")
             result.statusCode shouldBe 1
             result.stdout shouldBe ""
-            result.stderr.contains("secret") shouldBe false
-            result.stderr.contains("Unable to read resources") shouldBe true
+            result.stderr shouldNotContain "secret"
+            result.stderr shouldContain "Unable to read resources"
         }
     })
 

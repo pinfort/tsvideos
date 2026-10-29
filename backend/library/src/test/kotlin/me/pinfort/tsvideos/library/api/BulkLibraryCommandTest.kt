@@ -3,9 +3,12 @@ package me.pinfort.tsvideos.library.api
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.datatest.withData
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -354,10 +357,7 @@ class BulkLibraryCommandTest :
             val plan = command.preview(batch)
             val result = command.apply(BulkApplyRequest(batch, plan.targets.associate { it.id to it.fingerprint }))
             result.outcomes.map { it.status } shouldBe listOf(BulkOutcomeStatus.FAILED, BulkOutcomeStatus.SUCCESS)
-            result.outcomes
-                .first()
-                .message
-                .contains("secret") shouldBe false
+            result.outcomes.first().message shouldNotContain "secret"
             verify(exactly = 1) { programs.delete(program.copy(id = 2), false) }
             verify(exactly = 1) { logger.error(match { it.contains("programId=1") }, any<IllegalStateException>()) }
         }
@@ -371,12 +371,11 @@ class BulkLibraryCommandTest :
                 .status shouldBe
                 BulkOutcomeStatus.NOT_FOUND
         }
-        expect("directory labels are re-checked after normalization") {
-            val normalize = mockk<NormalizeComponent>()
-            for (normalized in listOf("a/b", "a\\b", "a#b", "a%b", "a:b", "x.", ".")) {
-                every { normalize.normalize(any<String>()) } returns normalized
+        context("directory labels are re-checked after normalization") {
+            withData(nameFn = { "normalized to '$it'" }, "a/b", "a\\b", "a#b", "a%b", "a:b", "x.", ".") { normalized ->
+                val normalizer = mockk<NormalizeComponent> { every { normalize(any<String>()) } returns normalized }
                 shouldThrow<IllegalArgumentException> {
-                    command(normalize).preview(BulkRequest(listOf(1), BulkAction.MOVE, "valid"))
+                    command(normalizer).preview(BulkRequest(listOf(1), BulkAction.MOVE, "valid"))
                 }
             }
         }
@@ -443,12 +442,14 @@ class BulkLibraryCommandTest :
                 locks.lockCreatedFiles()
             }
         }
-        expect("a file added or renamed after the paths were read is stale: its path was not guarded") {
-            val plan = command.preview(request)
-            for (late in listOf(
-                listOf(file, file.copy(id = 31, file = "base/a/alpha/late.mp4")),
-                listOf(file.copy(file = "base/a/alpha/renamed.mp4")),
-            )) {
+        context("a file added or renamed after the paths were read is stale: its path was not guarded") {
+            withData(
+                mapOf(
+                    "added" to listOf(file, file.copy(id = 31, file = "base/a/alpha/late.mp4")),
+                    "renamed" to listOf(file.copy(file = "base/a/alpha/renamed.mp4")),
+                ),
+            ) { late ->
+                val plan = command.preview(request)
                 // The change commits after the read that chose the guards, and before the target's own read.
                 var committed = false
                 every { rows.created(10) } answers { if (committed) late else listOf(file) }
@@ -458,8 +459,8 @@ class BulkLibraryCommandTest :
                     .outcomes
                     .single()
                     .status shouldBe BulkOutcomeStatus.STALE
+                verify(exactly = 0) { programs.delete(any(), any()) }
             }
-            verify(exactly = 0) { programs.delete(any(), any()) }
         }
         expect("a split added after the splits were read is stale: registrations on it were not held up") {
             val plan = command.preview(request)
@@ -505,7 +506,7 @@ class BulkLibraryCommandTest :
             every { locks.lockCreatedFilePaths(any(), any()) } throws CannotAcquireLockException("Lock wait timeout exceeded")
             val outcome = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))).outcomes.single()
             outcome.status shouldBe BulkOutcomeStatus.FAILED
-            outcome.message.contains("nothing was changed") shouldBe true
+            outcome.message shouldContain "nothing was changed"
             verify(exactly = 0) { programs.delete(any(), any()) }
         }
         expect("a lock failure after mutation started is not reported as harmless") {
@@ -513,15 +514,15 @@ class BulkLibraryCommandTest :
             every { programs.delete(program, any()) } throws CannotAcquireLockException("Lock wait timeout exceeded")
             val outcome = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))).outcomes.single()
             outcome.status shouldBe BulkOutcomeStatus.FAILED
-            outcome.message.contains("nothing was changed") shouldBe false
-            outcome.message.contains("partially") shouldBe true
+            outcome.message shouldNotContain "nothing was changed"
+            outcome.message shouldContain "partially"
         }
         expect("a non-lock failure before mutation says nothing was changed") {
             val plan = command.preview(request)
             every { locks.lockProgramGraph(any()) } throws IllegalStateException("db down")
             val outcome = command.apply(BulkApplyRequest(request, mapOf(1L to plan.targets.single().fingerprint))).outcomes.single()
             outcome.status shouldBe BulkOutcomeStatus.FAILED
-            outcome.message.contains("nothing was changed") shouldBe true
+            outcome.message shouldContain "nothing was changed"
             verify(exactly = 0) { programs.delete(any(), any()) }
         }
         expect("an interrupt stops later targets from starting") {
@@ -533,7 +534,7 @@ class BulkLibraryCommandTest :
             try {
                 val result = command.apply(BulkApplyRequest(batch, plan.targets.associate { it.id to it.fingerprint }))
                 result.outcomes.map { it.status } shouldBe listOf(BulkOutcomeStatus.FAILED, BulkOutcomeStatus.FAILED)
-                result.outcomes[1].message.contains("Interrupted") shouldBe true
+                result.outcomes[1].message shouldContain "Interrupted"
                 verify(exactly = 0) { programs.delete(program.copy(id = 2), any()) }
             } finally {
                 Thread.interrupted()

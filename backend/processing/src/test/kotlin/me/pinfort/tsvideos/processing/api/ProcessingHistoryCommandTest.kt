@@ -5,6 +5,7 @@ import io.kotest.core.extensions.ApplyExtension
 import io.kotest.core.spec.style.ExpectSpec
 import io.kotest.extensions.spring.SpringExtension
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldNotContain
 import io.mockk.mockk
 import me.pinfort.tsvideos.processing.domain.ProcessingArtifact
 import me.pinfort.tsvideos.processing.domain.ProcessingArtifactType
@@ -154,7 +155,7 @@ class ProcessingHistoryCommandTest : ExpectSpec() {
             val history = command().history(job.id).single()
             history.attempt.errorCode shouldBe ProcessingErrorCode.IO_FAILURE
             history.stages.single().errorCode shouldBe ProcessingErrorCode.IO_FAILURE
-            history.toString().contains("supersecret") shouldBe false
+            history.toString() shouldNotContain "supersecret"
         }
         expect("interruptions close the stage and attempt distinctly") {
             val command = command()

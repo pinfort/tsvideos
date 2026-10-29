@@ -2,7 +2,11 @@ package me.pinfort.tsvideos.processor.console
 
 import com.github.ajalt.clikt.testing.test
 import io.kotest.core.spec.style.ExpectSpec
+import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldStartWith
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -50,7 +54,7 @@ class PreflightCommandTest :
             every { diagnostics.diagnose(any(), true) } returns DiagnosticReport(emptyList())
             PreflightCommand(diagnostics).test(listOf("--check-write", "/recording")).statusCode shouldBe 0
             val result = PreflightCommand(diagnostics).test(listOf("--dry-run", "--check-write", "/recording"))
-            (result.statusCode != 0) shouldBe true
+            result.statusCode shouldNotBe 0
             verify(exactly = 1) { diagnostics.diagnose(any(), any()) }
         }
         expect("option detection ignores operands after the -- separator") {
@@ -69,14 +73,12 @@ class PreflightCommandTest :
         // processing module's application-processing.yaml.
         expect("the standalone environment loads the datasource, storage and processing profile defaults") {
             val environment = DiagnosticEnvironment.load(emptyArray())
-            environment.activeProfiles.toList().contains("datasource") shouldBe true
-            environment.activeProfiles.toList().contains("storage") shouldBe true
-            environment.activeProfiles.toList().contains("processing") shouldBe true
-            environment.getProperty("spring.datasource.url")!!.startsWith("jdbc:") shouldBe true
+            environment.activeProfiles.toList() shouldContainAll listOf("datasource", "storage", "processing")
+            environment.getProperty("spring.datasource.url") shouldStartWith "jdbc:"
             environment.getProperty("spring.datasource.hikari.auto-commit") shouldBe "false"
             environment.getProperty("spring.datasource.hikari.maximum-pool-size") shouldBe "10"
-            environment.getProperty("samba.video-store-nas.url")!!.startsWith("smb:") shouldBe true
-            environment.getProperty("samba.original-store-nas.url")!!.startsWith("smb:") shouldBe true
+            environment.getProperty("samba.video-store-nas.url") shouldStartWith "smb:"
+            environment.getProperty("samba.original-store-nas.url") shouldStartWith "smb:"
             environment.getProperty("processor-tool.ffprobe-path") shouldBe (System.getenv("FFPROBE_PATH") ?: "ffprobe")
             environment.getProperty("processor-tool.amatsukaze.port") shouldBe (System.getenv("AMATSUKAZE_PORT") ?: "32768")
             environment.getProperty("processor-preflight.space-multiplier") shouldBe
@@ -127,7 +129,7 @@ class PreflightCommandTest :
                     System.setErr(originalErr)
                 }
             status shouldBe 2
-            out.toString(Charsets.UTF_8).contains("--check-write is only available for explicit non-dry-run preflight") shouldBe true
+            out.toString(Charsets.UTF_8) shouldContain "--check-write is only available for explicit non-dry-run preflight"
         }
         expect("help skips configuration loading and exits 0") {
             PreflightBootstrap.run(arrayOf("preflight", "--help", "--spring.config.location=file:/nonexistent/x.yaml")) shouldBe 0
