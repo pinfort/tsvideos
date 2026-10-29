@@ -9,7 +9,7 @@ NAS (録画の保存先) へのアクセスを提供するモジュール。#132
 
 | パッケージ | 内容 |
 | --- | --- |
-| `me.pinfort.tsvideos.storage.api` (公開) | `NasStore` (保存値と同じ定数名 `VIDEO_STORE_NAS` / `ORIGINAL_STORE_NAS`)、例外 (`NasStorageException` / `NasAccessException` / `NasAuthenticationException`)、`NasComponent` (フォールバック付きの削除・検証付き移動・存在確認と、ストア指定の読み出しハンドル `NasReadHandle`)、`VerifiedUploadNas` (検証付きアップロードの基本操作。ストア明示、フォールバックなし)、`NasFileVerifier` (読み取り専用の存在/サイズ確認。低レベルの `Status`)、`NasPaths` (baseDir を含む保存パスの組み立て)、`DiagnosticNasClient` (doctor/preflight 用の短いタイムアウトの接続。`DiagnosticNasClient.create()` で Spring なしに作れる)、`sha256Hex` / `hex` |
+| `me.pinfort.tsvideos.storage.api` (公開) | `NasStore` (保存値と同じ定数名 `VIDEO_STORE_NAS` / `ORIGINAL_STORE_NAS`)、例外 (`NasStorageException` / `NasAccessException` / `NasAuthenticationException`)、`NasComponent` (フォールバック付きの削除・検証付き移動・存在確認と、ストア指定の読み出しハンドル `NasReadHandle`)、`VerifiedUploadNas` (検証付きアップロードの基本操作。ストア明示、フォールバックなし)、`NasFileVerifier` (読み取り専用の存在/サイズ確認。低レベルの `Status`)、`NasPaths` (baseDir を含む保存パスの組み立て)、`DiagnosticNasClient` (doctor/preflight 用の上限付きタイムアウト (I/O ごとに 15 秒) の接続。`DiagnosticNasClient.create()` で Spring なしに作れる)、`sha256Hex` / `hex` |
 | `me.pinfort.tsvideos.storage.samba` (internal) | Samba (jcifs) 実装、jcifs 例外から storage 例外への変換 (`SambaFailures`)、`samba.*` 設定 (`SambaConfigurationProperties`) とその登録 (`SambaStorageConfiguration`)。トップレベルの宣言はすべて `internal` |
 
 ## 組み立て
@@ -26,7 +26,7 @@ NAS (録画の保存先) へのアクセスを提供するモジュール。#132
 - `NasComponent`: 両ストアのルートを Bean の生成時に作って保持する。`openForRead` だけは呼び出しごとに新しいルートを作り、返したハンドルがそのルートを所有する。
 - `VerifiedUploadNas`: 操作ごとにルートを開き、戻る前に閉じる。
 - `NasFileVerifier`: セッション単位でルートを開き、セッションの終了時に閉じる。
-- `DiagnosticNasClient`: 接続ごとに独立した短いタイムアウトのコンテキストを作り、接続の close で閉じる。
+- `DiagnosticNasClient`: 接続ごとに独立した上限付きタイムアウト (接続・応答・ソケットとも 15 秒) のコンテキストを作り、接続の close で閉じる。
 
 ## 境界チェック
 

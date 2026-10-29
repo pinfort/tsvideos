@@ -16,7 +16,8 @@ import java.io.OutputStream
 import java.util.Properties
 
 /**
- * Short-timeout NAS connection for doctor/preflight, usable without Spring ([DiagnosticNasClient.create]).
+ * Bounded-timeout ([TIMEOUT_MILLIS]) NAS connection for doctor/preflight, usable without Spring
+ * ([DiagnosticNasClient.create]).
  * jcifs types stay internal, and jcifs failures of every operation, handle and stream surface as storage
  * exceptions ([SambaFailures]). Each connection owns its own context and share root.
  */
@@ -32,9 +33,9 @@ internal class SambaDiagnosticNasClient : DiagnosticNasClient {
                 Properties().apply {
                     setProperty("jcifs.smb.client.minVersion", "SMB202")
                     setProperty("jcifs.smb.client.maxVersion", "SMB311")
-                    setProperty("jcifs.smb.client.connTimeout", "3000")
-                    setProperty("jcifs.smb.client.responseTimeout", "3000")
-                    setProperty("jcifs.smb.client.soTimeout", "3000")
+                    setProperty("jcifs.smb.client.connTimeout", TIMEOUT_MILLIS.toString())
+                    setProperty("jcifs.smb.client.responseTimeout", TIMEOUT_MILLIS.toString())
+                    setProperty("jcifs.smb.client.soTimeout", TIMEOUT_MILLIS.toString())
                     setProperty("jcifs.smb.client.maxRequestRetries", "1")
                 }
             val base = BaseContext(PropertyConfiguration(properties))
@@ -53,6 +54,12 @@ internal class SambaDiagnosticNasClient : DiagnosticNasClient {
         }
 
     companion object {
+        /**
+         * Per-I/O connect/response/socket timeout. A cold first connection (NAS waking up, SMB negotiation and
+         * session setup) can exceed a few seconds in any of these phases, so all three share the bound.
+         */
+        const val TIMEOUT_MILLIS = 15_000
+
         /** Wraps an opened share root; [closeContext] runs after the root is closed. */
         fun connection(
             root: SmbResource,

@@ -33,7 +33,7 @@ class NasDiagnosticProbe(
                     DiagnosticCheck(
                         "$id.read",
                         DiagnosticStatus.FAIL,
-                        "Check NAS availability, credentials, base directory and list permissions",
+                        "Check NAS availability, credentials, base directory and list permissions (${failureType(error)})",
                     )
             } else {
                 checks +=
@@ -116,6 +116,23 @@ class NasDiagnosticProbe(
                         )
                 }
             }
+        }
+    }
+
+    // Class names only: messages may carry the share URL or credentials. The root cause names the actual
+    // failure (e.g. a socket timeout) that storage wraps.
+    private fun failureType(error: Throwable): String {
+        var root = error
+        val seen = mutableSetOf<Throwable>(error)
+        while (true) {
+            val cause = root.cause ?: break
+            if (!seen.add(cause)) break
+            root = cause
+        }
+        return if (root === error) {
+            error.javaClass.simpleName
+        } else {
+            "${error.javaClass.simpleName} caused by ${root.javaClass.simpleName}"
         }
     }
 
