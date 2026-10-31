@@ -14,6 +14,8 @@ describe("DuplicatesPage", () => {
     render(await DuplicatesPage());
     expect(screen.getByText("comparison")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "録画一覧へ戻る" })).toHaveAttribute("href", "/");
+    // Hidden groups are fetched too, so they can be listed and restored.
+    expect(getDuplicateReview).toHaveBeenCalledWith(true);
   });
   it("keeps the comparison panel mounted when groups disappear so operation results survive", async () => {
     getDuplicateReview.mockResolvedValue({ groups: [] });
