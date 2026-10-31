@@ -4,7 +4,8 @@ import { DuplicateReviewPanel } from "@/components/duplicate-review-panel";
 export default async function DuplicatesPage() {
   let review;
   try {
-    review = await getDuplicateReview();
+    // Hidden groups are listed separately so they can be restored; the panel keeps them out of deletion.
+    review = await getDuplicateReview(true);
   } catch {
     return (
       <main className="mx-auto max-w-5xl px-6 py-10">
@@ -31,6 +32,10 @@ export default async function DuplicatesPage() {
         <p className="mt-2">
           ファイル一覧は FILE_MOVED
           の登録情報です。実際に利用できるかは未検証です。削除する録画を自分で選び、プレビューで対象を確認してください。
+        </p>
+        <p className="mt-2">
+          意図して残している重複は「意図した重複として非表示」でこの一覧から外せます。非表示はこの画面の表示だけに効き、録画・ファイル・CLI
+          の整理プランには影響しません。
         </p>
       </header>
       <DuplicateReviewPanel groups={review.groups} />

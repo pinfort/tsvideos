@@ -35,7 +35,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref_type != 'tag' }}
             type=sha,enable=${{ github.ref_type != 'tag' }}
             type=match,pattern=backend-(.*),group=1,enable=${{ github.ref_type == 'tag' }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: backend
           push: true
