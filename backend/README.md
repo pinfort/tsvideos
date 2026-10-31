@@ -213,6 +213,8 @@ The same existing keep order is shown explicitly: fewer known drops (unknown is 
 
 Cleanup reuses the bulk preview/apply commands and UI, including exact file/record preview, explicit confirmation, stale fingerprints, shared-path protection, per-target results and preservation of the original local recording. Results survive refresh even if a duplicate group disappears. No automatic cleanup occurs.
 
+A group confirmed as an intentional duplicate can be hidden from the review and restored later (#194). Apply `078_library_duplicate_dismissal.sql` (after 077, idempotent) before deploying a manager build that contains it. Hiding is keyed by reason plus exact member IDs, affects only the review API/page, and does not change `tvmcli duplicates`, cleanup plans or the storage overview. See [duplicate-review.md](docs/duplicate-review.md).
+
 ### Reviewed cleanup plans (`manager:console`, #61)
 
 `cleanup plan` only reads registered metadata. Choose exactly one mode:

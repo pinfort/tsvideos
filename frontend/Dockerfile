@@ -1,15 +1,20 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-alpine AS base
-RUN corepack enable
+FROM node:26-alpine AS base
 WORKDIR /app
 
-FROM base AS deps
+# Node.js 25+ no longer bundles Corepack. Install the pnpm pinned by
+# package.json's packageManager in the build stages only, not the runner.
+FROM base AS pnpm
+COPY package.json ./
+RUN npm install --global "$(node -p "require('./package.json').packageManager.split('+')[0]")"
+
+FROM pnpm AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
-FROM base AS builder
+FROM pnpm AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
