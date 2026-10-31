@@ -30,6 +30,8 @@ import me.pinfort.tsvideos.library.domain.BulkRequest
 import me.pinfort.tsvideos.library.domain.BulkResult
 import me.pinfort.tsvideos.library.domain.CleanupCriteria
 import me.pinfort.tsvideos.library.domain.CleanupMode
+import me.pinfort.tsvideos.library.domain.DuplicateGroup
+import me.pinfort.tsvideos.library.domain.DuplicateGroupIdentity
 import me.pinfort.tsvideos.storage.api.NasComponent
 import me.pinfort.tsvideos.storage.api.NasStore
 import org.mybatis.spring.boot.test.autoconfigure.MybatisTest
@@ -90,6 +92,8 @@ class CleanupPlanApplyTest : ExpectSpec() {
     @Autowired private lateinit var inventory: ProgramInventory
 
     @Autowired private lateinit var cleanup: CleanupPlanCommand
+
+    @Autowired private lateinit var duplicateReview: DuplicateReviewCommand
 
     @Autowired private lateinit var bulkCommand: BulkLibraryCommand
 
@@ -170,6 +174,17 @@ class CleanupPlanApplyTest : ExpectSpec() {
             verify { nas wasNot Called }
             command.apply(plan).outcomes.map { it.status } shouldBe listOf(BulkOutcomeStatus.SUCCESS, BulkOutcomeStatus.SUCCESS)
             inventory.allIds() shouldBe listOf(1L)
+        }
+        expect("a group hidden from the web review is still a cleanup candidate") {
+            seed()
+            sql("DELETE FROM library_duplicate_dismissal")
+            try {
+                duplicateReview.hide(DuplicateGroupIdentity(DuplicateGroup.Reason.SAME_BROADCAST, listOf(2, 1)))
+                duplicateReview.review(includeHidden = false).groups shouldBe emptyList()
+                cleanup.plan(CleanupCriteria(CleanupMode.DUPLICATES)).targets.map { it.id } shouldBe listOf(2L)
+            } finally {
+                sql("DELETE FROM library_duplicate_dismissal")
+            }
         }
         expect("changed kept copy, target, or group invalidates reviewed plan") {
             for (change in listOf(
