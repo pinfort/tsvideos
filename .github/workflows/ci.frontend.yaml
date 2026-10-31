@@ -48,9 +48,10 @@ jobs:
           tags: tsvideos-frontend:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      # No backend runs here, so any HTTP status proves the server started.
+      # No backend runs here, but the home page renders its unavailable-backend
+      # state, so an HTTP error or a hung request means the image is broken.
       - name: smoke test image
         run: |
           docker run --detach --name frontend --publish 3000:3000 tsvideos-frontend:ci
-          curl --silent --show-error --output /dev/null --retry 15 --retry-delay 2 --retry-all-errors http://localhost:3000/ \
+          curl --fail --silent --show-error --output /dev/null --max-time 10 --retry 15 --retry-delay 2 --retry-max-time 60 --retry-all-errors http://localhost:3000/ \
             || { docker logs frontend; exit 1; }
