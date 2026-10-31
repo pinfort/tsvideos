@@ -1,6 +1,10 @@
 "use client";
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { BulkPrograms } from "./bulk-programs";
+import { Button } from "@/components/ui/button";
+import { setDuplicateGroupHidden } from "@/lib/api/duplicate-dismissals";
 import type { DuplicateReviewGroup, KeepCriterion } from "@/lib/api/duplicates";
 import { programStatusToJapanese } from "@/lib/api/status-labels";
 
@@ -16,24 +20,90 @@ function formatDuration(seconds: number) {
   return seconds <= 0 ? "不明" : `${Math.round(seconds)} 秒`;
 }
 
+function reasonLabel(group: DuplicateReviewGroup) {
+  return group.reason === "SAME_BROADCAST" ? "同じ放送" : "録画時間が重複";
+}
+function memberIds(group: DuplicateReviewGroup) {
+  return group.members.map(({ program }) => program.id).sort((a, b) => a - b);
+}
+// Groups never share programs, so reason plus members names a group even when its recommendation changes.
+function groupKey(group: DuplicateReviewGroup) {
+  return `${group.reason}:${memberIds(group).join(",")}`;
+}
+function memberLabel(group: DuplicateReviewGroup) {
+  return memberIds(group)
+    .map((id) => `#${id}`)
+    .join(", ");
+}
+
 export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[] }) {
-  const programs = groups.flatMap((group) => group.members.map((member) => member.program));
-  return (
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const visible = groups.filter((group) => !group.hidden);
+  const hidden = groups.filter((group) => group.hidden);
+  // Hidden groups are not offered for deletion, and BulkPrograms drops their members from the selection.
+  const programs = visible.flatMap((group) => group.members.map((member) => member.program));
+
+  async function setHidden(group: DuplicateReviewGroup, hide: boolean) {
+    setPending(true);
+    setNotice("");
+    setError("");
+    try {
+      const result = await setDuplicateGroupHidden({
+        reason: group.reason,
+        programIds: memberIds(group),
+        hidden: hide,
+      });
+      if (result.ok) {
+        setNotice(
+          hide
+            ? `グループ（${memberLabel(group)}）を意図した重複として非表示にしました。`
+            : `グループ（${memberLabel(group)}）を再表示しました。`,
+        );
+        router.refresh();
+      } else {
+        setError(result.error ?? "更新できませんでした。");
+      }
+    } catch (cause) {
+      console.error("Duplicate group visibility update failed", cause);
+      setError("更新できませんでした。接続を確認してください。");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const review = (
     <BulkPrograms
       programs={programs}
       deleteOnly
       renderPrograms={(selected, onSelect) => (
         <div className="space-y-8">
-          {groups.length === 0 && <p>重複録画の候補はありません。</p>}
-          {groups.map((group) => (
+          {visible.length === 0 && <p>重複録画の候補はありません。</p>}
+          {visible.length === 0 && hidden.length > 0 && (
+            <p>非表示にしたグループが {hidden.length} 件あります。</p>
+          )}
+          {visible.map((group) => (
             <section
-              key={group.recommendedId}
+              key={groupKey(group)}
               className="rounded-lg border p-4"
               aria-label={`重複グループ ${group.recommendedId}`}
             >
-              <h2 className="text-xl font-semibold">
-                {group.reason === "SAME_BROADCAST" ? "同じ放送" : "録画時間が重複"}
-              </h2>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <h2 className="text-xl font-semibold">{reasonLabel(group)}</h2>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() => setHidden(group, true)}
+                >
+                  意図した重複として非表示
+                </Button>
+              </div>
+              <p className="mt-1 text-sm">
+                非表示にしても録画とファイルは削除されません。録画が増減してグループの構成が変わると、再びここに表示されます。
+              </p>
               <p className="mt-2">
                 保持を推薦：#{group.recommendedId}。次候補 #
                 {group.recommendation.comparedWithProgramId} との決め手は「
@@ -172,5 +242,55 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
         </div>
       )}
     />
+  );
+  return (
+    <div className="space-y-8">
+      {/* Live regions stay mounted so screen readers announce the text change. */}
+      <p role="status">{pending ? "更新中…" : notice}</p>
+      {error && <p role="alert">{error}</p>}
+      {review}
+      {hidden.length > 0 && (
+        <section aria-label="非表示にした重複グループ" className="rounded-lg border p-4">
+          <details>
+            <summary className="cursor-pointer font-semibold">
+              非表示にした重複グループ（{hidden.length} 件）
+            </summary>
+            <p className="mt-2 text-sm">
+              意図した重複として確認済みのグループです。削除対象には選べません。再表示すると上の一覧に戻ります。
+            </p>
+            <ul className="mt-2 space-y-3">
+              {hidden.map((group) => (
+                <li
+                  key={groupKey(group)}
+                  aria-label={`非表示の重複グループ ${memberLabel(group)}`}
+                  className="border-t pt-3"
+                >
+                  <p className="font-semibold">{reasonLabel(group)}</p>
+                  <ul className="text-sm">
+                    {group.members.map(({ program }) => (
+                      <li key={program.id}>
+                        <Link className="underline" href={`/programs/${program.id}`}>
+                          {program.name}
+                        </Link>{" "}
+                        #{program.id} / {program.channelName} / {program.recordedAt}
+                      </li>
+                    ))}
+                  </ul>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-2"
+                    disabled={pending}
+                    onClick={() => setHidden(group, false)}
+                  >
+                    再表示する
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </section>
+      )}
+    </div>
   );
 }
