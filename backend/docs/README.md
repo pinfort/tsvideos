@@ -14,6 +14,7 @@ backend の機能別の運用・設計ドキュメント。マイグレーショ
 | [video-chapters.md](video-chapters.md) | processor / manager | mp4 の埋め込みチャプタの取得タイミング・保存形式・未取得と 0 件の区別・API と `tvpcli chapters backfill` の手順 |
 | [graceful-shutdown.md](graceful-shutdown.md) | processor | 停止シグナル受信時の協調的な中断、猶予時間 (`PROCESSOR_SHUTDOWN_GRACE_SECONDS`) と中断後の状態 |
 | [bulk-library.md](bulk-library.md) | manager | 一括削除・移動 (プレビュー → 適用) の仕様 |
+| [duplicate-review.md](duplicate-review.md) | manager | 重複レビューで意図した重複を非表示にする機能: マイグレーション、グループの同一性、API、CLI・整理プラン・保存領域の概要への影響 |
 | [library-health.md](library-health.md) | manager | `/health` ダッシュボード、明示的な NAS 検証の実行・保存と、RUNNING のまま残った実行の復旧 |
 
 リポジトリ全体に関わる文書は [../../docs/](../../docs/README.md) に置く。

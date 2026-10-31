@@ -117,8 +117,9 @@ class CleanupPlanCommand(
         when (criteria.mode) {
             CleanupMode.DUPLICATES -> {
                 // DuplicateProgramCommand groups by channel, so every member shares the first member's channel.
+                // Groups hidden from the web review stay candidates: hiding is a review-only label, not a keep policy.
                 val review =
-                    duplicates.review().groups.filter {
+                    duplicates.review(includeHidden = true).groups.filter {
                         criteria.channel == null ||
                             it.members
                                 .first()
