@@ -19,7 +19,7 @@ kotest-runner-junit5 = { group = "io.kotest", name = "kotest-runner-junit5", ver
 kotest-assertions-core = { group = "io.kotest", name = "kotest-assertions-core", version.ref = "kotest" }
 kotest-extensions-spring = { group = "io.kotest", name = "kotest-extensions-spring", version.ref = "kotest" }
 mockk = { group = "io.mockk", name = "mockk", version = "1.14.9" }
-springmockk = { group = "com.ninja-squad", name = "springmockk", version = "4.0.2" }
+springmockk = { group = "com.ninja-squad", name = "springmockk", version = "5.0.1" }
 
 testcontainers-core = { group = "org.testcontainers", name = "testcontainers", version.ref = "testcontainers" }
 testcontainers-junit5 = { group = "org.testcontainers", name = "testcontainers-junit-jupiter", version.ref = "testcontainers" }
