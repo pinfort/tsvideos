@@ -147,5 +147,42 @@ class DuplicateReviewControllerTest : DescribeSpec() {
                 .andExpect(jsonPath("$.groups[0].members[1].availableFiles").isEmpty)
                 .andExpect(jsonPath("$.groups[0].hidden").value(false))
         }
+
+        it("serializes a hidden group with its reason and members when hidden groups are asked for") {
+            fun member(id: Long) =
+                DuplicateReviewMember(
+                    Program(id, "p$id", id, Program.Status.COMPLETED, 0, 100, LocalDateTime.of(2026, 1, 1, 0, 0), "ch", "t", "CH", 60.0),
+                    emptyList(),
+                )
+            every { command.review(true) } returns
+                DuplicateReview(
+                    listOf(
+                        DuplicateReviewGroup(
+                            DuplicateGroup.Reason.OVERLAP,
+                            1,
+                            DuplicateRecommendation(
+                                DuplicateKeepCriterion.entries,
+                                DuplicateKeepCriterion.ID,
+                                2,
+                                0,
+                                Program.Status.COMPLETED,
+                                60.0,
+                                100,
+                                1,
+                            ),
+                            listOf(member(1), member(2)),
+                            hidden = true,
+                        ),
+                    ),
+                )
+            mockMvc
+                .perform(get("/api/v1/programs/duplicates?includeHidden=true"))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.groups[0].hidden").value(true))
+                .andExpect(jsonPath("$.groups[0].reason").value("OVERLAP"))
+                .andExpect(jsonPath("$.groups[0].members[0].program.id").value(1))
+                .andExpect(jsonPath("$.groups[0].members[1].program.id").value(2))
+            verify(exactly = 1) { command.review(true) }
+        }
     }
 }

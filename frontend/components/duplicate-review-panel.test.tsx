@@ -177,7 +177,7 @@ describe("DuplicateReviewPanel", () => {
     const user = userEvent.setup();
     const reordered = { ...group, members: [...group.members].reverse() };
     render(<DuplicateReviewPanel groups={[reordered]} />);
-    await user.click(screen.getByRole("button", { name: "意図した重複として非表示" }));
+    await user.click(screen.getByRole("button", { name: "意図した重複として非表示（#1, #2）" }));
     expect(setDuplicateGroupHidden).toHaveBeenCalledWith({
       reason: "SAME_BROADCAST",
       programIds: [1, 2],
@@ -196,7 +196,7 @@ describe("DuplicateReviewPanel", () => {
       error: "重複グループの内容が変わりました。再読み込みして確認してください。",
     });
     render(<DuplicateReviewPanel groups={[group]} />);
-    const button = screen.getByRole("button", { name: "意図した重複として非表示" });
+    const button = screen.getByRole("button", { name: "意図した重複として非表示（#1, #2）" });
     await user.click(button);
     expect(await screen.findByRole("alert")).toHaveTextContent("内容が変わりました");
     expect(refresh).not.toHaveBeenCalled();
@@ -212,7 +212,7 @@ describe("DuplicateReviewPanel", () => {
     let resolve: (value: { ok: boolean }) => void = () => {};
     setDuplicateGroupHidden.mockReturnValueOnce(new Promise((r) => (resolve = r)));
     render(<DuplicateReviewPanel groups={[group]} />);
-    const button = screen.getByRole("button", { name: "意図した重複として非表示" });
+    const button = screen.getByRole("button", { name: "意図した重複として非表示（#1, #2）" });
     await user.click(button);
     expect(button).toBeDisabled();
     expect(screen.getByText("更新中…")).toBeInTheDocument();
@@ -227,7 +227,7 @@ describe("DuplicateReviewPanel", () => {
     expect(screen.queryByLabelText("削除対象に選択 #1")).not.toBeInTheDocument();
     expect(screen.getByText("非表示にした重複グループ（1 件）")).toBeInTheDocument();
     expect(screen.getByLabelText("非表示の重複グループ #1, #2")).toHaveTextContent("番組2");
-    await user.click(screen.getByRole("button", { name: "再表示する" }));
+    await user.click(screen.getByRole("button", { name: "再表示する（#1, #2）" }));
     expect(setDuplicateGroupHidden).toHaveBeenCalledWith({
       reason: "SAME_BROADCAST",
       programIds: [1, 2],
@@ -235,6 +235,42 @@ describe("DuplicateReviewPanel", () => {
     });
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
     expect(screen.getByText(/を再表示しました/)).toBeInTheDocument();
+  });
+  it("names each visibility button after its group while keeping the visible label", async () => {
+    const user = userEvent.setup();
+    const withMembers = (ids: number[], hidden: boolean): DuplicateReviewGroup => ({
+      ...group,
+      recommendedId: ids[0],
+      hidden,
+      members: ids.map((id) => ({
+        program: { ...programs[0], id, executedFileId: id, name: `番組${id}` },
+        availableFiles: [],
+      })),
+    });
+    render(
+      <DuplicateReviewPanel
+        groups={[
+          withMembers([1, 2], false),
+          withMembers([3, 4], false),
+          withMembers([5, 6], true),
+          withMembers([7, 8], true),
+        ]}
+      />,
+    );
+    const hide = screen.getByRole("button", { name: "意図した重複として非表示（#3, #4）" });
+    expect(hide).toHaveTextContent(/^意図した重複として非表示$/);
+    expect(screen.getByRole("button", { name: "意図した重複として非表示（#1, #2）" })).not.toBe(hide);
+    await user.click(screen.getByText("非表示にした重複グループ（2 件）"));
+    const restore = screen.getByRole("button", { name: "再表示する（#7, #8）" });
+    expect(restore).toHaveTextContent(/^再表示する$/);
+    expect(screen.getByRole("button", { name: "再表示する（#5, #6）" })).not.toBe(restore);
+    await user.click(restore);
+    expect(setDuplicateGroupHidden).toHaveBeenCalledWith({
+      reason: "SAME_BROADCAST",
+      programIds: [7, 8],
+      hidden: false,
+    });
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
   });
   it("drops a hidden group's members from the deletion selection, also after it is restored", async () => {
     const user = userEvent.setup();

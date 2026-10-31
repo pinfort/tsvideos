@@ -41,7 +41,8 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const visible = groups.filter((group) => !group.hidden);
+  const status = pending ? "更新中…" : notice;
+  const visible =groups.filter((group) => !group.hidden);
   const hidden = groups.filter((group) => group.hidden);
   // Hidden groups are not offered for deletion, and BulkPrograms drops their members from the selection.
   const programs = visible.flatMap((group) => group.members.map((member) => member.program));
@@ -96,6 +97,7 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                   type="button"
                   variant="outline"
                   disabled={pending}
+                  aria-label={`意図した重複として非表示（${memberLabel(group)}）`}
                   onClick={() => setHidden(group, true)}
                 >
                   意図した重複として非表示
@@ -245,8 +247,10 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
   );
   return (
     <div className="space-y-8">
-      {/* Live regions stay mounted so screen readers announce the text change. */}
-      <p role="status">{pending ? "更新中…" : notice}</p>
+      {/* Live regions stay mounted so screen readers announce the text change; sr-only takes the empty one out of the layout. */}
+      <p role="status" className={status ? undefined : "sr-only"}>
+        {status}
+      </p>
       {error && <p role="alert">{error}</p>}
       {review}
       {hidden.length > 0 && (
@@ -281,6 +285,7 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                     variant="outline"
                     className="mt-2"
                     disabled={pending}
+                    aria-label={`再表示する（${memberLabel(group)}）`}
                     onClick={() => setHidden(group, false)}
                   >
                     再表示する
