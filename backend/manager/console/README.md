@@ -59,6 +59,10 @@ NAS 上の実際の整合性チェックではない。
 削除候補のリストではない。`get executed_file --ids-only` は不正である。
 executed-file の ID は program の ID ではないため。
 
+`duplicates` と `cleanup plan --duplicates` は、Web の重複レビューで「意図した重複」として
+非表示にしたグループも除かずに扱う (非表示はレビューの表示だけに効く。
+[duplicate-review.md](../../docs/duplicate-review.md))。
+
 | 終了コード | 意味 |
 | --- | --- |
 | 0 | 成功。search/duplicates の結果が空 (空の配列、または ID 行なし) の場合も含む |
