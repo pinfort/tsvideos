@@ -28,7 +28,7 @@ dependencies {
     implementation("tools.jackson.core:jackson-databind")
     implementation(libs.mybatis.spring.boot)
     // ドロップ検査 (TsSelectClient) が JVM 内で TS を解析する
-    implementation("me.pinfort:tsselect:1.0.0")
+    implementation("me.pinfort:tsselect:1.1.0")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(module = "mockito-core") // Kotestを使う
