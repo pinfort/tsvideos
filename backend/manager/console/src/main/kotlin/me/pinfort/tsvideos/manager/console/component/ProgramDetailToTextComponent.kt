@@ -43,6 +43,7 @@ class ProgramDetailToTextComponent {
             listOf(
                 ExecutedFileTag.EWS to "緊急警報放送",
                 ExecutedFileTag.SUPERIMPOSE to "文字スーパー",
+                ExecutedFileTag.CAPTION to "字幕",
             )
     }
 }

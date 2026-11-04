@@ -6,7 +6,6 @@ import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.api.SplittedFileCommand
 import me.pinfort.tsvideos.catalog.domain.CreatedFile
 import me.pinfort.tsvideos.catalog.domain.ExecutedFile
-import me.pinfort.tsvideos.catalog.domain.ExecutedFileCheck
 import me.pinfort.tsvideos.catalog.domain.SplittedFile
 import me.pinfort.tsvideos.processing.api.CompressComponent
 import me.pinfort.tsvideos.processing.api.MainSplittedFileFinderComponent
@@ -41,7 +40,7 @@ import java.io.File
 import kotlin.math.ceil
 
 /**
- * DropCheck(tsselect + 緊急警報放送/文字スーパー検出) -> TsSplitter -> CompressAndSave -> AmatsukazeAddTask の4段パイプライン。
+ * DropCheck(tsselect + 緊急警報放送/文字スーパー/字幕検出) -> TsSplitter -> CompressAndSave -> AmatsukazeAddTask の4段パイプライン。
  * 登録・分割・圧縮段階の失敗は逆順にロールバックする。アップロード開始後は復旧用の記録とローカルデータを保持する。
  */
 @Component
@@ -78,8 +77,9 @@ internal class FileProcessingPipeline(
         val fileName: FileName,
         val drops: Int,
         val duration: Double,
-        // null when emergency broadcast detection failed: the recording is left "not checked"
-        val emergencyTags: Set<String>?,
+        // Tags per detector (ExecutedFileCheck) from the single TS scan; null when the scan failed, leaving every
+        // detector of that scan (emergency broadcast and caption) "not checked"
+        val detectedTags: Map<String, Set<String>>?,
     )
 
     // Either a terminal result decided by the pre-claim guards, or the job this invocation now owns.
@@ -116,7 +116,7 @@ internal class FileProcessingPipeline(
             }
             logger.info(
                 "Dry run: checked file=$file, drops=${inspection.drops}, duration=${inspection.duration}, " +
-                    "tags=${inspection.emergencyTags}; " +
+                    "tags=${inspection.detectedTags}; " +
                     "would register, split, compress, upload and submit encoding",
             )
             return Result.DRY_RUN
@@ -300,7 +300,7 @@ internal class FileProcessingPipeline(
         }
     }
 
-    // Read-only checks (drop-frame count, emergency broadcast detection, duration) shared by
+    // Read-only checks (drop-frame count, emergency broadcast/caption detection, duration) shared by
     // normal processing and dry-run, before any rollback is needed.
     private fun inspect(
         file: File,
@@ -318,28 +318,28 @@ internal class FileProcessingPipeline(
         }
         val fileName = FileName.fromFileNameString(file.name)
         val drops = tsSelectClient.check(file, onProgress)
-        val emergencyTags = detectEmergencyBroadcast(file, onEmergencyCheckProgress)
+        val detectedTags = detectTsData(file, onEmergencyCheckProgress)
         val duration = durationProbeClient.probe(file)
-        return RecordingInspection(fileName, drops, duration, emergencyTags)
+        return RecordingInspection(fileName, drops, duration, detectedTags)
     }
 
     // Detection is supplementary, so a failure must not stop processing: log it and return null so
-    // the check is not recorded and the recording shows as "not checked".
-    private fun detectEmergencyBroadcast(
+    // no check is recorded and the recording shows as "not checked".
+    private fun detectTsData(
         file: File,
         onProgress: (bytesProcessed: Long, totalBytes: Long) -> Unit,
-    ): Set<String>? {
-        val emergency =
+    ): Map<String, Set<String>>? {
+        val detected =
             try {
                 emergencyBroadcastDetector.detect(file, onProgress)
             } catch (e: Exception) {
-                logger.warn("Emergency broadcast detection failed, leave it unchecked, file=$file", e)
+                logger.warn("Emergency broadcast and caption detection failed, leave it unchecked, file=$file", e)
                 return null
             }
-        if (emergency.ewsDetected || emergency.superimposeDetected) {
-            logger.warn("Emergency broadcast detected, file=$file, result=$emergency")
+        if (detected.ewsDetected || detected.superimposeDetected) {
+            logger.warn("Emergency broadcast detected, file=$file, result=$detected")
         }
-        return emergency.tags()
+        return detected.tagsByCheck()
     }
 
     // Stage 1: register the inspected recording as executed_file + program.
@@ -365,21 +365,23 @@ internal class FileProcessingPipeline(
             executedFileCommand.delete(executedFile)
             throw e
         }
-        inspection.emergencyTags?.let { recordEmergencyCheck(executedFile, it) }
+        inspection.detectedTags?.forEach { (checker, tags) -> recordDetectorCheck(executedFile, checker, tags) }
 
         return executedFile
     }
 
     // Like detection itself, saving its result is supplementary: if it fails (e.g. the tag tables have
-    // not been created yet), keep the registration and leave the recording "not checked".
-    private fun recordEmergencyCheck(
+    // not been created yet), keep the registration and leave that detector "not checked". Each detector is
+    // saved on its own, so one failed save does not discard the other's result.
+    private fun recordDetectorCheck(
         executedFile: ExecutedFile,
+        checker: String,
         tags: Set<String>,
     ) {
         try {
-            executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, tags)
+            executedFileTagCommand.recordCheck(executedFile.id, checker, tags)
         } catch (e: Exception) {
-            logger.warn("Recording emergency broadcast tags failed, leave it unchecked, executedFile=$executedFile", e)
+            logger.warn("Recording detector tags failed, leave it unchecked, checker=$checker, executedFile=$executedFile", e)
         }
     }
 

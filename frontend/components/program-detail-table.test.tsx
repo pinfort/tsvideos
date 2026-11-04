@@ -31,5 +31,17 @@ describe("ProgramDetailTable", () => {
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(screen.getByText("緊急警報放送").nextElementSibling).toHaveTextContent("あり");
     expect(screen.getByText("文字スーパー").nextElementSibling).toHaveTextContent("なし");
+    expect(screen.getByText("字幕").nextElementSibling).toHaveTextContent("未検査");
+  });
+
+  it("shows the caption result once the caption check ran", () => {
+    render(
+      <ProgramDetailTable
+        program={{ ...detail, tags: ["caption"], checks: ["emergency_broadcast", "caption"] }}
+      />,
+    );
+
+    expect(screen.getByText("字幕").nextElementSibling).toHaveTextContent("あり");
+    expect(screen.getByText("緊急警報放送").nextElementSibling).toHaveTextContent("なし");
   });
 });

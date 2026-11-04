@@ -57,6 +57,28 @@ class ExecutedFileTagCommandTest :
                 verify { executedFileCheckMapper.upsert(1, ExecutedFileCheck.EMERGENCY_BROADCAST, any()) }
             }
 
+            expect("the caption check replaces only the caption tag") {
+                every { executedFileTagMapper.deleteByExecutedFileIdAndTags(any(), any()) } returns 0
+                every { executedFileTagMapper.insert(any(), any()) } returns 1
+                every { executedFileCheckMapper.upsert(any(), any(), any()) } returns 1
+
+                executedFileTagCommand.recordCheck(1, ExecutedFileCheck.CAPTION, setOf(ExecutedFileTag.CAPTION))
+
+                verifyOrder {
+                    executedFileTagMapper.deleteByExecutedFileIdAndTags(1, setOf(ExecutedFileTag.CAPTION))
+                    executedFileTagMapper.insert(1, ExecutedFileTag.CAPTION)
+                    executedFileCheckMapper.upsert(1, ExecutedFileCheck.CAPTION, any())
+                }
+            }
+
+            expect("rejects emergency broadcast tags recorded by the caption check") {
+                shouldThrow<IllegalArgumentException> {
+                    executedFileTagCommand.recordCheck(1, ExecutedFileCheck.CAPTION, setOf(ExecutedFileTag.SUPERIMPOSE))
+                }
+
+                verify(exactly = 0) { executedFileCheckMapper.upsert(any(), any(), any()) }
+            }
+
             expect("dryRun writes nothing") {
                 executedFileTagCommand.recordCheck(1, ExecutedFileCheck.EMERGENCY_BROADCAST, setOf(ExecutedFileTag.EWS), dryRun = true)
 

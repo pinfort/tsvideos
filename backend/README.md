@@ -9,7 +9,7 @@ This is the backend for tsvideos, built with Kotlin, Spring Boot, and Gradle.
 - `catalog`: 録画・番組・分割ファイル・作成ファイルの台帳と検出タグ/実施記録。公開操作 (`me.pinfort.tsvideos.catalog.api` / `domain`) と internal の Mapper・DTO。`storage` にだけ依存する（[catalog/README.md](catalog/README.md)）
 - `library`: ライブラリ管理のうち、番組検索 (手動コレクション/タグの絞り込み)、統計、保存領域の概要、手動コレクション/タグ、重複検出/重複レビュー、一括操作、クリーンアップ、健全性・検証。公開操作 (`me.pinfort.tsvideos.library.api` / `domain`) と internal の Mapper。`catalog` と `storage` にだけ依存する（[library/README.md](library/README.md)）
 - `diagnostics`: DB/NAS の環境診断 (`EnvironmentDiagnosticCommand` など) と診断結果 (`DiagnosticReport`)。Spring コンテキストなしで組み立てられ、`doctor` / `preflight` が使う。`storage` にだけ依存する（[diagnostics/README.md](diagnostics/README.md)）
-- `processing`: 録画処理。pipeline (`process` / `after-encode` / `reset` の入口 `PathProcessingRunner` / `AfterEncodeRunner` / `ResetRunner`)、ジョブ所有権、処理履歴、録画品質、再試行、中断、検証付きアップロード (`VerifiedUploadCommand`)、preflight、外部ツール (TsSplitter・Amatsukaze・ffprobe・tsselect)/shell、TS 解析 (緊急警報放送・文字スーパー検出)、Slack 通知、処理補助と `processor-tool.*` / `processor-preflight.*` 設定 (`application-processing.yaml`)。公開操作 (`me.pinfort.tsvideos.processing.api` / `domain`) と internal の Mapper・pipeline 内部・TS 検出・Slack。`catalog`・`storage`・`diagnostics` にだけ依存する（[processing/README.md](processing/README.md)）
+- `processing`: 録画処理。pipeline (`process` / `after-encode` / `reset` の入口 `PathProcessingRunner` / `AfterEncodeRunner` / `ResetRunner`)、ジョブ所有権、処理履歴、録画品質、再試行、中断、検証付きアップロード (`VerifiedUploadCommand`)、preflight、外部ツール (TsSplitter・Amatsukaze・ffprobe・tsselect)/shell、TS 解析 (緊急警報放送・文字スーパー・字幕検出)、Slack 通知、処理補助と `processor-tool.*` / `processor-preflight.*` 設定 (`application-processing.yaml`)。公開操作 (`me.pinfort.tsvideos.processing.api` / `domain`) と internal の Mapper・pipeline 内部・TS 検出・Slack。`catalog`・`storage`・`diagnostics` にだけ依存する（[processing/README.md](processing/README.md)）
 - `console-common`: 両 CLI が共有する Clikt/端末入出力の部品と `--version` の情報 (`ApplicationVersion` と、ビルド時に生成する `version.properties`)
 - `manager:console` / `manager:api`: 処理済みの録画データを管理するためのツール（`manager:api` が Web API）
 - `processor:console`: 録画データを処理して管理ツールで管理できる状態にするためのアプリケーション (CLI `tvpcli`)。処理の本体は `processing` にある (#166 で旧 `processor:infrastructure` を統合した)
@@ -94,29 +94,36 @@ SELECT RTRIM(file), COUNT(*) FROM created_file GROUP BY RTRIM(file) HAVING COUNT
 
 `after-encode` はロールバックを行いません。NAS へのアップロードやローカルファイルの削除が済んだ後に失敗を巻き戻すことはできないため、失敗時はログと Slack 通知（`SLACK_WEBHOOK_URL`）を行い、番組を `ERROR` にします。
 
-### 緊急警報放送・文字スーパーの検出とタグ
+### 緊急警報放送・文字スーパー・字幕の検出とタグ
 
 `process` はドロップチェックの直後に録画ファイルをもう一度読み、次のものを検出して録画にタグとして付けます。
 
-| タグ (`executed_file_tag.tag`) | 内容 |
-| --- | --- |
-| `ews` | 緊急警報放送 — PMT の緊急情報記述子 (tag 0xFC) に開始/継続中のエントリがある |
-| `superimpose` | 文字スーパー — PMT 上の文字スーパー ES (component_tag 0x38〜0x3F) に文字を含む本文が流れている（画面消去だけのデータは数えない） |
+| タグ (`executed_file_tag.tag`) | 検出処理 (`executed_file_check.checker`) | 内容 |
+| --- | --- | --- |
+| `ews` | `emergency_broadcast` | 緊急警報放送 — PMT の緊急情報記述子 (tag 0xFC) に開始/継続中のエントリがある |
+| `superimpose` | `emergency_broadcast` | 文字スーパー — PMT 上の文字スーパー ES (stream_type 0x06、component_tag 0x38〜0x3F) に文字を含む本文が流れている（画面消去だけのデータは数えない） |
+| `caption` | `caption` | 字幕 — PMT 上の字幕 ES (stream_type 0x06、component_tag 0x30〜0x37) に文字を含む本文が流れている |
 
-検出対象は分割前の元ファイルに含まれる全サービスです。録画対象の `service_id` は現在の入力情報に含まれず、PAT の先頭サービスを録画対象とみなすこともできないため、サービスの絞り込みは行いません。全サービス録画では、視聴対象以外のサービスに関する緊急情報記述子や文字スーパーでもタグが付くことがあります。タグは視聴対象サービスでの表示を保証するものではありません。
+字幕と文字スーパーは同じ ARIB STD-B24 の字幕 PES 解析で判定し、PMT の component_tag で区別します（字幕の ES に文字があっても `superimpose` は付かず、その逆も同様です）。どちらも、PMT に ES が宣言されているだけの場合、字幕管理データ（data_group_id の下位 4 ビットが 0）しか流れていない場合、本文が画面消去などの制御符号だけの場合は「なし」とします。
 
-両方を検出した場合だけ早期終了します。通常の「検出なし」の録画ではファイル全体を追加で 1 回読むため、ドロップチェックと合わせて 2 回の走査になります。特に NAS 上の大きな録画では I/O と処理時間が増えます。走査の統合と PES バッファのコピー削減は別途対応します。
+検出対象は分割前の元ファイルに含まれる全サービスです。録画対象の `service_id` は現在の入力情報に含まれず、PAT の先頭サービスを録画対象とみなすこともできないため、サービスの絞り込みは行いません。全サービス録画では、視聴対象以外のサービスに関する緊急情報記述子・文字スーパー・字幕でもタグが付くことがあります。タグは視聴対象サービスでの表示を保証するものではありません。
 
-EOF 時点で未完成の PES は破棄します。長さ 0 の PES は次の開始パケットまで確定しないため、末尾のその PES だけに文字がある場合は検出できません。回帰テストは合成 TS を使用しています。実録画では、EWS・文字スーパーを含まない NHK の録画 2 本（9.7GB）で誤検出しないこと、および同じ解析処理で字幕の本文が正しく読めることを確認済みですが、EWS・文字スーパーを含む実録画による検証はまだです。
+緊急警報放送・文字スーパー・字幕をすべて検出した場合だけ早期終了します（緊急警報放送と文字スーパーが先に揃っても、字幕を探して読み続けます）。通常の「検出なし」の録画ではファイル全体を追加で 1 回読むため、ドロップチェックと合わせて 2 回の走査になります。特に NAS 上の大きな録画では I/O と処理時間が増えます。走査の統合と PES バッファのコピー削減は別途対応します。
+
+EOF 時点で未完成の PES は破棄します。長さ 0 の PES は次の開始パケットまで確定しないため、末尾のその PES だけに文字がある場合は検出できません。回帰テストは合成 TS を使用しています。実録画では、EWS・文字スーパーを含まない NHK の録画 2 本（9.7GB）で誤検出しないこと、および同じ解析処理で字幕の本文が正しく読めることを確認済みですが、EWS・文字スーパーを含む実録画による検証、および `caption` タグの検出経路（PMT の字幕 ES 判定を含む）を実録画で通した検証はまだです。
 
 タグは録画全体に対して付きます。録画中に一度でも条件を満たせば（数秒だけの緊急警報放送でも）タグが付き、どの時間帯だったかは記録しません。
 
-あわせて、検出処理を実行したこと自体を `executed_file_check`（`checker = 'emergency_broadcast'`）に記録します。タグが無い録画が「検出なし」なのか「未検査」（検出機能の導入前に登録された録画）なのかは、このチェックの有無で区別します。`tvmcli get` とフロントエンドの番組詳細には「あり / なし / 未検査」で表示されます。
+あわせて、検出処理を実行したこと自体を `executed_file_check`（`checker = 'emergency_broadcast'` と `checker = 'caption'`）に記録します。タグが無い録画が「検出なし」なのか「未検査」（検出機能の導入前に登録された録画）なのかは、このチェックの有無で区別します。字幕は緊急警報放送と同じ 1 回の走査で検出しますが、字幕検出の導入前に `emergency_broadcast` だけ記録された録画を「字幕なし」と扱わないよう、別の検出処理 `caption` として記録します。`tvmcli get` とフロントエンドの番組詳細には「あり / なし / 未検査」で表示されます。
 
 「未検査」になるのは次の場合です。
 
-- 検出機能の導入前に登録された録画。既存の録画を後から検査する CLI はまだ無いため、これらは未検査のまま残ります。
-- 検出処理が失敗した録画（TS として読めないなど）、または検出結果の保存に失敗した録画。検出は付加情報なので、どちらの場合も warn ログを出して録画の処理自体は続行します。
+- 検出機能の導入前に登録された録画。字幕検出の導入前に登録された録画は、緊急警報放送・文字スーパーが「なし / あり」でも字幕は未検査です。既存の録画を後から検査する CLI はまだ無いため、これらは未検査のまま残ります。
+- 検出処理が失敗した録画（TS として読めないなど）。走査は 1 回なので、緊急警報放送・文字スーパー・字幕のすべてが未検査になります。
+- 検出結果の保存に失敗した録画。保存は検出処理ごとに行うので、失敗した検出処理だけが未検査になります。検出は付加情報なので、失敗した場合も warn ログを出して録画の処理自体は続行します。
+- ドライラン。検出は実行してログに出しますが、タグもチェックも記録しません。
+
+字幕・文字スーパーの検出タグは、運用者が手動で付ける手動タグ（`library_tag`）とは別物です（[library-organization.md](docs/library-organization.md)）。検出タグで番組一覧を絞り込む API・画面はまだありません。
 
 放送局が映像に焼き込んだテロップ（多くのニュース速報・地震速報）は TS のデータとしては存在しないため、検出できません。
 
