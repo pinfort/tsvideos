@@ -38,5 +38,19 @@ class ProgramDetailTest :
             expect("null when the check never ran") {
                 programDetail.detected(ExecutedFileTag.EWS) shouldBe null
             }
+
+            expect("caption is not checked when only the emergency broadcast check ran") {
+                programDetail
+                    .copy(checks = listOf(ExecutedFileCheck.EMERGENCY_BROADCAST))
+                    .detected(ExecutedFileTag.CAPTION) shouldBe null
+            }
+
+            expect("caption is detected or not according to the caption check") {
+                val checked = programDetail.copy(checks = listOf(ExecutedFileCheck.EMERGENCY_BROADCAST, ExecutedFileCheck.CAPTION))
+
+                checked.detected(ExecutedFileTag.CAPTION) shouldBe false
+                checked.copy(tags = listOf(ExecutedFileTag.CAPTION)).detected(ExecutedFileTag.CAPTION) shouldBe true
+                checked.copy(tags = listOf(ExecutedFileTag.CAPTION)).detected(ExecutedFileTag.SUPERIMPOSE) shouldBe false
+            }
         }
     })

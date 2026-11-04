@@ -103,7 +103,7 @@ class FileProcessingPipelineTest :
             tsSelectClient = mockk()
             emergencyBroadcastDetector = mockk()
             every { emergencyBroadcastDetector.detect(any(), any()) } returns
-                EmergencyBroadcastDetector.Result(ewsDetected = false, superimposeDetected = false)
+                EmergencyBroadcastDetector.Result(ewsDetected = false, superimposeDetected = false, captionDetected = false)
             tsSplitterClient = mockk()
             amatsukazeAddTaskClient = mockk()
             durationProbeClient = mockk()
@@ -358,7 +358,7 @@ class FileProcessingPipelineTest :
                 every { programCommand.findByName(original.name) } returns null
                 every { tsSelectClient.check(any(), any()) } returns 0
                 every { emergencyBroadcastDetector.detect(original, any()) } returns
-                    EmergencyBroadcastDetector.Result(ewsDetected = true, superimposeDetected = false)
+                    EmergencyBroadcastDetector.Result(ewsDetected = true, superimposeDetected = false, captionDetected = true)
                 every { durationProbeClient.probe(any(), any()) } returns 100.0
                 every {
                     executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
@@ -410,12 +410,18 @@ class FileProcessingPipelineTest :
                     history.finish(44, ProcessingOutcome.COMPLETED, null)
                 }
                 verify { amatsukazeAddTaskClient.addTask(any(), any(), "30fps_light") }
-                // the emergency broadcast detection result is recorded as tags, along with the check itself
+                // each detector of the TS scan records its tags, along with the check itself
                 verify {
                     executedFileTagCommand.recordCheck(
                         executedFile.id,
                         ExecutedFileCheck.EMERGENCY_BROADCAST,
                         setOf(ExecutedFileTag.EWS),
+                        false,
+                    )
+                    executedFileTagCommand.recordCheck(
+                        executedFile.id,
+                        ExecutedFileCheck.CAPTION,
+                        setOf(ExecutedFileTag.CAPTION),
                         false,
                     )
                 }
@@ -636,7 +642,51 @@ class FileProcessingPipelineTest :
 
                 e.message shouldBe "ts split failed"
                 verify { executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.EMERGENCY_BROADCAST, any(), any()) }
+                verify { executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.CAPTION, any(), any()) }
                 verify { tsSplitterClient.split(any(), any(), any()) }
+            }
+
+            expect("still records the caption check when saving the emergency broadcast check fails") {
+                val original = newOriginalFile()
+                val executedFile = executedFileFixture(original)
+
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { emergencyBroadcastDetector.detect(original, any()) } returns
+                    EmergencyBroadcastDetector.Result(ewsDetected = true, superimposeDetected = false, captionDetected = false)
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+                every {
+                    executedFileCommand.insert(any(), any(), any(), any(), any(), any(), any(), any(), any())
+                } returns executedFile
+                every { programCommand.insert(any(), any(), any()) } returns mockk()
+                every {
+                    executedFileTagCommand.recordCheck(any(), ExecutedFileCheck.EMERGENCY_BROADCAST, any(), any())
+                } throws RuntimeException("deadlock")
+                // stop at the next stage; reaching it shows the registration stage did not fail
+                every { tsSplitterClient.split(any(), any(), any()) } throws TsVideosException("ts split failed")
+                every { splittedFileCommand.selectByExecutedFileId(executedFile.id) } returns emptyList()
+                every { programCommand.deleteByExecutedFileId(any(), any()) } just Runs
+                every { executedFileCommand.delete(any(), any()) } just Runs
+
+                val e = shouldThrow<TsVideosException> { fileProcessingPipeline.processFile(original) }
+
+                e.message shouldBe "ts split failed"
+                // a caption scan that found nothing is recorded as checked, so it reads "なし" rather than "未検査"
+                verify { executedFileTagCommand.recordCheck(executedFile.id, ExecutedFileCheck.CAPTION, emptySet(), false) }
+                verify { tsSplitterClient.split(any(), any(), any()) }
+            }
+
+            expect("dry run records no detector check") {
+                val original = newOriginalFile()
+                every { programCommand.findByName(original.name) } returns null
+                every { tsSelectClient.check(any(), any()) } returns 0
+                every { emergencyBroadcastDetector.detect(original, any()) } returns
+                    EmergencyBroadcastDetector.Result(ewsDetected = false, superimposeDetected = false, captionDetected = true)
+                every { durationProbeClient.probe(any(), any()) } returns 100.0
+
+                fileProcessingPipeline.processFile(original, dryRun = true) shouldBe FileProcessingPipeline.Result.DRY_RUN
+
+                verify(exactly = 0) { executedFileTagCommand.recordCheck(any(), any(), any(), any()) }
             }
 
             expect("dry run does not fail") {

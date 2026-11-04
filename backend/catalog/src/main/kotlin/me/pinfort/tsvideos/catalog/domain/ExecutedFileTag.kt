@@ -14,11 +14,15 @@ object ExecutedFileTag {
     /** 文字スーパー */
     const val SUPERIMPOSE = "superimpose"
 
+    /** 字幕 (番組と同期して表示される ARIB 字幕。文字スーパーとは別) */
+    const val CAPTION = "caption"
+
     /** 各タグを付ける検出処理 */
     val CHECKERS: Map<String, String> =
         mapOf(
             EWS to ExecutedFileCheck.EMERGENCY_BROADCAST,
             SUPERIMPOSE to ExecutedFileCheck.EMERGENCY_BROADCAST,
+            CAPTION to ExecutedFileCheck.CAPTION,
         )
 }
 
@@ -26,4 +30,10 @@ object ExecutedFileTag {
 object ExecutedFileCheck {
     /** 緊急警報放送・文字スーパーの検出 */
     const val EMERGENCY_BROADCAST = "emergency_broadcast"
+
+    /**
+     * 字幕の検出。[EMERGENCY_BROADCAST] と同じ走査で実行するが、字幕検出の導入前に
+     * [EMERGENCY_BROADCAST] だけ記録された録画を「字幕なし」と扱わないよう別の検出処理として記録する。
+     */
+    const val CAPTION = "caption"
 }

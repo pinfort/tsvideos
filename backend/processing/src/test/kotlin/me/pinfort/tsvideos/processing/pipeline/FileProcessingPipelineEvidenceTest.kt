@@ -169,7 +169,7 @@ class FileProcessingPipelineEvidenceTest : ExpectSpec() {
         val tsSelect = mockk<TsSelectClient>()
         every { tsSelect.check(any(), any()) } returns 0
         val emergency = mockk<EmergencyBroadcastDetector>()
-        every { emergency.detect(any(), any()) } returns EmergencyBroadcastDetector.Result(ewsDetected = false, superimposeDetected = false)
+        every { emergency.detect(any(), any()) } returns EmergencyBroadcastDetector.Result(false, false, false)
         val duration = mockk<DurationProbeClient>()
         every { duration.probe(any(), any()) } returns 100.0
         val splitter = mockk<TsSplitterClient>()

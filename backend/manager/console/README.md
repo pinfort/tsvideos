@@ -38,8 +38,8 @@ program のフィールド: `id`、`executedFileId`、`drops`、`size` は整数
 NAS 上の実際の整合性チェックではない。
 
 `tags` は、録画に付いた検出タグ (`ews`、
-`superimpose`) の文字列配列で、`checks` は、その録画に対して実行された検出器
-(`emergency_broadcast`) の文字列配列である。`tags` にないタグが「検出されなかった」ことを意味するのは、
+`superimpose`、`caption`) の文字列配列で、`checks` は、その録画に対して実行された検出器
+(`emergency_broadcast`、`caption`) の文字列配列である。`tags` にないタグが「検出されなかった」ことを意味するのは、
 その検出器が `checks` に含まれている場合のみで、そうでなければその録画は一度もチェックされていない。
 
 `createdFiles` は、整数の `id`、`splittedFileId`、`size`

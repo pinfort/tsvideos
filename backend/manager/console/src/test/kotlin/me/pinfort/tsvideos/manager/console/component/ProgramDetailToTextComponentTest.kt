@@ -57,6 +57,7 @@ class ProgramDetailToTextComponentTest :
                     放送時間: 1m
                     緊急警報放送: あり
                     文字スーパー: なし
+                    字幕: 未検査
                     ファイル: 1件
                     id	mime	name	resolution
                     1	mime	file	1920x1080
@@ -77,6 +78,16 @@ class ProgramDetailToTextComponentTest :
 
                 actual.lines() shouldContain "緊急警報放送: 未検査"
                 actual.lines() shouldContain "文字スーパー: 未検査"
+                actual.lines() shouldContain "字幕: 未検査"
+            }
+
+            expect("shows the caption result once the caption check ran") {
+                val checks = listOf(ExecutedFileCheck.EMERGENCY_BROADCAST, ExecutedFileCheck.CAPTION)
+
+                programDetailToTextComponent.convertConsole(programDetail.copy(checks = checks)).lines() shouldContain "字幕: なし"
+                programDetailToTextComponent
+                    .convertConsole(programDetail.copy(tags = listOf(ExecutedFileTag.CAPTION), checks = checks))
+                    .lines() shouldContain "字幕: あり"
             }
         }
     })

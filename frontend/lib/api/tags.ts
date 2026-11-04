@@ -1,9 +1,10 @@
 import type { ProgramDetail } from "./types";
 
-// Mirrors ExecutedFileTag / ExecutedFileCheck in the backend's core module.
+// Mirrors ExecutedFileTag / ExecutedFileCheck in the backend's catalog module.
 export const KNOWN_TAGS = [
   { tag: "ews", label: "緊急警報放送", checker: "emergency_broadcast" },
   { tag: "superimpose", label: "文字スーパー", checker: "emergency_broadcast" },
+  { tag: "caption", label: "字幕", checker: "caption" },
 ] as const;
 
 export type KnownTag = (typeof KNOWN_TAGS)[number];

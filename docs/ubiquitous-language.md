@@ -27,7 +27,7 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | 用語 | 英語 / コード上の名前 | 意味 |
 | --- | --- | --- |
 | パイプライン | `FileProcessingPipeline` | ドロップチェック → TsSplitter → 圧縮 + NAS アップロード → Amatsukaze タスク追加 の 4 段階。失敗時は当該段階と以前の段階を逆順にロールバックする |
-| ドロップチェック | - | パイプライン最初の段階。ドロップ数を数え、緊急警報放送・文字スーパーも検出する |
+| ドロップチェック | - | パイプライン最初の段階。ドロップ数を数え、緊急警報放送・文字スーパー・字幕も検出する |
 | 分割 | split | TsSplitter で録画を番組本編などに分けること |
 | エンコード | encode | Amatsukaze で TS を mp4 などに変換すること |
 | エンコード後処理 | `AfterEncodeRunner` (`after-encode`) | Amatsukaze のエンコード完了後に、作成ファイルの登録・NAS への保管・ローカルファイルの削除・番組の完了を行う。ロールバックしない |
@@ -69,7 +69,8 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | 検出なし | `detected(tag) == false` | 検出処理を実行済みで、タグが付かなかった状態 |
 | 未検査 | `detected(tag) == null` | 検出処理を実行していない状態 (導入前に登録した録画など) |
 | 緊急警報放送 | `ews` | EWS。緊急警報放送を検出したときに付くタグ |
-| 文字スーパー | `superimpose` | ARIB 字幕データの文字スーパーを検出したときに付くタグ |
+| 文字スーパー | `superimpose` | ARIB 字幕データの文字スーパー (番組と非同期に表示する文字。component_tag 0x38〜0x3F) を検出したときに付くタグ |
+| 字幕 | `caption` | ARIB 字幕 (番組と同期して表示する字幕。component_tag 0x30〜0x37) の本文を検出したときに付くタグ。チェック `caption` が記録された録画だけ「字幕なし」と言え、`emergency_broadcast` だけ記録された録画は字幕について未検査 |
 | コレクション | `LibraryKind.COLLECTION` (`library_collection`) | 運用者が手動で番組をまとめる入れ物。番組 (`program`) に関連付ける |
 | 手動タグ | `LibraryKind.TAG` (`library_tag`) | 運用者が手動で番組に付ける名前。検出処理のタグ (`executed_file_tag`) とは別物で、名前・ID を共有しない。API では `libraryTagId` / `library-tags` |
 

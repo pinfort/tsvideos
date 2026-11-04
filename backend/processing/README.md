@@ -24,7 +24,7 @@ processing にないもの:
 | `me.pinfort.tsvideos.processing.domain` (公開) | ジョブ (`ProcessingJob`、`ProcessingIdentity`)、履歴 (`ProcessingHistory.kt` の `ProcessingAttempt`、`ProcessingStageEvent`、`ProcessingStatus`、`ProcessingErrorCode` など)、品質 (`RecordingQuality.kt` の `QualityAction`、`RecordingQualityPolicy`、`RecordingQualityEvaluator` など、`RecordingQualityReport`)、アップロード (`UploadManifest`、`VerifiedUploadReceipt`)、`FileName`、例外 (`TsVideosException`、`InvalidFileNameException`、`InvalidEnvironmentException`、`ShellCommandTimeoutException`、`QualityReleaseRefusedException`) |
 | `me.pinfort.tsvideos.processing.pipeline` (internal) | 4 段の `FileProcessingPipeline` (ドロップ検査 → TsSplitter → 圧縮 + 検証付きアップロード → Amatsukaze 投入。アップロード開始前の段階だけを逆順にロールバックする) と `RollbackRunner` |
 | `me.pinfort.tsvideos.processing.external.tsselect` (internal) | `TsSelectClient` (`me.pinfort:tsselect` の tsdump モードで JVM 内でドロップ数を数える) |
-| `me.pinfort.tsvideos.processing.external.ts` (internal) | `EmergencyBroadcastDetector` (PAT/PMT と文字スーパー PES を解析し、catalog の検出タグ `EWS` / `SUPERIMPOSE` を返す)、`AribCaptionData`、`TsUtil` (`Crc32Mpeg2`) |
+| `me.pinfort.tsvideos.processing.external.ts` (internal) | `EmergencyBroadcastDetector` (PAT/PMT と字幕・文字スーパー PES を 1 回の走査で解析し、catalog の検出処理 `EMERGENCY_BROADCAST` (タグ `EWS` / `SUPERIMPOSE`) と `CAPTION` (タグ `CAPTION`) ごとのタグを返す)、`AribCaptionData`、`TsUtil` (`Crc32Mpeg2`) |
 | `me.pinfort.tsvideos.processing.external.slack` (internal) | `SlackClient` (`SLACK_WEBHOOK_URL`。未設定なら通知しない) |
 | `me.pinfort.tsvideos.processing.persistence` (internal) | MyBatis の Mapper (`ProcessingJobMapper`、`ProcessingHistoryMapper`、`RecordingQualityMapper`、`UploadManifestMapper`) と `GeneratedKeyHolder` (catalog・library と同じく module 内の複製)。トップレベルの宣言はすべて `internal` (または `private`) |
 

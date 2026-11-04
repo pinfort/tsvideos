@@ -201,7 +201,7 @@ sequenceDiagram
   CLI->>CLI: preflight の事前ゲート (Spring なし)
   CLI->>Pipe: PathProcessingRunner が .m2ts ごとに processFile
   Pipe->>DB: 処理ジョブを claim (CLAIMED)
-  Pipe->>Pipe: INSPECT: tsselect でドロップ数、緊急警報放送/文字スーパー検出、ffprobe で再生時間
+  Pipe->>Pipe: INSPECT: tsselect でドロップ数、緊急警報放送/文字スーパー/字幕検出、ffprobe で再生時間
   opt 録画品質ルールが有効
     Pipe->>DB: 品質判定を記録
     break 判定が QUARANTINE
