@@ -35,7 +35,7 @@ DB や NAS の接続先を変える場合は、以下の環境変数で上書き
 
 - `./gradlew build` - 全モジュールをビルド
 - `./gradlew test` - テストを実行（テストは Testcontainers で MariaDB を起動するため Docker が必要）
-- `./gradlew ktlintCheck` - Kotlin のコードスタイルチェック
+- `./gradlew ktlintCheck` - Kotlin のコードスタイルチェック（ktlint の実行用クラスパスは Spring の依存管理から切り離し、ktlint 自身が求める Kotlin コンパイラの版で解決する。ルートの `build.gradle.kts` を参照）
 - `./gradlew storage:checkStorageBoundaries` - storage の境界チェック（`check` / `build` にも含まれる）
 - `./gradlew database-schema:checkDatabaseSchemaBoundaries` - database-schema の境界・migration 順序・compose マウントのチェック（`check` / `build` にも含まれる）
 - `./gradlew catalog:checkCatalogBoundaries` - catalog の境界チェック（依存先、他モジュールからの internal パッケージの参照。`check` / `build` にも含まれる）
