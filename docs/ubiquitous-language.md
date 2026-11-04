@@ -81,6 +81,7 @@ backend と frontend の両方、さらに `processor` と `manager` をまた�
 | 同一放送 | `SAME_BROADCAST` | 同一チャンネル・同一開始時刻 |
 | 時間帯重複 | `OVERLAP` | 同一チャンネルで録画時間帯が重なっている |
 | 重複レビュー | `DuplicateReview` (`/api/v1/programs/duplicates`, `/duplicates`) | 重複番組を並べて比較し、残す候補の理由を示す読み取り専用ビュー。削除は選んだ番組だけを一括操作の流れで行い、自動では整理しない |
+| 意図した重複 / 非表示 | `hidden` (`library_duplicate_dismissal`、`/api/v1/programs/duplicates/hide`, `/restore`) | 運用者が確認して残すと決めた重複番組のまとまり。検出理由と番組の集合で識別し、重複レビューの既定の一覧から外す。再表示でき、メンバーや理由が変わると再びレビューに出る。検出・整理プラン・ストレージ概要には影響しない |
 | 推薦の決め手 | `decisiveCriterion` (`DuplicateKeepCriterion`) | 残す候補が 2 番目の番組より先に並んだ最初の基準。基準の順序はドロップ数 → 状態 → 再生時間 → 録画サイズ → id |
 | ストレージ概要 | `StorageOverview` (`/api/v1/storage`, `/storage`) | 登録メタデータから見た容量・大きい録画・重複の整理候補の読み取り専用ビュー。ファイルは検査も削除もしない |
 | 登録メタデータ容量 | `registeredBytes` | `created_file.size` に登録された値の合計。NAS 上の実在や現在のサイズは保証しない。未検証の物理使用量は `null` (不明) で、0 とは区別する |

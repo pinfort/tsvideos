@@ -85,6 +85,22 @@ it("sends the directory for move preview and clears selection when the page scop
   rerender(<BulkPrograms key="page2" programs={programs} />);
   expect(screen.getByLabelText("録画 1 を選択")).not.toBeChecked();
 });
+it("does not reselect a program that left the list and came back, and keeps the remaining selection", async () => {
+  const user = userEvent.setup();
+  const { rerender } = render(<BulkPrograms programs={programs} />);
+  await user.click(screen.getByLabelText("録画 1 を選択"));
+  await user.click(screen.getByLabelText("録画 2 を選択"));
+  expect(screen.getByText("2件選択中")).toBeInTheDocument();
+  rerender(<BulkPrograms programs={[programs[1]]} />);
+  expect(screen.queryByLabelText("録画 1 を選択")).not.toBeInTheDocument();
+  expect(screen.getByText("1件選択中")).toBeInTheDocument();
+  rerender(<BulkPrograms programs={programs} />);
+  expect(screen.getByLabelText("録画 1 を選択")).not.toBeChecked();
+  expect(screen.getByLabelText("録画 2 を選択")).toBeChecked();
+  expect(screen.getByText("1件選択中")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
+  expect(previewBulk).toHaveBeenCalledWith({ ids: [2], action: "DELETE" });
+});
 it("blocks repeat confirmation while pending and warns when result is unknown", async () => {
   const user = userEvent.setup();
   let reject!: (reason: Error) => void;
