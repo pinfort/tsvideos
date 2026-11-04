@@ -66,6 +66,13 @@ export function BulkPrograms({
   const currentSelected = selected.filter((id) =>
     programs.some((p) => p.id === id),
   );
+  const programIds = programs.map((p) => p.id).join(",");
+  const [selectionScope, setSelectionScope] = useState(programIds);
+  if (selectionScope !== programIds) {
+    // Forget programs that left the page (e.g. a hidden duplicate group) so they do not return still selected.
+    setSelectionScope(programIds);
+    setSelected(currentSelected);
+  }
 
   async function preview() {
     setPending(true);
