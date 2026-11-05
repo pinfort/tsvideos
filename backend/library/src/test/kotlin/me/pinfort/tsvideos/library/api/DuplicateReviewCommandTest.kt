@@ -234,6 +234,39 @@ class DuplicateReviewCommandTest : ExpectSpec() {
             dismissalRows() shouldBe 0
             visibleIds() shouldBe listOf(listOf(1L, 2L, 3L, 9L))
         }
+        expect("a rebroadcast candidate is reviewed with its comparison title, hides, restores and reappears on member change") {
+            sql(
+                listOf(
+                    "INSERT INTO executed_file VALUES " +
+                        "(1,'a',0,100,'2026-01-01 00:00:00','ch','番組 #1[新]','ch',1800,'SPLITTED')," +
+                        "(2,'b',0,100,'2026-04-01 00:00:00','ch','番組 #1[再]','ch',1801,'SPLITTED')",
+                    "INSERT INTO program VALUES (1,'a',1,'COMPLETED'),(2,'b',2,'COMPLETED')",
+                ),
+            )
+            val group = command().review(includeHidden = false).groups.single()
+            group.reason shouldBe DuplicateGroup.Reason.REBROADCAST
+            group.comparisonTitle shouldBe "番組 #1"
+            val identity = DuplicateGroupIdentity(DuplicateGroup.Reason.REBROADCAST, listOf(2, 1))
+            // The reason is part of the identity.
+            shouldThrow<StaleDuplicateGroupException> { command().hide(same(1, 2)) }
+            command().hide(identity)
+            visibleIds() shouldBe emptyList()
+            command()
+                .review(includeHidden = true)
+                .groups
+                .single()
+                .hidden shouldBe true
+            command().restore(identity)
+            visibleIds() shouldBe listOf(listOf(1L, 2L))
+            command().hide(identity)
+            sql(
+                listOf(
+                    "INSERT INTO executed_file VALUES (3,'c',0,100,'2026-07-01 00:00:00','ch','番組 #1','ch',1802,'SPLITTED')",
+                    "INSERT INTO program VALUES (3,'c',3,'COMPLETED')",
+                ),
+            )
+            visibleIds() shouldBe listOf(listOf(1L, 2L, 3L))
+        }
         expect("hiding changes no recording or file") {
             seed()
             sql(

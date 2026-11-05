@@ -277,3 +277,27 @@ it("keeps Tab inside the confirmation and returns focus to preview after a faile
   );
   await waitFor(() => expect(preview).toHaveFocus());
 });
+it("uses caller operations instead of the generic endpoints, honours their block and renders their details", async () => {
+  const user = userEvent.setup();
+  const operations = {
+    preview: vi.fn().mockResolvedValue(plan),
+    apply: vi.fn().mockResolvedValue({ outcomes: [{ id: 1, status: "SUCCESS", message: "done" }] }),
+    blocked: (ids: number[]) => (ids.length === 2 ? "両方は選べません" : null),
+    details: () => <p>追加の確認事項</p>,
+  };
+  render(<BulkPrograms programs={programs} operations={operations} />);
+  expect(screen.queryByLabelText("操作")).not.toBeInTheDocument();
+  const preview = screen.getByRole("button", { name: "対象をプレビュー" });
+  await user.click(screen.getByLabelText("録画 1 を選択"));
+  await user.click(screen.getByLabelText("録画 2 を選択"));
+  expect(screen.getByText("両方は選べません")).toBeInTheDocument();
+  expect(preview).toBeDisabled();
+  await user.click(screen.getByLabelText("録画 2 を選択"));
+  await user.click(preview);
+  expect(operations.preview).toHaveBeenCalledWith([1]);
+  expect(await screen.findByText("追加の確認事項")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "確認して削除を実行" }));
+  await waitFor(() => expect(operations.apply).toHaveBeenCalledWith(plan));
+  expect(previewBulk).not.toHaveBeenCalled();
+  expect(applyBulk).not.toHaveBeenCalled();
+});

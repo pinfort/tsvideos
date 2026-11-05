@@ -30,6 +30,8 @@ dependencies {
     testImplementation(libs.kotest.extensions.spring)
     testImplementation(libs.mockk)
     testImplementation(libs.mybatis.spring.test)
+    // 再放送候補の fixture と、任意の外部データ検証 (RebroadcastDataValidationTest) で tvmcli search --json を読む
+    testImplementation("tools.jackson.core:jackson-databind")
     // Testcontainers の初期化スクリプト ddl/01_create_database.sql とシードデータ (database-schema)
     testImplementation(testFixtures(project(":database-schema")))
 
@@ -53,6 +55,8 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // RebroadcastDataValidationTest は外部データのディレクトリが指定されたときだけ動く。指定の変更でテストを再実行させる
+    inputs.property("rebroadcastData", providers.environmentVariable("TSVIDEOS_REBROADCAST_DATA").orElse(""))
 }
 
 /**

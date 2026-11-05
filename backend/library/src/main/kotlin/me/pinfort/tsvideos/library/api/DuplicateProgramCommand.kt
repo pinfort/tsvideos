@@ -46,6 +46,7 @@ class DuplicateProgramCommand(
     }
 
     // 全件をメモリに載せて判定する。program が数万件規模である前提
+    // minOverlapRatio は同一放送・重複の判定だけに使う。再放送候補 (RebroadcastMatcher) の長さの条件は別の固定値
     fun detect(minOverlapRatio: Double = DEFAULT_MIN_OVERLAP_RATIO): List<DuplicateGroup> =
         group(programs.recordedPrograms(), minOverlapRatio)
 
@@ -102,20 +103,35 @@ class DuplicateProgramCommand(
                 }
             }
 
-        return targets.indices
-            .groupBy { find(it) }
-            .values
-            .filter { it.size > 1 }
-            .map { indices ->
-                val members = indices.map { targets[it] }
-                val reason =
-                    if (members.all { it.recordedAt == members.first().recordedAt }) {
-                        DuplicateGroup.Reason.SAME_BROADCAST
-                    } else {
-                        DuplicateGroup.Reason.OVERLAP
-                    }
-                DuplicateGroup(reason, members.sortedWith(keepOrder))
-            }.sortedBy { group -> group.programs.minOf { it.recordedAt } }
+        val broadcasts =
+            targets.indices
+                .groupBy { find(it) }
+                .values
+                .filter { it.size > 1 }
+                .map { indices ->
+                    val members = indices.map { targets[it] }
+                    val reason =
+                        if (members.all { it.recordedAt == members.first().recordedAt }) {
+                            DuplicateGroup.Reason.SAME_BROADCAST
+                        } else {
+                            DuplicateGroup.Reason.OVERLAP
+                        }
+                    DuplicateGroup(reason, members.sortedWith(keepOrder))
+                }.sortedBy { group -> group.programs.minOf { it.recordedAt } }
+
+        // Second stage (#208): the groups above are final; their members never join a rebroadcast group, so every
+        // program belongs to at most one group. A same-broadcast pair A/B with a rebroadcast C therefore yields A/B only.
+        val grouped = broadcasts.flatMap { group -> group.programs.map { it.id } }.toSet()
+        val rebroadcasts =
+            RebroadcastMatcher
+                .groups(targets.filter { it.id !in grouped })
+                .map { (key, members) -> DuplicateGroup(DuplicateGroup.Reason.REBROADCAST, members.sortedWith(keepOrder), key.display) }
+                .sortedWith(
+                    compareBy<DuplicateGroup> { group -> group.programs.minOf { it.recordedAt } }
+                        .thenBy { group -> group.programs.minOf { it.id } },
+                )
+        // Stable sort: same-broadcast/overlap groups keep their previous relative order.
+        return (broadcasts + rebroadcasts).sortedBy { group -> group.programs.minOf { it.recordedAt } }
     }
 
     // b が a 以降に始まる前提で、重なりの長さを長い方の録画の長さで割る

@@ -23,6 +23,19 @@ import {
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
 
+/**
+ * Replaces the generic bulk preview/apply endpoints (e.g. the duplicate review's guarded deletion). Method syntax on
+ * purpose: a caller's operations on a richer plan type are accepted, and `apply` receives the plan its own `preview`
+ * returned. `blocked` disables the preview with a reason; the server still enforces its own checks. `details` renders
+ * extra plan content in the confirmation dialog.
+ */
+export type BulkOperations<P extends BulkPlan = BulkPlan> = {
+  preview(ids: number[]): Promise<P>;
+  apply(plan: P): Promise<{ outcomes: BulkOutcome[] }>;
+  blocked?(ids: number[]): string | null;
+  details?(plan: P): ReactNode;
+};
+
 const outcomeLabels = {
   SUCCESS: "成功",
   FAILED: "失敗",
@@ -35,12 +48,13 @@ const outcomeLabels = {
  *
  * `renderPrograms` replaces the default table with a caller-owned selection UI; it receives the
  * current in-page selection and must call `onSelect` to change it. `deleteOnly` hides the action
- * picker so only DELETE can be previewed.
+ * picker so only DELETE can be previewed. `operations` (DELETE only) replaces the generic endpoints.
  */
 export function BulkPrograms({
   programs,
   renderPrograms,
   deleteOnly = false,
+  operations,
 }: {
   programs: Program[];
   renderPrograms?: (
@@ -48,6 +62,7 @@ export function BulkPrograms({
     onSelect: (id: number, checked: boolean) => void,
   ) => ReactNode;
   deleteOnly?: boolean;
+  operations?: BulkOperations;
 }) {
   const router = useRouter();
   const previewButton = useRef<HTMLButtonElement>(null);
@@ -55,7 +70,7 @@ export function BulkPrograms({
   const [selected, setSelected] = useState<number[]>([]);
   const [selectedAction, setAction] = useState<"DELETE" | "MOVE">("DELETE");
   // deleteOnly callers hide the picker; derive the action so MOVE can never be sent from them.
-  const action = deleteOnly ? "DELETE" : selectedAction;
+  const action = deleteOnly || operations ? "DELETE" : selectedAction;
   const [directory, setDirectory] = useState("");
   // The plan outlives the dialog so its content stays rendered during the close animation.
   const [plan, setPlan] = useState<BulkPlan | null>(null);
@@ -68,6 +83,7 @@ export function BulkPrograms({
   );
   const programIds = programs.map((p) => p.id).join(",");
   const [selectionScope, setSelectionScope] = useState(programIds);
+  const blocked = currentSelected.length ? (operations?.blocked?.(currentSelected) ?? null) : null;
   if (selectionScope !== programIds) {
     // Forget programs that left the page (e.g. a hidden duplicate group) so they do not return still selected.
     setSelectionScope(programIds);
@@ -81,11 +97,13 @@ export function BulkPrograms({
     setPlan(null);
     try {
       setPlan(
-        await previewBulk({
-          ids: currentSelected,
-          action,
-          ...(action === "MOVE" ? { directory } : {}),
-        }),
+        operations
+          ? await operations.preview(currentSelected)
+          : await previewBulk({
+              ids: currentSelected,
+              action,
+              ...(action === "MOVE" ? { directory } : {}),
+            }),
       );
       setConfirming(true);
     } catch (cause) {
@@ -104,7 +122,7 @@ export function BulkPrograms({
     setPending(true);
     setError("");
     try {
-      const result = await applyBulk(plan);
+      const result = operations ? await operations.apply(plan) : await applyBulk(plan);
       setOutcomes(result.outcomes);
       // Keep failed targets that are still on this page selected so they can be previewed again.
       setSelected(
@@ -152,7 +170,7 @@ export function BulkPrograms({
           />
         )}
         <p>{currentSelected.length}件選択中</p>
-        {!deleteOnly && (
+        {!deleteOnly && !operations && (
           <label className="flex flex-col gap-1 text-sm">
             操作{" "}
             <NativeSelect
@@ -178,12 +196,15 @@ export function BulkPrograms({
           ref={previewButton}
           variant="outline"
           disabled={
-            !currentSelected.length || (action === "MOVE" && !directory.trim())
+            !currentSelected.length ||
+            blocked !== null ||
+            (action === "MOVE" && !directory.trim())
           }
           onClick={preview}
         >
           対象をプレビュー
         </Button>
+        {blocked && <p className="font-bold">{blocked}</p>}
       </fieldset>
       {/* Live regions stay mounted so screen readers announce the text change. */}
       <p role="status">{pending && !confirming ? "処理中…" : ""}</p>
@@ -222,6 +243,7 @@ export function BulkPrograms({
                 .toLocaleString()}{" "}
               bytes （実際の空き容量の保証ではありません）
             </p>
+            {operations?.details?.(plan)}
             {plan.targets.map((t) => (
               <div key={t.id} className="min-w-0 break-all border-b py-2">
                 <h3>

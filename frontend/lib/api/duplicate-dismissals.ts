@@ -1,7 +1,7 @@
 "use server";
 
 import { ApiError, fetchJson } from "./client";
-import type { DuplicateReason } from "./duplicates";
+import { isDuplicateReason, type DuplicateReason } from "./duplicates";
 
 export type DuplicateGroupVisibility = {
   reason: DuplicateReason;
@@ -17,7 +17,7 @@ export async function setDuplicateGroupHidden(
   input: DuplicateGroupVisibility,
 ): Promise<{ ok: boolean; error?: string }> {
   if (
-    (input.reason !== "SAME_BROADCAST" && input.reason !== "OVERLAP") ||
+    !isDuplicateReason(input.reason) ||
     typeof input.hidden !== "boolean" ||
     !Array.isArray(input.programIds) ||
     input.programIds.length < 2 ||

@@ -24,6 +24,7 @@ data class DuplicateReviewMember(
 /**
  * @param hidden an operator marked this exact group (same reason and members) as an intentional duplicate. It only
  * affects the review; detection, the storage overview and cleanup plans are unchanged
+ * @param comparisonTitle the normalized title a [DuplicateGroup.Reason.REBROADCAST] group was matched on; null otherwise
  */
 data class DuplicateReviewGroup(
     val reason: DuplicateGroup.Reason,
@@ -31,6 +32,7 @@ data class DuplicateReviewGroup(
     val recommendation: DuplicateRecommendation,
     val members: List<DuplicateReviewMember>,
     val hidden: Boolean = false,
+    val comparisonTitle: String? = null,
 )
 
 data class DuplicateReview(

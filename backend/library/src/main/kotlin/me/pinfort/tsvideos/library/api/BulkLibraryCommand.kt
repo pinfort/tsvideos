@@ -84,9 +84,10 @@ class BulkLibraryCommand(
 
     /**
      * [guard] runs inside each target's transaction after every program/executed/split row is locked, and may
-     * veto the target (it receives the IDs this call has already deleted successfully). Guarded callers are
-     * operator CLIs: an interrupt aborts the whole call with [BulkInterruptedException], carrying the outcomes
-     * finished so far, instead of reporting the remaining targets as FAILED.
+     * veto the target (it receives the IDs this call has already deleted successfully). Guarded callers
+     * (CleanupPlanCommand for the operator CLI, DuplicateDeletionCommand for the API) get an interrupt as
+     * [BulkInterruptedException], which aborts the whole call and carries the outcomes finished so far; each caller
+     * decides how to report the remaining targets.
      */
     internal fun applyGuarded(
         input: BulkApplyRequest,
@@ -329,8 +330,9 @@ class BulkLibraryCommand(
     /**
      * Stores the path keys of rows written without one, in short transactions of their own and outside any target's.
      * Best effort: a row without a key is still compared by [LedgerSnapshots.createdFilesAt], only not by index.
+     * Callers must not be inside a transaction (see [previewInTransaction]).
      */
-    private fun fillPathKeys() {
+    internal fun fillPathKeys() {
         try {
             var cursor = 0L
             while (true) {

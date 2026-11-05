@@ -1,4 +1,5 @@
 import { fetchJson } from "./client";
+import type { DuplicateReason } from "./duplicates";
 
 export interface StorageTotals {
   programCount: number;
@@ -22,7 +23,7 @@ export interface StorageRecording {
 }
 
 export interface StorageDuplicateCandidate {
-  reason: "SAME_BROADCAST" | "OVERLAP";
+  reason: DuplicateReason;
   retained: StorageRecording;
   removable: StorageRecording[];
 }

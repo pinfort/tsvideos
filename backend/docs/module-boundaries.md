@@ -370,6 +370,7 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 | `ProcessingHistoryCommand` (内部の `TransactionTemplate`) | `REQUIRES_NEW` (一部 `REPEATABLE_READ`) | 履歴の書き込みを処理本体と独立に確定 |
 | `BulkLibraryCommand` の `read` / `write` テンプレート | `read`: `readOnly` + `REPEATABLE_READ`。`write`: `REQUIRES_NEW` + `REPEATABLE_READ` | 対象ごとに独立したトランザクション (§7.3) |
 | `CleanupPlanCommand` の `read` テンプレート | `readOnly` + `REPEATABLE_READ` | 計画生成と dry-run |
+| `DuplicateDeletionCommand` の `read` テンプレート | `readOnly` + `REPEATABLE_READ` | 重複削除のプレビュー (グループの検出と削除対象・残す番組のスナップショットを 1 スナップショットで)。apply は `BulkLibraryCommand` の `write` (§7.5.1) |
 | `VerifiedUploadCommand` (クラス) | `NOT_SUPPORTED`。内部の `TransactionTemplate` は `REQUIRES_NEW` | NAS 操作中に DB トランザクションを持たない (§7.6) |
 | `CreatedFileCatalog.register` / `fillMimeIfMissing` / `fillResolutionIfMissing` | `MANDATORY` | 呼び出し元 (`VerifiedUploadCommand` の `REQUIRES_NEW`) のトランザクションに参加し、独自に commit しない。トランザクション外では `IllegalTransactionStateException` (§7.6、§7.7) |
 | `CreatedFileCatalog.find` / `findStreamableVideo` | なし (呼び出し元のトランザクションがあれば参加) | 読み取り |
@@ -416,9 +417,18 @@ NAS の副作用と復旧: 削除/移動の NAS 操作は DB トランザクシ�
 
 ### 7.5 CleanupPlanCommand (ガード付き apply)
 
-[CleanupPlanCommand](../library/src/main/kotlin/me/pinfort/tsvideos/library/api/CleanupPlanCommand.kt) (#158 で library に移動済み) の `apply` は計画を検証し、dry-run なら `read` の中で各対象を現状と照合するだけで終わる。通常は `BulkLibraryCommand.applyGuarded` に DELETE として渡し、ガードで `checkCurrent` を実行する。ガードは §7.3 の全行ロックの下で、残りの対象・グループ・保持対象を `generate` で作り直し、計画と一致しなければ STALE を返す。`applyGuarded` は `internal` で、同じ library モジュール内の `CleanupPlanCommand` だけが呼ぶ。
+[CleanupPlanCommand](../library/src/main/kotlin/me/pinfort/tsvideos/library/api/CleanupPlanCommand.kt) (#158 で library に移動済み) の `apply` は計画を検証し、dry-run なら `read` の中で各対象を現状と照合するだけで終わる。通常は `BulkLibraryCommand.applyGuarded` に DELETE として渡し、ガードで `checkCurrent` を実行する。ガードは §7.3 の全行ロックの下で、残りの対象・グループ・保持対象を `generate` で作り直し、計画と一致しなければ STALE を返す。対象の説明文には検出理由 (`SAME_BROADCAST`/`OVERLAP`/`REBROADCAST`) を含めるので、理由が変わったグループも STALE になる。`applyGuarded` は `internal` で、同じ library モジュール内の `CleanupPlanCommand` と `DuplicateDeletionCommand` (§7.5.1) だけが呼ぶ。
 
-契約: `CleanupPlanCommand` と `BulkLibraryCommand` は同じ library モジュールに置き、ガード付き apply は library 内部の操作のまま (`internal`) にする。ガードが必要とする全行ロックは catalog のロック操作で提供する。
+契約: `CleanupPlanCommand`・`DuplicateDeletionCommand` と `BulkLibraryCommand` は同じ library モジュールに置き、ガード付き apply は library 内部の操作のまま (`internal`) にする。ガードが必要とする全行ロックは catalog のロック操作で提供する。
+
+#### 7.5.1 DuplicateDeletionCommand (重複レビューからの削除、#208)
+
+[DuplicateDeletionCommand](../library/src/main/kotlin/me/pinfort/tsvideos/library/api/DuplicateDeletionCommand.kt) は、重複レビューで選んだ番組を、グループごとに少なくとも 1 件残して削除する。manager:api の `POST /api/v1/programs/duplicates/delete/preview` と `/apply` (`DuplicateDeletionController`) から呼ばれる。
+
+- 入力はグループごとの理由・メンバー全体・削除する ID。全件選択、メンバー外、複数グループへの所属、100 件超は `InvalidBulkRequestException` (400)。
+- **preview**: §7.3 と同じく `path_key` を埋めてから、1 つの `read` (`readOnly`, `REPEATABLE_READ`) で、各グループが現在ちょうど検出されること (`DuplicateProgramCommand.detect`。違えば `StaleDuplicateGroupException`、409) を確かめ、削除対象と残す番組のスナップショット・フィンガープリントを `previewInTransaction` で作る。ロックは取らない。
+- **apply**: `applyGuarded` に DELETE として渡す。ガードは §7.3 の全行ロック (`lockCreatedFiles` → `lockWholeLedger`) の下で、対象のグループの残す番組を `previewInTransaction` で作り直してプレビュー時のフィンガープリントと比べ、グループが「プレビュー時の理由 + メンバーから成功済みの ID を除いたもの」で現在も検出されることを確かめる。違えば STALE で、その対象には触れない。ロック順序は §7.3 のガード付きのものと同じで、新しいロックは追加しない。全行ロックで直列化されるので、互いの残す番組を消し合う同時のリクエストや、通常の一括削除との競合でも、グループの最後の 1 件はこの操作では消えない。
+- 割り込みは `BulkInterruptedException` を受けて、完了済みの結果に残りの対象の FAILED を加えて返す (Web の呼び出し元向け)。
 
 ### 7.6 VerifiedUploadCommand
 
@@ -614,7 +624,7 @@ storage の例外型 (#132 以降は `storage.api`、jcifs に依存しない):
 
 ### 11.2 library
 
-- `BulkLibraryCommand` (preview / apply)、`CleanupPlanCommand` (plan / apply、ガード付き apply は internal)、`DuplicateProgramCommand` / `DuplicateReviewCommand`、`LibraryOrganizationCommand`、`LibraryStatsCommand`、`StorageOverviewCommand`、`LibraryVerificationCommand`、`LibraryHealthCommand` / `LibraryHealthScanCommand` / `HealthVerificationStore` の現行の公開操作。
+- `BulkLibraryCommand` (preview / apply)、`CleanupPlanCommand` (plan / apply、ガード付き apply は internal)、`DuplicateProgramCommand` / `DuplicateReviewCommand` / `DuplicateDeletionCommand` (preview / apply、#208)、`LibraryOrganizationCommand`、`LibraryStatsCommand`、`StorageOverviewCommand`、`LibraryVerificationCommand`、`LibraryHealthCommand` / `LibraryHealthScanCommand` / `HealthVerificationStore` の現行の公開操作。
 - 結果型: `BulkPlan` / `BulkResult` / `BulkOutcome`、`CleanupPlan`、`DuplicateGroup` / `DuplicateReview`、`LibraryLabel` / `ProgramOrganization`、`LibraryStats`、`StorageOverview`、`VerificationReport`、`LibraryHealth`。例外型 (`InvalidBulkRequestException`、`BulkInterruptedException`、`LibraryItemNotFoundException`、`DuplicateLibraryNameException`、`HealthScanAlreadyRunning`、`CleanupResourceMissing`) も公開する (controller/CLI が HTTP や終了コードに変換するため)。
 
 ### 11.3 processing
