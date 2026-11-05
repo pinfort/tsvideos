@@ -25,6 +25,8 @@ import org.springframework.transaction.support.TransactionTemplate
  * and the server, not only the UI, keeps at least one member of each: an all-selected group is rejected, and each
  * deletion runs [BulkLibraryCommand.applyGuarded]'s guard under the whole-ledger lock, re-checking that the group is
  * still detected as previewed (minus this call's successful deletions) and that its kept members still exist unchanged.
+ * That re-detection is fresh for every target but reads only the kept members' channel (all groups are channel-local);
+ * the lock is still whole-ledger, so other ledger writers keep waiting for each target's transaction.
  */
 @Component
 class DuplicateDeletionCommand(
@@ -107,14 +109,21 @@ class DuplicateDeletionCommand(
                 "A recording to keep was deleted or changed; nothing was deleted. Preview again",
             )
         }
+        // Every group lies on one channel, so detecting on the kept members' channel (read just now under the lock and
+        // matching the preview fingerprints, never taken from the request) gives exactly the groups detect() would there.
+        // Kept members on different channels cannot form a detected group.
+        val channel = kept.mapNotNull { it.snapshot?.program?.channel }.distinct().singleOrNull()
         val expected = group.programIds.filter { it !in completed }
-        if (key(group.reason, expected) !in detectedKeys()) {
+        if (channel == null || key(group.reason, expected) !in keys(duplicates.detectOnChannel(channel))) {
             return BulkOutcome(id, BulkOutcomeStatus.STALE, "Duplicate group changed; nothing was deleted. Preview again")
         }
         return null
     }
 
-    private fun detectedKeys(): Set<String> = duplicates.detect().map { group -> key(group.reason, group.programs.map { it.id }) }.toSet()
+    private fun detectedKeys(): Set<String> = keys(duplicates.detect())
+
+    private fun keys(groups: List<DuplicateGroup>): Set<String> =
+        groups.map { group -> key(group.reason, group.programs.map { it.id }) }.toSet()
 
     private fun validate(input: List<DuplicateDeletionGroup>): List<DuplicateDeletionPlanGroup> {
         ensure(input.isNotEmpty()) { "Select recordings to delete" }
@@ -152,7 +161,6 @@ class DuplicateDeletionCommand(
     ): String = "${reason.name}:${ids.sorted().joinToString(",")}"
 
     private companion object {
-        /** BulkLibraryCommand's per-request limit. */
-        const val MAX_TARGETS = 100
+        const val MAX_TARGETS = BulkLibraryCommand.MAX_REQUEST_SIZE
     }
 }

@@ -484,13 +484,33 @@ class CatalogTransactionTest : ExpectSpec() {
                         ),
                     )
                     inventory.allIds() shouldBe listOf(4L)
+                    inventory.recordedProgramsOnChannel("1").map { it.id } shouldBe listOf(4L)
                     inventory.exists(6) shouldBe false
                     inventory.summaries(listOf(4, 6)).map { it.id } shouldBe listOf(4L)
                     snapshots.programSnapshot(6) shouldBe null
                     programs.search(ProgramSearchQuery()).total shouldBe 1
                 }
                 inventory.allIds() shouldBe listOf(4L, 6L)
+                inventory.recordedProgramsOnChannel("1").map { it.id }.sorted() shouldBe listOf(4L, 6L)
                 programs.search(ProgramSearchQuery()).total shouldBe 2
+            }
+
+            expect("recorded programs on one channel match the channel exactly") {
+                seed()
+                sql(
+                    listOf(
+                        "INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) VALUES" +
+                            "(5,'a.m2ts',0,1,'2026-01-02','1 ','a','channel',1,'SPLITTED')," +
+                            "(6,'b.m2ts',0,1,'2026-01-03','2','b','channel',1,'SPLITTED')",
+                        "INSERT INTO program(id,name,executed_file_id,status) VALUES(6,'a',5,'COMPLETED'),(7,'b',6,'COMPLETED')," +
+                            "(8,'orphan',99,'COMPLETED')",
+                    ),
+                )
+                inventory.recordedProgramsOnChannel("1").map { it.id } shouldBe listOf(4L)
+                inventory.recordedProgramsOnChannel("1 ").map { it.id } shouldBe listOf(6L)
+                inventory.recordedProgramsOnChannel("2").map { it.id } shouldBe listOf(7L)
+                inventory.recordedProgramsOnChannel("3") shouldBe emptyList()
+                inventory.recordedPrograms().map { it.id }.sorted() shouldBe listOf(4L, 6L, 7L)
             }
         }
     }

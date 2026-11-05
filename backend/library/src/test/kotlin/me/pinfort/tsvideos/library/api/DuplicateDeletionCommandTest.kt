@@ -9,6 +9,7 @@ import io.mockk.Called
 import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.spyk
 import io.mockk.verify
 import me.pinfort.tsvideos.catalog.api.CreatedFileCatalog
 import me.pinfort.tsvideos.catalog.api.CreatedFileCommand
@@ -74,18 +75,21 @@ import javax.sql.DataSource
     NormalizeComponent::class,
     TestLoggerConfig::class,
     BulkLibraryCommand::class,
-    DuplicateProgramCommand::class,
     DuplicateDeletionCommand::class,
-    DuplicateDeletionCommandTest.Nas::class,
+    DuplicateDeletionCommandTest.Beans::class,
 )
 @ActiveProfiles("infrastructure")
 @ApplyExtension(SpringExtension::class)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class DuplicateDeletionCommandTest : ExpectSpec() {
     @TestConfiguration
-    class Nas {
+    class Beans {
         @Bean
         fun nasComponent(): NasComponent = mockk()
+
+        // A spy over the real detection, so a test can see which detection the guard ran.
+        @Bean
+        fun duplicateProgramCommand(inventory: ProgramInventory): DuplicateProgramCommand = spyk(DuplicateProgramCommand(inventory))
     }
 
     @Autowired private lateinit var dataSource: DataSource
@@ -98,6 +102,8 @@ class DuplicateDeletionCommandTest : ExpectSpec() {
 
     @Autowired private lateinit var nasComponent: NasComponent
 
+    @Autowired private lateinit var duplicates: DuplicateProgramCommand
+
     private fun sql(statement: String) {
         dataSource.connection.use { connection ->
             connection.autoCommit = true
@@ -107,17 +113,18 @@ class DuplicateDeletionCommandTest : ExpectSpec() {
 
     private fun clear() = listOf("created_file", "splitted_file", "program", "executed_file").forEach { sql("DELETE FROM $it") }
 
-    /** One recording per entry: id to (recorded_at, duration, title). */
+    /** One recording per entry: id to (recorded_at, duration, title), on channel "1" unless [channels] names another. */
     private fun seed(
         rows: Map<Long, Triple<String, Int, String>>,
         files: Boolean = true,
+        channels: Map<Long, String> = emptyMap(),
     ) {
         clear()
         rows.forEach { (id, row) ->
             val (recordedAt, duration, title) = row
             sql(
                 "INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) " +
-                    "VALUES($id,'original$id.m2ts',0,10,'$recordedAt','1','$title','channel',$duration,'SPLITTED')",
+                    "VALUES($id,'original$id.m2ts',0,10,'$recordedAt','${channels[id] ?: "1"}','$title','channel',$duration,'SPLITTED')",
             )
             sql("INSERT INTO program(id,name,executed_file_id,status) VALUES($id,'program$id',$id,'COMPLETED')")
             if (files) {
@@ -210,6 +217,19 @@ class DuplicateDeletionCommandTest : ExpectSpec() {
             inventory.allIds() shouldBe listOf(1L, 2L, 3L)
         }
 
+        expect("at most 100 recordings to delete and 100 to keep, the shared bulk request limit") {
+            clear()
+            nas()
+            BulkLibraryCommand.MAX_REQUEST_SIZE shouldBe 100
+            CleanupPlanCommand.MAX_PLAN_SIZE shouldBe BulkLibraryCommand.MAX_REQUEST_SIZE
+            val members = (1L..201L).toList()
+            // Over either limit is malformed; exactly at both limits passes validation and only fails detection.
+            shouldThrow<InvalidBulkRequestException> { preview(group(members.take(102), members.take(101))) }
+            shouldThrow<InvalidBulkRequestException> { preview(group(members.take(102), members.take(1))) }
+            shouldThrow<InvalidBulkRequestException> { preview(group(members, members.take(100))) }
+            shouldThrow<StaleDuplicateGroupException> { preview(group(members.take(200), members.take(100))) }
+        }
+
         expect("a partial, extended or wrong-reason group is stale at preview") {
             sameBroadcast(3)
             nas()
@@ -242,6 +262,43 @@ class DuplicateDeletionCommandTest : ExpectSpec() {
             verify(exactly = 1) { nas.deleteResource("base/a/p1/file.mp4") }
             verify(exactly = 1) { nas.deleteResource("base/a/p4/file.mp4") }
             verify(exactly = 2) { nas.deleteResource(any()) }
+        }
+
+        expect("each target is re-detected freshly on its kept recordings' channel only, never across the whole library") {
+            seed(
+                mapOf(
+                    1L to Triple("2026-01-01 00:00:00", 60, "title"),
+                    2L to Triple("2026-01-01 00:00:00", 60, "title"),
+                    3L to Triple("2026-01-01 00:00:00", 60, "title"),
+                    4L to Triple("2026-01-01 00:00:00", 60, "title"),
+                    5L to Triple("2026-01-01 00:00:00", 60, "title"),
+                    6L to Triple("2026-01-01 00:00:00", 1800, "番組 #1[新]"),
+                    7L to Triple("2026-04-01 00:00:00", 1801, "番組 #1[再]"),
+                ),
+                channels = mapOf(4L to "2", 5L to "2", 6L to "3", 7L to "3"),
+            )
+            nas()
+            val plan =
+                preview(
+                    group(listOf(1, 2, 3), listOf(2, 3)),
+                    group(listOf(6, 7), listOf(6), DuplicateGroup.Reason.REBROADCAST),
+                )
+            // A change on an unrelated channel after the preview does not affect these groups.
+            sql(
+                "INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) " +
+                    "VALUES(8,'original8.m2ts',0,10,'2026-01-01 00:00:00','2','title','channel',60,'SPLITTED')",
+            )
+            sql("INSERT INTO program(id,name,executed_file_id,status) VALUES(8,'program8',8,'COMPLETED')")
+            clearMocks(duplicates, answers = false)
+
+            apply(plan).outcomes.map { it.id to it.status } shouldBe
+                listOf(2L to BulkOutcomeStatus.SUCCESS, 3L to BulkOutcomeStatus.SUCCESS, 6L to BulkOutcomeStatus.SUCCESS)
+            // One fresh detection per target (no reuse across target transactions), each on the kept members' channel.
+            verify(exactly = 2) { duplicates.detectOnChannel("1", any()) }
+            verify(exactly = 1) { duplicates.detectOnChannel("3", any()) }
+            verify(exactly = 0) { duplicates.detectOnChannel("2", any()) }
+            verify(exactly = 0) { duplicates.detect(any()) }
+            inventory.allIds() shouldBe listOf(1L, 4L, 5L, 7L, 8L)
         }
 
         expect("a changed or deleted kept recording makes the target STALE without touching NAS") {

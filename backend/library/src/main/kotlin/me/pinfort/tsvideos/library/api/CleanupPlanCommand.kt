@@ -271,7 +271,7 @@ class CleanupPlanCommand(
     }
 
     companion object {
-        /** Matches BulkLibraryCommand's per-request limit; there is no implicit batching. */
-        const val MAX_PLAN_SIZE = 100
+        /** [BulkLibraryCommand.MAX_REQUEST_SIZE], under the name existing callers use. */
+        const val MAX_PLAN_SIZE = BulkLibraryCommand.MAX_REQUEST_SIZE
     }
 }

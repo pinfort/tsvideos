@@ -16,6 +16,13 @@ class ProgramInventory internal constructor(
     /** Programs whose recording row exists (inner join), in no particular order. */
     fun recordedPrograms(): List<Program> = programMapper.selectAll().map { it.toDomain() }
 
+    /**
+     * [recordedPrograms] whose recording is on exactly [channel], in no particular order. The final filter keeps the
+     * match exact even where the column collation would treat e.g. trailing spaces as equal.
+     */
+    fun recordedProgramsOnChannel(channel: String): List<Program> =
+        programMapper.selectByChannel(channel).map { it.toDomain() }.filter { it.channel == channel }
+
     /** Every program by id, including programs whose recording row is gone (their recording fields are defaults). */
     fun allPrograms(): List<Program> = programMapper.selectAllOrderById().map { it.toDomain() }
 

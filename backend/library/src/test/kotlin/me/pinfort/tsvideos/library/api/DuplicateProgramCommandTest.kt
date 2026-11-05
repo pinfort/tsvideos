@@ -7,6 +7,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.library.domain.DuplicateGroup
@@ -57,6 +58,99 @@ class DuplicateProgramCommandTest :
 
                 actual shouldHaveSize 1
                 actual[0].programs.map { it.id } shouldBe listOf(1L, 2L)
+            }
+        }
+
+        context("detectOnChannel") {
+            val episode = "番組 #1「副題」"
+
+            fun shape(groups: List<DuplicateGroup>) = groups.map { Triple(it.reason, it.programs.map { p -> p.id }, it.comparisonTitle) }
+
+            /** Mocks the catalog so each channel query returns exactly that channel's rows of [all]. */
+            fun library(all: List<Program>) {
+                every { inventory.recordedPrograms() } returns all
+                every { inventory.recordedProgramsOnChannel(any()) } answers { all.filter { it.channel == firstArg<String>() } }
+            }
+
+            fun assertParity(all: List<Program>) {
+                library(all)
+                val full = duplicateProgramCommand.detect()
+                val channels = all.map { it.channel }.distinct()
+                channels.forEach { channel ->
+                    shape(duplicateProgramCommand.detectOnChannel(channel)) shouldBe
+                        shape(full.filter { group -> group.programs.all { it.channel == channel } })
+                }
+                // Every detected group lies on one channel, so the per-channel results together are the whole result.
+                full.all { group ->
+                    group.programs
+                        .map { it.channel }
+                        .distinct()
+                        .size == 1
+                } shouldBe true
+                channels.sumOf { duplicateProgramCommand.detectOnChannel(it).size } shouldBe full.size
+            }
+
+            expect("reads only the given channel from the catalog, never the whole library") {
+                library(listOf(program(1), program(2), program(3, channel = "BS101"), program(4, channel = "BS101")))
+
+                val actual = duplicateProgramCommand.detectOnChannel("BS101")
+
+                actual.map { group -> group.programs.map { it.id } } shouldBe listOf(listOf(3L, 4L))
+                verify(exactly = 1) { inventory.recordedProgramsOnChannel("BS101") }
+                verify(exactly = 0) { inventory.recordedPrograms() }
+            }
+
+            expect("matches detect() on each channel for same-broadcast, overlap and rebroadcast groups including mixed and chains") {
+                val day = base.plusDays(90)
+                assertParity(
+                    listOf("GR27", "BS101").flatMapIndexed { index, channel ->
+                        val offset = index * 100L
+                        listOf(
+                            // Same broadcast whose members have different titles: a title-scoped read would split it.
+                            program(offset + 1, channel = channel, title = "A"),
+                            program(offset + 2, channel = channel, title = "B"),
+                            // Transitive overlap chain across titles.
+                            program(offset + 3, base.plusDays(1), channel = channel, title = "番組 #5"),
+                            program(offset + 4, base.plusDays(1).plusMinutes(4), channel = channel, title = "other"),
+                            program(offset + 5, base.plusDays(1).plusMinutes(8), channel = channel, title = "番組 #5"),
+                            // Mixed: A/B same broadcast plus a rebroadcast C of the same episode -> only A/B.
+                            program(offset + 6, base.plusDays(2), channel = channel, title = episode),
+                            program(offset + 7, base.plusDays(2), channel = channel, title = episode),
+                            program(offset + 8, day, channel = channel, title = episode),
+                            // Rebroadcast pair.
+                            program(offset + 9, base.plusDays(3), channel = channel, title = "番組 #2[新]"),
+                            program(offset + 10, day.plusDays(3), channel = channel, title = "番組 #2[再]", duration = 1801.0),
+                            // Non-clique chain (1800-1803-1806): left out entirely.
+                            program(offset + 11, base.plusDays(4), channel = channel, title = "番組 #3"),
+                            program(offset + 12, base.plusDays(40), channel = channel, title = "番組 #3", duration = 1803.0),
+                            program(offset + 13, base.plusDays(80), channel = channel, title = "番組 #3", duration = 1806.0),
+                        )
+                    } +
+                        // The same episode on another channel only: never grouped with the channels above.
+                        listOf(program(500, base.plusDays(5), channel = "BS103", title = "番組 #2[再]")),
+                )
+            }
+
+            expect("matches detect() on each channel of a large multi-channel library") {
+                val random = kotlin.random.Random(208)
+                val channels = listOf("GR21", "GR22", "GR27", "BS101", "BS103", "BS141")
+                val markers = listOf("", "[新]", "[再]", "[字]")
+                val all =
+                    (1L..3000L).map { id ->
+                        // Four 30-minute slots a day with a few minutes of jitter: same broadcasts, overlaps and rebroadcasts.
+                        val minutes = random.nextLong(0, 4) * 30 + random.nextLong(0, 6)
+                        program(
+                            id,
+                            recordedAt = base.plusDays(random.nextLong(0, 120)).plusMinutes(minutes),
+                            duration = 1800.0 + random.nextInt(0, 9),
+                            channel = channels[random.nextInt(channels.size)],
+                            title = "シリーズ${random.nextInt(0, 60)} #${random.nextInt(1, 6)}" + markers[random.nextInt(markers.size)],
+                        )
+                    }
+
+                assertParity(all)
+                library(all)
+                duplicateProgramCommand.detect().map { it.reason }.toSet() shouldBe DuplicateGroup.Reason.entries.toSet()
             }
         }
 

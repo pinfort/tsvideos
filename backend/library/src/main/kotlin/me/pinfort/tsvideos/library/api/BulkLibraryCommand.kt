@@ -247,8 +247,8 @@ class BulkLibraryCommand(
     }
 
     private fun validate(input: BulkRequest): BulkRequest {
-        val idsValid = input.ids.size in 1..100 && input.ids.all { it > 0 } && input.ids.distinct().size == input.ids.size
-        ensure(idsValid) { "Select 1 to 100 unique positive IDs" }
+        val idsValid = input.ids.size in 1..MAX_REQUEST_SIZE && input.ids.all { it > 0 } && input.ids.distinct().size == input.ids.size
+        ensure(idsValid) { "Select 1 to $MAX_REQUEST_SIZE unique positive IDs" }
         if (input.action == BulkAction.DELETE) {
             ensure(input.directory == null) { "DELETE does not accept a directory" }
             return input.copy(ids = input.ids.sorted())
@@ -518,7 +518,13 @@ class BulkLibraryCommand(
             !segment.endsWith(' ') &&
             segment.none { c -> c in ":?#%" || c.isISOControl() }
 
-    private companion object {
-        const val PATH_KEY_CHUNK_SIZE = 500
+    companion object {
+        /**
+         * Most programs one bulk request may name. Duplicate deletion and cleanup plans share it because each of their
+         * targets becomes one bulk target; there is no implicit batching.
+         */
+        const val MAX_REQUEST_SIZE = 100
+
+        private const val PATH_KEY_CHUNK_SIZE = 500
     }
 }

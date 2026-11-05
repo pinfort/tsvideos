@@ -51,6 +51,16 @@ class DuplicateProgramCommand(
         group(programs.recordedPrograms(), minOverlapRatio)
 
     /**
+     * [detect] の結果のうち [channel] のグループだけ。同一放送・重複も再放送候補もチャンネル内でしか作られないので、
+     * そのチャンネルの録画だけから判定しても [detect] の同じチャンネルのグループと完全に一致する。
+     * 番組名などで絞らないのは、重なりによるまとまりや再放送候補からの除外がタイトルをまたいで決まるため
+     */
+    internal fun detectOnChannel(
+        channel: String,
+        minOverlapRatio: Double = DEFAULT_MIN_OVERLAP_RATIO,
+    ): List<DuplicateGroup> = group(programs.recordedProgramsOnChannel(channel), minOverlapRatio)
+
+    /**
      * 同一チャンネルで、録画時間帯の重なりが長い方の録画の [minOverlapRatio] 以上ある番組同士をまとめる。
      * 長い方を基準にするので、連続番組のマージン録画による僅かな重なりや、
      * 長時間の録画がその時間帯に含まれる別の番組を覆っているだけのものは重複とみなさない。
