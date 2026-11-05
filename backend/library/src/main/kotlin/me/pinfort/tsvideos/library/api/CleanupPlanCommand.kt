@@ -119,14 +119,13 @@ class CleanupPlanCommand(
         val ids: List<Long>
         when (criteria.mode) {
             CleanupMode.DUPLICATES -> {
-                // DuplicateProgramCommand groups by channel, so every member shares the first member's channel.
-                // Groups hidden from the web review stay candidates: hiding is a review-only label, not a keep policy.
+                // With a channel, only groups whose members are ALL on it: an OTHER_CHANNEL group spans channels and is
+                // never cut, so nothing outside the requested channel becomes a target. Plan those without a channel
+                // and choose the kept copy with keepIds. Groups hidden from the web review stay candidates: hiding is a
+                // review-only label, not a keep policy.
                 val review =
-                    duplicates.review(includeHidden = true).groups.filter {
-                        criteria.channel == null ||
-                            it.members
-                                .first()
-                                .program.channel == criteria.channel
+                    duplicates.review(includeHidden = true).groups.filter { group ->
+                        criteria.channel == null || group.members.all { it.program.channel == criteria.channel }
                     }
                 if (criteria.keepIds.any { it !in known }) throw CleanupResourceMissing()
                 require(

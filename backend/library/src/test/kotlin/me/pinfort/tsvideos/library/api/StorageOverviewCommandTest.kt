@@ -147,6 +147,34 @@ class StorageOverviewCommandTest : ExpectSpec() {
             r.estimatedReclaimableBytes shouldBe 17L
             r.excludedSharedPathCount shouldBe 1L
         }
+        expect("other-channel candidates are counted once and never overlap earlier groups") {
+            sql(
+                listOf(
+                    "INSERT INTO executed_file (id, file, drops, size, recorded_at, channel, title, channelName, duration, status) " +
+                        "VALUES " +
+                        "(1,'a',0,1,'2026-01-01 00:00:00','ch','番組 #1','ch',1800,'SPLITTED')," +
+                        "(2,'b',1,1,'2026-01-01 00:00:00','ch','番組 #1','ch',1800,'SPLITTED')," +
+                        // The same episode on another channel as the same-broadcast pair: left out (intended), never counted twice.
+                        "(3,'c',0,1,'2026-04-01 00:00:00','bs','番組 #1','bs',1800,'SPLITTED')," +
+                        "(4,'d',0,1,'2026-01-02 00:00:00','ch','番組 #2','ch',1800,'SPLITTED')," +
+                        "(5,'e',1,1,'2026-01-02 00:00:00','bs','番組 #2','bs',1801,'SPLITTED')",
+                    "INSERT INTO program (id, name, executed_file_id, status) VALUES (1,'a',1,'COMPLETED'),(2,'b',2,'COMPLETED'),(3,'c',3,'COMPLETED'),(4,'d',4,'COMPLETED'),(5,'e',5,'COMPLETED')",
+                    "INSERT INTO splitted_file (id, executed_file_id, file, size, duration, status) VALUES (1,1,'s1',1,1,'REGISTERED'),(2,2,'s2',1,1,'REGISTERED'),(3,3,'s3',1,1,'REGISTERED'),(4,4,'s4',1,1,'REGISTERED'),(5,5,'s5',1,1,'REGISTERED')",
+                    "INSERT INTO created_file (id, splitted_file_id, file, size, mime, encoding, status) VALUES " +
+                        "(1,1,'k1',100,'video/mp4',NULL,'FILE_MOVED'),(2,2,'b2',10,'video/mp4',NULL,'FILE_MOVED')," +
+                        "(3,3,'c3',1000,'video/mp4',NULL,'FILE_MOVED'),(4,4,'k4',100,'video/mp4',NULL,'FILE_MOVED')," +
+                        "(5,5,'r5',7,'video/mp4',NULL,'FILE_MOVED')",
+                ),
+            )
+            val r = command().overview()
+            r.duplicateCandidates.map { Triple(it.reason, it.retained.id, it.removable.map { p -> p.id }) } shouldBe
+                listOf(
+                    Triple(DuplicateGroup.Reason.SAME_BROADCAST, 1L, listOf(2L)),
+                    Triple(DuplicateGroup.Reason.OTHER_CHANNEL, 4L, listOf(5L)),
+                )
+            r.estimatedReclaimableBytes shouldBe 17L
+            r.excludedSharedPathCount shouldBe 0L
+        }
         expect("paths normalize separators, case and dot segments") {
             StorageOverviewCommand.normalizedPath("NAS\\Dir\\./sub/../File.mp4") shouldBe "nas/dir/file.mp4"
             StorageOverviewCommand.normalizedPath("../../a/..") shouldBe "../.."

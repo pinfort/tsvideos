@@ -236,6 +236,68 @@ describe("DuplicateReviewPanel", () => {
     await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
     expect(previewDuplicateDeletion).toHaveBeenCalledWith([{ reason: "REBROADCAST", programIds: [1, 2], deleteIds: [2] }]);
   });
+  it("explains an other-channel candidate and lets each channel's title, length and resolution be compared", () => {
+    const otherChannel: DuplicateReviewGroup = {
+      ...group,
+      reason: "OTHER_CHANNEL",
+      comparisonTitle: "番組 #1",
+      members: [
+        {
+          program: { ...programs[0], channel: "GR16", channelName: "地上", title: "番組#1.m2ts", duration: 1802.4 },
+          availableFiles: [{ ...group.members[0].availableFiles[0], width: 1440, height: 1080 }],
+        },
+        {
+          program: { ...programs[1], channel: "BSBS01_0", channelName: "BS", title: "[新]枠 番組 #1.m2ts", duration: 1803.2 },
+          availableFiles: [],
+        },
+      ],
+    };
+    render(<DuplicateReviewPanel groups={[otherChannel]} />);
+    expect(screen.getByRole("heading", { name: "別局の同一話候補" })).toBeInTheDocument();
+    expect(screen.getByText(/異なるチャンネル（GR16 \/ BSBS01_0）/)).toBeInTheDocument();
+    expect(screen.getByText(/比較用タイトル「番組 #1」/)).toBeInTheDocument();
+    expect(screen.getByText(/同じ内容であることは確認していません/)).toBeInTheDocument();
+    expect(screen.getByText(/画質や完全性を保証しません/)).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "元のタイトル" })).toBeInTheDocument();
+    expect(screen.getByText("番組#1.m2ts")).toBeInTheDocument();
+    expect(screen.getByText("[新]枠 番組 #1.m2ts")).toBeInTheDocument();
+    expect(screen.getByText("地上（GR16）")).toBeInTheDocument();
+    expect(screen.getByText("BS（BSBS01_0）")).toBeInTheDocument();
+    expect(screen.getByText("1803 秒")).toBeInTheDocument();
+    expect(screen.getByText(/1440×1080/)).toBeInTheDocument();
+  });
+  it("deletes, refuses an all-selection and hides an other-channel group by its reason, also keeping several copies", async () => {
+    const user = userEvent.setup();
+    const three: DuplicateReviewGroup = {
+      ...group,
+      reason: "OTHER_CHANNEL",
+      comparisonTitle: "番組 #1",
+      members: [1, 2, 3].map((id) => ({
+        program: { ...programs[0], id, executedFileId: id, name: `番組${id}`, channel: `CH${id}` },
+        availableFiles: [],
+      })),
+    };
+    render(<DuplicateReviewPanel groups={[three]} />);
+    const preview = screen.getByRole("button", { name: "対象をプレビュー" });
+    for (const id of [1, 2, 3]) await user.click(screen.getByLabelText(`削除対象に選択 #${id}`));
+    expect(screen.getByRole("alert")).toHaveTextContent("すべて選択しています");
+    expect(preview).toBeDisabled();
+    // Keep two of the three channels: deleting only one copy is allowed.
+    await user.click(screen.getByLabelText("削除対象に選択 #1"));
+    await user.click(screen.getByLabelText("削除対象に選択 #2"));
+    expect(preview).toBeEnabled();
+    await user.click(preview);
+    expect(previewDuplicateDeletion).toHaveBeenCalledWith([
+      { reason: "OTHER_CHANNEL", programIds: [1, 2, 3], deleteIds: [3] },
+    ]);
+    await user.click(await screen.findByRole("button", { name: "キャンセル" }));
+    await user.click(screen.getByRole("button", { name: "意図した重複として非表示（#1, #2, #3）" }));
+    expect(setDuplicateGroupHidden).toHaveBeenCalledWith({
+      reason: "OTHER_CHANNEL",
+      programIds: [1, 2, 3],
+      hidden: true,
+    });
+  });
   it("hides a group as an intentional duplicate by its exact members and refreshes", async () => {
     const user = userEvent.setup();
     const reordered = { ...group, members: [...group.members].reverse() };

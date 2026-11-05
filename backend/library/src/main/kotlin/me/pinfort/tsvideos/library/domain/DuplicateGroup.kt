@@ -3,10 +3,11 @@ package me.pinfort.tsvideos.library.domain
 import me.pinfort.tsvideos.catalog.domain.Program
 
 /**
- * 同じ放送、または同じ回の再放送を録画したと判定された番組のまとまり
+ * 同じ放送、同じ回の再放送、または別局で同じ回を録画したと判定された番組のまとまり。各番組は高々1つのグループに属する
  *
- * @param programs 残すべき順に並んだ番組。先頭が残す候補
- * @param comparisonTitle [Reason.REBROADCAST] のときだけ、判定に使った比較用タイトル (話数は `#N` で表す)。元のタイトルは変えない
+ * @param programs 残すべき順に並んだ番組。先頭が残す候補 (既存の基準による推薦で、画質や完全性の保証ではない)
+ * @param comparisonTitle [Reason.REBROADCAST] と [Reason.OTHER_CHANNEL] のときだけ、判定に使った比較用タイトル
+ * (話数は `#N` で表す)。元のタイトルは変えない
  */
 data class DuplicateGroup(
     val reason: Reason,
@@ -22,6 +23,10 @@ data class DuplicateGroup(
 
         // 再放送候補: 同一チャンネル・別の時間帯で、比較用タイトルと単一の話数が一致し、長さもほぼ同じ。内容の同一性は保証しない
         REBROADCAST,
+
+        // 別局の同一話候補: 同一放送・重複・再放送候補のどれにも入らない録画のうち、異なるチャンネル (同時刻も可) で
+        // 比較用タイトルと単一の話数が一致し、長さもほぼ同じ。各チャンネル1件ずつ。内容の同一性は保証しない
+        OTHER_CHANNEL,
     }
 
     init {

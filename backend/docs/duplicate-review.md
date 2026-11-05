@@ -1,16 +1,16 @@
-# 重複レビュー: 再放送候補・保持保証付きの削除・非表示 (意図した重複)
+# 重複レビュー: 再放送候補・別局の同一話候補・保持保証付きの削除・非表示 (意図した重複)
 
-重複レビュー (`GET /api/v1/programs/duplicates`、Web の `/duplicates`) は、同じ放送の録画 (`SAME_BROADCAST`/`OVERLAP`) と同じ回の再放送候補 (`REBROADCAST`、#208) を並べて比較する。削除は人がプレビューして確認し、サーバーがグループごとに少なくとも 1 件を残す ([重複レビューからの削除](#重複レビューからの削除-保持保証))。
+重複レビュー (`GET /api/v1/programs/duplicates`、Web の `/duplicates`) は、同じ放送の録画 (`SAME_BROADCAST`/`OVERLAP`)、同じ回の再放送候補 (`REBROADCAST`、#208)、別局で録画した同じ回の候補 (`OTHER_CHANNEL`、#209) を並べて比較する。削除は人がプレビューして確認し、サーバーがグループごとに少なくとも 1 件を残す ([重複レビューからの削除](#重複レビューからの削除-保持保証))。
 
 意図して残している重複だと確認したグループは非表示にできる (#194)。非表示は元に戻せ、DB (`library_duplicate_dismissal`、library 所有) に保存されるので、再読み込みや manager:api の再起動の後も残る。
 
 ## 再放送候補 (REBROADCAST)
 
-`DuplicateProgramCommand.detect` は 2 段階で判定する。
+`DuplicateProgramCommand.detect` は 3 段階で判定する (3 段階目は [別局の同一話候補](#別局の同一話候補-other_channel))。
 
 1. 従来どおり、同一チャンネルで録画時間帯が重なる録画を `SAME_BROADCAST` / `OVERLAP` にまとめる。メンバー・理由・推薦順 (ドロップ数 → 状態 → 長さ → サイズ → ID) は変わらない。`--min-overlap` はこの段階だけに効く。
 2. 1 のグループに入らなかった録画から、次をすべて満たすものを `REBROADCAST` にまとめる (純粋関数 `RebroadcastMatcher`、library 内部)。
-   - 同一チャンネル (局をまたぐ再放送は対象外)。録画日時が分かり、長さが有限の正の値。
+   - 同一チャンネル (局をまたぐものは 3 段階目で扱う)。録画日時が分かり、長さが有限の正の値。
    - 比較用タイトルと話数が一致する。
    - 開始日時が異なり、録画区間が重ならない (接するのは可)。
    - 長さの差が 5 秒以内**かつ**短い方 / 長い方が 0.995 以上。
@@ -19,7 +19,7 @@
 
 ### 比較用タイトル
 
-元の `title` は変えず、比較用の文字列だけを作る。応答の `comparisonTitle` (話数を `#N` で表す) として返し、Web と CLI に表示する。
+元の `title` は変えず、比較用の文字列だけを作る。応答の `comparisonTitle` (話数を `#N` で表す) として返し、Web と CLI に表示する。以下の規則は `EpisodeTitle` (library 内部、I/O なし) にあり、再放送候補と別局候補で共有する。別局候補だけの補正 (枠名) は別にあり、再放送候補には効かない。
 
 - Unicode NFKC と空白の整理 (連続空白を 1 つに、前後を除去)。
 - 末尾の録画管理用フィールドを繰り返し除く: `.m2ts` (大小文字を問わない)、`[ID:…]` (`[ID:NULL]` を含む)、`[SV:…]`、`[SERVER:…]`。末尾以外にあるものは残す。
@@ -50,7 +50,7 @@
 ### 意図した取りこぼしと試行値
 
 - 同一放送の二重録画 A/B と、別日時の再放送 C がある場合は A/B だけを返し、C は出さない。A/B を整理した後の再検出では A/C が再放送候補になりうるが、保存済みの整理プランは黙って広げず STALE にする。
-- 局をまたぐ再放送、話数のない番組 (映画・ニュース・話数なしのシリーズ)、複数話の放送、副題の表記ゆれは候補にならない。
+- 局をまたぐ再放送は再放送候補にはならない (3 段階目の別局候補で扱う)。話数のない番組 (映画・ニュース・話数なしのシリーズ)、複数話の放送、副題の表記ゆれは候補にならない。
 - 5 秒 / 0.995 は #208 の調査で見つかった同一局の 15 組 (時間差 0.02〜3.51 秒、最小比約 0.99806) を見て決めた試行値で、独立した標本での検証は済んでいない。映像内容の同一性も確認していないので、画面では「再放送候補」と表示する。保守的な固定値とし、設定では変えられない (`--min-overlap` も効かない)。
 - バケット (チャンネル + 比較用タイトル + 話数) の中は組ごとに比べるので、バケットの大きさの 2 乗に比例する。1 つの回の録画は通常数件なので問題にならない。結果を変えてしまうバケットの件数上限は設けない。
 - 全ライブラリでの候補数・既存判定との差分・処理時間の確認は、`tvmcli duplicates --json` の読み取り専用の出力で行う (`reason` が `REBROADCAST` のグループが追加分。DB/NAS は変更しない)。
@@ -70,6 +70,52 @@
   ID の重複を除いた番組で検出し、既知の 15 組 (MyGO 19029/19030、マギアレコード 5325/5327・5332/5328、CSV の SYNDUALITY 12 組) がそれぞれちょうど 1 つの `REBROADCAST` グループであること、fixture と同じ負例 (上記) が同じグループに入らないこと (負例の ID が検索結果にない場合も失敗する)、特番・劇場版・一挙・複数話のタイトルが候補にならないこと、所属の重複がないこと、`SAME_BROADCAST`/`OVERLAP` が以前の判定と同じことを確かめる。全グループ・既知以外の追加候補 (`ADDITIONAL`)・最大バケット・処理時間を `library/build/reports/rebroadcast-validation/report.md` に、既知の組と負例の id/title/channel/recordedAt/duration だけを `fixture-candidate.json` に書く (出力先は `TSVIDEOS_REBROADCAST_REPORT` で変えられる)。`fixture-candidate.json` は内容を確認してから fixture を置き換えるためのもので、自動ではコミットしない。
 - 保存済みの検索結果は全ライブラリではない (`[再]` 検索は 1,025 件中 500 件)。この検証が通っても、本番での精度が示されたことにはならない。追加候補は人が確認し、独立した確認用の標本での検証は残る。
 
+## 別局の同一話候補 (OTHER_CHANNEL)
+
+3 段階目 (#209)。1・2 段階のどのグループにも入らなかった録画だけから、次をすべて満たすものを `OTHER_CHANNEL` にまとめる (純粋関数 `OtherChannelMatcher`、library 内部)。1・2 段階のメンバー・理由・推薦・相対順は変わらず、各番組は高々 1 つのグループに属する。
+
+- チャンネル (`channel`) が異なる。同時刻の放送 (同時ネット) も対象で、時間帯の条件はない。録画日時が分かり、長さが有限の正の値。
+- 比較用タイトルと話数が一致する。比較用タイトルは [再放送候補と同じ規則](#比較用タイトル) に、下記の枠名の除去だけを加えたもの。副題の省略・括弧の一括削除・部分一致・類似度は使わない。片方にだけ副題や宣伝文がある、副題が食い違う、シーズン・版 (`TV Edition` など) が違う、話数がない・複数話のものは候補にならない。
+- 長さの差が 5 秒以内**かつ**短い方 / 長い方が 0.995 以上 (別局用の定数 `OtherChannelMatcher.MAX_DURATION_DIFFERENCE_SECONDS` / `MIN_DURATION_RATIO`。再放送候補と同じ値だが、根拠は下記の別局の実データ)。
+- 比較用タイトル + 話数のバケットごとに条件を満たす組で連結成分を作り、成分の**すべての組**が条件を満たすときだけ採用する。同じチャンネルの 2 件は条件を満たさないので、同じチャンネルを 2 件以上含む成分と、A-B・B-C だけが合う連鎖は丸ごと候補にしない。結果は入力の順序によらない。
+
+推薦 (`recommendedId`) は既存の基準 (ドロップ数 → 状態 → 長さ → サイズ → ID) のままで、画質や完全性の保証ではない。地上波/BS/CS の固定の優先や、最長を完全版とみなす扱いはしない。解像度も推薦には使わない (画質と同じではなく、利用箇所間で推薦が食い違う原因になるため)。Web のレビューでは各メンバーのチャンネル・元のタイトル・録画日時・長さ・ドロップ数・状態・転送済みファイル (形式・サイズ・取得済みなら解像度) を並べ、編集・音声・字幕・内容の違いは人が再生して確かめる。推薦以外を残すこと、複数を残すこと、意図した重複として非表示にすることができる。画面の表示は「別局の同一話候補」で、内容の同一性は確認していない。
+
+### 枠名の除去 (別局候補だけ)
+
+局が番組名の前に付ける枠名のうち、実データで確認したものだけを、比較用タイトルの先頭から「枠名 + 空白」として除く (`OtherChannelMatcher.frameNames`)。現在は `アニメA・放送開始10周年` の 1 つだけ。除いた後に番組名が残らないもの (`アニメA・放送開始10周年 #1`) は候補にしない。先頭以外にあるもの、空白なしで番組名に続くものは除かない。再放送候補の比較用タイトルには効かない。`火アニバル`・`水曜アニメ・水もん`・`日５`・`アニメ` などの枠名らしい接頭辞も保存済みデータにあるが、別局の正例で確かめられていないので加えていない (加えるには、その枠の別局録画の実例で確かめる)。
+
+### 実データでの根拠 (#209)
+
+保存済みの `tvmcli search --json` の出力 (search-dr/kusuriya/madoka/marriage/mygo/rerun/synduality.json、#208 と同じもの。計 937 行・910 の異なる ID・24 チャンネル) を読み取り専用で調べた。調査に使った複製は、保持した項目 (id/title/channel/duration/recordedAt/status/drops/size/executedFileId) がすべて保存済みの出力と一致することを確かめてある (ファイルとしては項目を省いているのでバイト単位では同一でない)。
+
+- 正例 (タイトルの規則で一致するもの): 魔法少女まどか☆マギカの GR16 (2019 年、`魔法少女まどか☆マギカ#N`) と BSBS01_0 (2021 年、`アニメA・放送開始10周年　魔法少女まどか☆マギカ　＃N`) の #1〜#11 の 11 組。長さの差 0.03〜1.84 秒、最小比約 0.99898。この 11 組が枠名の規則を必要とする唯一の根拠で、#1〜#6 を規則の調整用、#7〜#11 を確認用に分けた。どちらも同じシリーズなので独立した標本ではない。
+- 長さの補助的な根拠 (タイトルの規則では一致しないが、同じ枠を別局で録画したもの): マギアレコード 2nd SEASON の GR16/BSBS09_0 同時放送 12 組 (話数・特番・総集編、GR16 側に話数がない) と、新プロジェクトＸの GR24/GR25 同時放送 1 組。差 0.02〜3.51 秒。
+- 同じ比較用タイトルでも長さが大きく違う別局の組 (新プロジェクトＸ 3 組、58.8〜59.8 秒) は、編集・枠の長さ・録画の長さが違う可能性があり、内容の一致を確かめていないので候補にしない。2026 年 10 月以降の録画は同じ枠でも約 1,685 秒と短くなっている (薬屋のひとりごと BSBS13_0 など)。マリッジトキシン #01 の CSCS16/GR17 (121.4 秒差) は同じタイトルの組ではない。片方にだけ副題と宣伝文があり比較用タイトルが異なるので、長さの条件以前にタイトルで別になる (長さを広げても候補にならない)。
+- 負例 (fixture の `notTogether`): `日５「魔法少女まどか☆マギカ　始まりの物語／永遠の物語」TV Edition` の #01/#02 (再編集版。長さは条件内) と GR16/BSBS01_0 の同じ話数、別の話数の組、話数のないマギアレコード 2nd SEASON の GR16 と新プロジェクトＸ、`Dr．STONE第4期 #13` と `Dr．STONE SCIENCE FUTURE ＃13` (同じシーズンの別名表記)、マリッジトキシン #01。
+- 意図した取りこぼし: 話数のない番組 (同時ネットのドキュメンタリー・SPY×FAMILY の `[再]` など)、片側だけ話数がない組 (マギアレコード 2nd SEASON)、シリーズの別名 (Dr.STONE 第4期/SCIENCE FUTURE)、副題・宣伝文の有無が違う組、未確認の枠名が付く組、長さの差が 5 秒を超える組。同一放送 A/B と別局の C がある場合は A/B だけを返し、C は出さない (再放送候補の組と別局の C も同じ)。
+- 保存済みデータは全ライブラリではない (`[再]` 検索は 1,025 件中 500 件、ほかは検索語ごとの全件)。別局の正例は 1 シリーズだけで、映像内容の一致は確認していない。全ライブラリでの候補数・追加候補は `tvmcli duplicates --json` の `reason` が `OTHER_CHANNEL` のものを人が確認する。
+
+### 回帰 fixture と保存済みデータでの検証 (#209)
+
+- `library/src/test/resources/rebroadcast/issue-209-fixture.json` (すべて実際の録画、`source: "actual"`、id/channel/recordedAt/duration/title だけ) を `OtherChannelFixtureTest` が常に `DuplicateProgramCommand.detect` に通し、まどか☆マギカの 11 組だけが `OTHER_CHANNEL` (各組 GR16 と BSBS01_0 が 1 件ずつ) になり、負例が同じグループに入らず、ほかの理由のグループがなく、入力の順序で結果が変わらず、第 1 段階が #208 以前の判定と同じことを確かめる。#208 の fixture に `OTHER_CHANNEL` が増えないことも確かめる。
+- 規則の境界 (枠名だけ・枠名が先頭以外、副題の省略、シーズン・版、複数話、長さの境界と不明値、同時放送、同じチャンネルを含む成分、連鎖、3 局) は `OtherChannelMatcherTest`・`DuplicateProgramCommandTest` の合成データで確かめる。
+- 保存済みの出力がある場合は `OtherChannelDataValidationTest` を同じ環境変数 `TSVIDEOS_REBROADCAST_DATA` で読み取り専用に実行できる (既定では無効)。調整用・確認用の組がそれぞれちょうど 1 つの `OTHER_CHANNEL` であること、負例、所属の重複がないこと、`SAME_BROADCAST`/`OVERLAP` が凍結コピーと同じで `REBROADCAST` が 2 段階目だけの結果と同じこと、fixture の行がデータと一致することを確かめ、`other-channel-report.md` に全 `OTHER_CHANNEL` グループ・追加候補・処理時間を書く。
+
+  ```powershell
+  $env:TSVIDEOS_REBROADCAST_DATA = "<保存先のディレクトリ>"
+  ./gradlew library:test --tests "me.pinfort.tsvideos.library.api.OtherChannelDataValidationTest"
+  ```
+
+  処理時間は、保存済みの部分集合、最も件数の多いチャンネルの録画、部分集合を 32 倍に複製した合成ライブラリに対する検出そのもの (`DuplicateProgramCommand.group`、録画の一覧は計測の外で用意する) のメモリ上の時間 (中央値) で、DB の読み取りやロック待ちは含まない。合成ライブラリは実際の録画ではない: 複製ごとに ID をずらし、録画日時を 4,000 日ずつずらし (複製どうしが同一放送・重複にならないように)、タイトルの番組名の前 (比較キーと同じ正規化で、先頭の空白と取り除かれる放送属性 `[新]` などの後、枠名があればその区切りの後) に `[cN]` を入れる (複製どうしが再放送・別局候補にならないように。`[新]アニメA・放送開始10周年　…` のように属性が枠名の前にあっても枠名が取り除かれ、6056 と 6065 の組が各複製に残ることを常時実行のテストで確かめる)。複製でキーの有無が変わる録画がないことも確かめる。各複製の中の関係は変わらないので、すべての理由のグループ数がちょうど 32 倍になり、各複製のグループが元のグループと同じであることも確かめる。
+
+- DB を含む時間は、`DuplicateDeletionCommandTest` の任意実行のテスト (`TSVIDEOS_DUPLICATE_TIMING=1` のときだけ有効、既定では無効) で測る。Testcontainers の MariaDB に合成の録画 (関係のない録画が既定 30,000 件、`TSVIDEOS_DUPLICATE_TIMING_ROWS` で変更。これに同一放送・再放送候補・別局候補を 20 組ずつ) を入れ、NAS はモックにして、DB の読み取りだけ (`ProgramInventory.recordedPrograms`)、読み取りを含む全体の `detect()` (`OTHER_CHANNEL` の対象の再検出と同じ処理)、`detectOnChannel`、`OTHER_CHANNEL` と `SAME_BROADCAST` の対象 1 件ずつのプレビューと保護付き削除 (`apply`。ロック・残す番組の確認・再検出・DB の削除・モックの NAS 呼び出しを含む) を別々に測り、`library/build/reports/rebroadcast-validation/duplicate-deletion-timing.md` に書く。接続先が Testcontainers でない (`spring.datasource.url` が `jdbc:tc:` で始まらない、または `DATABASE_CONNECTION` が設定されている) ときは何も書き込まずに失敗する。件数は本番のライブラリの規模を仮定した値で、ほかの書き込みによるロック待ちも含まないので、本番のロック保持時間・ロック待ち・ライブラリ全体の遅延が分かったことにはならない。
+
+  ```powershell
+  $env:TSVIDEOS_DUPLICATE_TIMING = "1"
+  ./gradlew library:test --tests "me.pinfort.tsvideos.library.api.DuplicateDeletionCommandTest"
+  ```
+
 ## 重複レビューからの削除 (保持保証)
 
 Web の重複レビューの削除は、汎用の一括操作 (`/api/v1/programs/bulk/*`) ではなく、重複専用の操作を使う。
@@ -84,8 +130,9 @@ Web の重複レビューの削除は、汎用の一括操作 (`/api/v1/programs
 - 実行は `BulkLibraryCommand.applyGuarded` を使い、各削除対象のトランザクションで台帳全体をロックした後に次を確かめる。満たさなければその対象は `STALE` で、NAS にも DB にも触れない。
   - そのグループの残す番組がすべて存在し、プレビュー時と同じ指紋であること。
   - そのグループが、プレビュー時の理由と「メンバー − この呼び出しで削除に成功した番組」で現在も検出されること。途中の削除でグループが分かれた・理由が変わった・メンバーが増えた場合は、以降の対象を削除しない。たとえば OVERLAP の 1-2-3 (1-2、2-3 だけが十分に重なる) で 2 を削除すると 1 と 3 は別れるので、3 は STALE になる。同一放送の A/B と再放送 C で B を削除した後に A/C が再放送候補として現れても、それは別のグループなので同じ呼び出しでは削除しない。
-  - この再検出は対象ごとに毎回ロックの内側で行い、前の対象の結果を使い回さない。読むのは、そのグループの残す番組 (直前に読み直し、指紋が一致したもの) のチャンネルの録画だけ (`DuplicateProgramCommand.detectOnChannel`、`ProgramInventory.recordedProgramsOnChannel`)。同一放送・重複・再放送候補のどれもチャンネル内でしか作られないので、結果はライブラリ全体の検出のそのチャンネル分と一致する。チャンネルはリクエストからは受け取らない。番組名では絞らない (重なりによるまとまりや、第 1 段階のグループに入った録画の除外がタイトルをまたいで決まるため)。
-  - ロックは従来どおり台帳全体なので、各対象のトランザクションの間はほかの台帳の書き込み (パイプラインの登録・通常の一括操作など) を待たせる。チャンネルで絞るのは、ロックを持つ時間のうち検出の読み取りを短くするためだけ。
+  - この再検出は対象ごとに毎回ロックの内側で行い、前の対象の結果を使い回さない。`SAME_BROADCAST`/`OVERLAP`/`REBROADCAST` で読むのは、そのグループの残す番組 (直前に読み直し、指紋が一致したもの) のチャンネルの録画だけ (`DuplicateProgramCommand.detectOnChannel`、`ProgramInventory.recordedProgramsOnChannel`)。同一放送・重複・再放送候補のどれもチャンネル内でしか作られず、3 段階目はこれらを変えないので、結果はライブラリ全体の検出のそのチャンネル分と一致する (`detectOnChannel` は `OTHER_CHANNEL` を返さない)。チャンネルはリクエストからは受け取らない。番組名では絞らない (重なりによるまとまりや、第 1 段階のグループに入った録画の除外がタイトルをまたいで決まるため)。
+  - `OTHER_CHANNEL` の対象では、ライブラリ全体の `DuplicateProgramCommand.detect()` を対象ごとに実行する。メンバーの局だけを読むと、第 3 の局に同じ回の録画が増えたこと (グループが 3 件になる) や、残す番組が同じ局の再放送候補に移ったこと (別局グループが消える) を見落とすため。どちらも STALE になる。残す番組の指紋確認と「メンバー − 成功済みの削除」との完全一致は他の理由と同じ。残す番組が 1 つの局にある必要はなく、3 局のグループで 2 局の録画を残して 1 件を削除することもできる (`DuplicateDeletionCommandTest` が MariaDB で確かめる)。
+  - ロックは従来どおり台帳全体なので、各対象のトランザクションの間はほかの台帳の書き込み (パイプラインの登録・通常の一括操作など) を待たせる。チャンネルで絞るのは、ロックを持つ時間のうち検出の読み取りを短くするためだけ。`OTHER_CHANNEL` の対象は全体の検出を読むぶん、1 件あたりのロック保持時間が長い (全体の録画の読み取り + 検出)。初版ではキャッシュや候補の絞り込みはしない (絞り込むなら、全体の検出と同じ結果になることを示してから)。
 - 2 つのリクエストが互いの残す番組を削除しようとしても、ロックで直列化され、後の方は残す番組が消えているので STALE になる。通常の一括削除が残す番組を削除中でも、ロック待ちの後に STALE になる。
 - 中断 (シャットダウン等) では次の対象を始めず、中断した対象は「一部の NAS ファイルが消えている可能性がある」FAILED、未着手の対象は「変更なし」の FAILED として返す。
 - Web は全件選択時に警告し、プレビューと実行を無効にする。ただし保持保証はサーバー側の検証による。確認ダイアログには残す番組の一覧を出す。
@@ -93,13 +140,15 @@ Web の重複レビューの削除は、汎用の一括操作 (`/api/v1/programs
 
 整理プラン (`tvmcli cleanup`) は従来どおり各グループの `keepId` を 1 件残し、`--keep` で推薦と異なる 1 件を残せる。対象の説明文 `Duplicate candidate (<理由>); preserve selected copy <keepId>` に検出理由を含めるので、理由が変わったグループは適用時に STALE になる。プランの形式 (`schemaVersion` 1) は変えていない。説明文が以前の版 (`Duplicate broadcast candidate; …`) のプランは適用時に STALE になるので、作り直す。
 
+`--channel X` を付けた重複の整理プランは、**メンバー全員が X の**グループだけを対象にする (#209)。`OTHER_CHANNEL` のグループは局をまたぐので、X で切り取ったり、X 以外の局の録画を削除対象にしたりはしない (どの局の `--channel` でも対象外)。局をまたぐグループを整理するには `--channel` なしでプランを作り、`--keep` で残す番組を選ぶ。同一局のグループは従来どおり。`--channel` 付きのプランは適用時も同じ条件で作り直して比べるので、別局のグループが増減しても影響を受けない。`--channel` なしのプランで別局のグループに第 3 の局の録画が増えた・理由が変わった場合は、作り直したプランと一致しないので STALE になる。
+
 ## マイグレーション
 
 この機能を含む manager のビルドをデプロイする前に、既存の DB へ `database-schema/src/main/resources/db/migrations/078_library_duplicate_dismissal.sql` を一度適用する (077 の後。`IF NOT EXISTS` なので再実行しても安全)。追加するのは `library_duplicate_dismissal` テーブルだけで、既存のテーブルは変更しない。processor は参照しないので、processor の停止は不要。Testcontainers のスキーマと `docker-compose.test.yml` は同じファイルから生成/マウントする。
 
 ## グループの同一性
 
-- 非表示の単位は「検出理由 (`SAME_BROADCAST` / `OVERLAP` / `REBROADCAST`) + メンバーの番組 ID の集合」。`reason` は文字列で保存するので、`REBROADCAST` の追加にスキーマ変更はない。ID は昇順に並べたカンマ区切り (`1,2,3`) で保存し、生成列 `group_key` (その SHA-256) に一意索引を張る。
+- 非表示の単位は「検出理由 (`SAME_BROADCAST` / `OVERLAP` / `REBROADCAST` / `OTHER_CHANNEL`) + メンバーの番組 ID の集合」。`reason` は文字列で保存するので、`REBROADCAST`・`OTHER_CHANNEL` の追加にスキーマ変更はない。ID は昇順に並べたカンマ区切り (`1,2,3`) で保存し、生成列 `group_key` (その SHA-256) に一意索引を張る。
 - 推薦 (`recommendedId`) や並び順は同一性に含めない。ドロップ数・状態・長さ・サイズが変わって残す候補が入れ替わっても、非表示のまま。
 - メンバーが増えた・減った、または検出理由が変わったグループは、保存済みの行と一致しないので再びレビューに表示される。`program_ids` には `program` への FK を付けない (メンバーを 1 件削除したときに、保存済みの同一性が別の小さいグループに縮んで一致してしまわないようにするため)。一致しなくなった行は設計上そのまま残るが、表示には影響しない ([古くなった非表示の行](#古くなった非表示の行))。
 - 番組を作り直した (reset して再処理した) 場合は番組 ID が変わるので、別のグループとして表示される。
@@ -108,7 +157,7 @@ Web の重複レビューの削除は、汎用の一括操作 (`/api/v1/programs
 
 | メソッド・パス | 内容 |
 | --- | --- |
-| `GET /api/v1/programs/duplicates?includeHidden=false` | 既定では非表示のグループを除く。`includeHidden=true` で非表示のグループも返す。各グループに `hidden` (boolean) と `comparisonTitle` (`REBROADCAST` のときだけ値があり、それ以外は `null`) が付く。正式な入力値は `true`/`false`。boolean として解釈できない値は 400 |
+| `GET /api/v1/programs/duplicates?includeHidden=false` | 既定では非表示のグループを除く。`includeHidden=true` で非表示のグループも返す。各グループに `hidden` (boolean) と `comparisonTitle` (`REBROADCAST`・`OTHER_CHANNEL` のときだけ値があり、それ以外は `null`) が付く。各メンバーの `program` には元の `title`・`channel` が、`availableFiles` には取得済みなら `width`/`height` が含まれる。正式な入力値は `true`/`false`。boolean として解釈できない値は 400 |
 | `POST /api/v1/programs/duplicates/hide` | 本文 `{"reason":"SAME_BROADCAST","programIds":[1,2]}` のグループを非表示にする |
 | `POST /api/v1/programs/duplicates/restore` | 同じ本文のグループを再表示する |
 
@@ -150,14 +199,14 @@ Web の重複レビューの削除は、汎用の一括操作 (`/api/v1/programs
 | Web `/duplicates` | 非表示のグループは「非表示にした重複グループ」の欄に分けて表示し、そこから再表示できる。削除対象には選べず、非表示にしたグループのメンバーは削除の選択から外れる (再表示しても選択は戻らない)。重複削除 API 自体は非表示のグループも受け付ける (非表示は表示だけのラベルのため) |
 | 重複検出 `DuplicateProgramCommand.detect` | 変わらない (検出の判定は同じ) |
 | `tvmcli duplicates` | 除かない (検出結果をそのまま出す) |
-| `tvmcli cleanup plan --duplicates` (`CleanupPlanCommand`) | 除かない。`DuplicateReviewCommand.review(includeHidden = true)` を使うので、非表示のグループも整理候補に入る。整理プランは人が JSON を確認してから適用するので、意図した重複を残すには `--keep` や `--channel` で調整するか、対象から外す |
+| `tvmcli cleanup plan --duplicates` (`CleanupPlanCommand`) | 除かない。`DuplicateReviewCommand.review(includeHidden = true)` を使うので、非表示のグループも整理候補に入る。整理プランは人が JSON を確認してから適用するので、意図した重複を残すには `--keep` や `--channel` で調整するか、対象から外す (`--channel` は全員がその局のグループだけを対象にするので、`OTHER_CHANNEL` は `--channel` なしのプランで扱う) |
 | `GET /api/v1/storage` / `/storage` の重複の整理候補と見積もり | 除かない (`detect` を直接使う) |
 
 CLI と保存領域の概要を非表示に合わせる場合は、整理の対象が黙って変わらないよう、別の Issue で明示的なオプションとして扱う。
 
 ## 実装
 
-- `library` の `DuplicateProgramCommand` (2 段階の検出 `detect`、削除時の再検出用に 1 チャンネル分だけを判定する internal の `detectOnChannel`)、internal の `RebroadcastMatcher` (比較用タイトルと再放送候補のグループ化、I/O なし)。
+- `library` の `DuplicateProgramCommand` (3 段階の検出 `detect`、削除時の再検出用に 1 チャンネル分だけを判定する internal の `detectOnChannel`。後者は `OTHER_CHANNEL` を返さない)、internal の `EpisodeTitle` (共有の比較用タイトルと、全組が条件を満たす成分だけを採るグループ化、I/O なし)、`RebroadcastMatcher` (再放送候補)、`OtherChannelMatcher` (別局候補と枠名の除去)。
 - `library` の `DuplicateReviewCommand` (`review(includeHidden)`、`hide`、`restore`)、ドメイン型 `DuplicateGroupIdentity`、例外 `StaleDuplicateGroupException`。永続化は internal の `DuplicateDismissalMapper` (台帳テーブルを読まない)。
 - `library` の `DuplicateDeletionCommand` (`preview`、`apply`)、ドメイン型 `DuplicateDeletionRequest`/`DuplicateDeletionPlan`/`DuplicateDeletionApplyRequest`。削除とロックは `BulkLibraryCommand.applyGuarded` に任せる。
 - `manager:api` の `DuplicateReviewController` と `DuplicateDeletionController` は入力の検証と HTTP ステータスの対応付けだけを行う。

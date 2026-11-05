@@ -134,7 +134,7 @@ flowchart TD
 | `storage` | NAS の公開契約 (`storage.api`: `NasStore`、`NasComponent`、`NasFileVerifier`、`VerifiedUploadNas`、SHA-256 など) と internal の Samba (jcifs) 実装、`samba.*` 設定。プロジェクト依存なし |
 | `database-schema` | 番号付き migration (スキーマの単一の情報源)、保守用 SQL、テスト DDL の生成 (`generateTestDdl`) とテスト用データ。データ操作 API も本番の依存先も持たない |
 | `catalog` | 台帳 (`executed_file` / `program` / `splitted_file` / `created_file`) と検出タグ/実施記録の操作。両アプリが使う記録の整合性と、台帳行のロック・削除・移動の協調操作 |
-| `library` | manager 側の管理機能: 番組検索 (手動コレクション/タグでの絞り込み)、統計、ストレージ概要、手動分類、重複検出 (同一放送・時間帯重複・再放送候補)/重複レビュー・保持保証付きの重複削除、一括操作、整理プラン、健全性・整合性検証 |
+| `library` | manager 側の管理機能: 番組検索 (手動コレクション/タグでの絞り込み)、統計、ストレージ概要、手動分類、重複検出 (同一放送・時間帯重複・再放送候補・別局の同一話候補)/重複レビュー・保持保証付きの重複削除、一括操作、整理プラン、健全性・整合性検証 |
 | `diagnostics` | DB/NAS の環境診断。Spring コンテキストなしで組み立てられ、`tvmcli doctor` と `tvpcli preflight` が使う |
 | `processing` | processor 側の処理: パイプライン、エンコード後処理、リセット、処理ジョブの所有権、処理履歴、録画品質、再試行、中断、検証付きアップロード、preflight、外部ツール/shell、TS 解析、Slack 通知 |
 | `console-common` | 両 CLI が共有する Clikt/端末入出力の部品と `--version` の情報 (`ApplicationVersion`) |
@@ -286,7 +286,7 @@ DB は MariaDB 1 つで、全テーブルの DDL は `database-schema` の [db/m
 | 台帳 | `executed_file`、`program`、`splitted_file`、`created_file`、`created_file_path_guard`、`created_file_chapter` | `catalog` | 録画・番組・分割ファイル・作成ファイル (NAS 上の保管先、解像度、チャプタ) |
 | 検出タグ | `executed_file_tag`、`executed_file_check` | `catalog` | 検出処理が付けたタグと、実行した検出処理の記録。「検出なし」と「未検査」を区別する。新しい検出処理は定数を加えて `ExecutedFileTagCommand.recordCheck` を呼ぶだけで、スキーマ変更は要らない |
 | 手動分類 | `library_collection`、`library_tag`、`library_collection_program`、`library_tag_program` | `library` | 運用者が付けるコレクション/手動タグ。検出タグとは別物 ([library-organization.md](../backend/docs/library-organization.md)) |
-| 重複レビューの非表示 | `library_duplicate_dismissal` | `library` | 意図した重複として非表示にした重複グループ (検出理由 `SAME_BROADCAST`/`OVERLAP`/`REBROADCAST` + 番組 ID の集合)。レビューの表示だけに効き、検出・整理プラン・保存領域の概要は変えない ([duplicate-review.md](../backend/docs/duplicate-review.md)) |
+| 重複レビューの非表示 | `library_duplicate_dismissal` | `library` | 意図した重複として非表示にした重複グループ (検出理由 `SAME_BROADCAST`/`OVERLAP`/`REBROADCAST`/`OTHER_CHANNEL` + 番組 ID の集合)。レビューの表示だけに効き、検出・整理プラン・保存領域の概要は変えない ([duplicate-review.md](../backend/docs/duplicate-review.md)) |
 | 健全性 | `health_verification_run`、`health_verification_finding` | `library` | 明示的な NAS 検証の実行と結果 ([library-health.md](../backend/docs/library-health.md)) |
 | 処理ジョブ | `processing_job` | `processing` | 録画 1 件の処理状況と所有権。状態は CLAIMED / RETRYABLE / QUARANTINED / SUBMISSION_UNKNOWN / SUBMITTED / REJECTED / COMPLETED / RESETTING ([processing-idempotency.md](../backend/docs/processing-idempotency.md)) |
 | 処理履歴 | `processing_history_identity`、`processing_attempt`、`processing_stage_event` | `processing` | 試行と段階の記録。診断用の証拠で、ファイル削除や外部操作の再実行の根拠にはしない ([processing-history.md](../backend/docs/processing-history.md)) |

@@ -29,6 +29,22 @@ describe("duplicate deletion API", () => {
     });
   });
 
+  it("previews an other-channel group, keeping several of its members", async () => {
+    const groups = [{ reason: "OTHER_CHANNEL" as const, programIds: [1, 2, 3], deleteIds: [3] }];
+    await previewDuplicateDeletion(groups);
+    expect(fetchJson).toHaveBeenCalledWith(
+      "/api/v1/programs/duplicates/delete/preview",
+      expect.objectContaining({ body: JSON.stringify({ groups }) }),
+    );
+  });
+
+  it("refuses an all-selected other-channel group without calling the server", async () => {
+    await expect(
+      previewDuplicateDeletion([{ reason: "OTHER_CHANNEL", programIds: [1, 2], deleteIds: [1, 2] }]),
+    ).rejects.toThrow();
+    expect(fetchJson).not.toHaveBeenCalled();
+  });
+
   it("applies only the reviewed groups with target and kept fingerprints", async () => {
     const plan: DuplicateDeletionPlan = {
       request: { ids: [2], action: "DELETE" },

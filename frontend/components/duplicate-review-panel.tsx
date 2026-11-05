@@ -163,6 +163,14 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                   」と話数が一致し、録画時間がほぼ同じ録画です。内容が同一であることや、どれが初回放送かは確認していません。
                 </p>
               )}
+              {group.reason === "OTHER_CHANNEL" && (
+                <p className="mt-1 text-sm">
+                  異なるチャンネル（{group.members.map(({ program }) => program.channel).join(" / ")}
+                  ）で、比較用タイトル「{group.comparisonTitle}
+                  」と話数が一致し、録画時間がほぼ同じ録画です（各チャンネル 1
+                  件）。同じ内容であることは確認していません。局によって編集・音声・字幕・画質が異なることがあるため、元のタイトルと各項目を比べ、必要なら再生して確かめてください。推薦は下記の既存の基準によるもので、画質や完全性を保証しません。複数を残すこともできます。
+                </p>
+              )}
               <p className="mt-1 text-sm">
                 非表示にしても録画とファイルは削除されません。録画が増減してグループの構成が変わると、再びここに表示されます。
               </p>
@@ -237,6 +245,16 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                     </tr>
                     <tr className="border-t">
                       <th scope="row" className="p-2">
+                        元のタイトル
+                      </th>
+                      {group.members.map(({ program }) => (
+                        <td key={program.id} className="break-all p-2">
+                          {program.title}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="border-t">
+                      <th scope="row" className="p-2">
                         録画日時（録画環境のローカル時刻）
                       </th>
                       {group.members.map(({ program }) => (
@@ -286,7 +304,8 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                               {availableFiles.map((file) => (
                                 <li className="break-all" key={file.id}>
                                   {file.file}（{file.mime ?? "形式不明"} /{" "}
-                                  {file.size.toLocaleString("ja-JP")} bytes）
+                                  {file.size.toLocaleString("ja-JP")} bytes
+                                  {file.width && file.height ? ` / ${file.width}×${file.height}` : ""}）
                                 </li>
                               ))}
                             </ul>

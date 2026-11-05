@@ -41,7 +41,12 @@ class CleanupPlanCli(
 ) : CliktCommand(name = "plan") {
     private val duplicates by option("--duplicates").flag()
     private val before by option("--recorded-before", help = "exclusive ISO local recording cutoff")
-    private val channel by option("--channel", help = "exact channel")
+    private val channel by option(
+        "--channel",
+        help =
+            "exact channel; with --duplicates only groups whose members are all on it (OTHER_CHANNEL groups span " +
+                "channels: plan them without --channel and choose the kept copy with --keep)",
+    )
     private val keep by option("--keep", help = "override kept copy ID (repeat per group)").long().multiple()
     private val json by option("--json", help = "JSON is always emitted").flag()
 

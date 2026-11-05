@@ -9,6 +9,7 @@ import me.pinfort.tsvideos.catalog.api.ProgramCommand
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.console.common.component.TerminalTextColorComponent
 import me.pinfort.tsvideos.library.api.DuplicateProgramCommand
+import me.pinfort.tsvideos.library.domain.DuplicateGroup
 import me.pinfort.tsvideos.manager.console.component.ReadJson
 import org.springframework.stereotype.Component
 import java.time.format.DateTimeFormatter
@@ -22,8 +23,10 @@ class Duplicates(
     private val terminalTextColorComponent: TerminalTextColorComponent,
 ) : ReadCommand() {
     override fun help(context: Context): String =
-        "detect programs recorded from the same broadcast (SAME_BROADCAST, OVERLAP) and same-channel single-episode " +
-            "rebroadcast candidates (REBROADCAST: matched by title, episode and duration; content is not verified)"
+        "detect programs recorded from the same broadcast (SAME_BROADCAST, OVERLAP), same-channel single-episode " +
+            "rebroadcast candidates (REBROADCAST) and the same single episode recorded on other channels (OTHER_CHANNEL; " +
+            "only programs in no earlier group, one per channel). REBROADCAST/OTHER_CHANNEL match title, episode and " +
+            "duration only; content is not verified and the recommended copy follows the usual keep order, not quality"
 
     private val datetimeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
 
@@ -31,7 +34,7 @@ class Duplicates(
         "--min-overlap",
         help =
             "minimum overlap ratio against the longer recording to treat as duplicate; applies to SAME_BROADCAST/OVERLAP " +
-                "only, REBROADCAST uses its own fixed duration rule",
+                "only, REBROADCAST and OTHER_CHANNEL use their own fixed duration rules",
     ).double()
         .default(DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO)
         .check("must be greater than 0 and at most 1") { it > 0.0 && it <= 1.0 }
@@ -64,12 +67,19 @@ class Duplicates(
         }
 
         groups.forEach { group ->
-            println("[${group.reason}] ${group.recommended.channelName}")
-            group.comparisonTitle?.let { println("rebroadcast candidate; compared title: $it") }
+            if (group.reason == DuplicateGroup.Reason.OTHER_CHANNEL) {
+                println("[${group.reason}] ${group.programs.joinToString(" / ") { "${it.channelName} (${it.channel})" }}")
+                println("other-channel candidate (content not verified); compared title: ${group.comparisonTitle}")
+            } else {
+                println("[${group.reason}] ${group.recommended.channelName}")
+                group.comparisonTitle?.let { println("rebroadcast candidate; compared title: $it") }
+            }
             println("keep\tid\trecorded_at\t\tduration\tdrops\tstatus\t\ttsExists\tname")
             group.programs.forEach {
                 val keep = if (it == group.recommended) "*" else ""
                 println(decorateProgramInfo(it.drops, "$keep\t${programInfo(it)}"))
+                // Other-channel members differ in channel and title wording; show both so a person can compare them.
+                if (group.reason == DuplicateGroup.Reason.OTHER_CHANNEL) println("\t\tchannel ${it.channel}; title ${it.title}")
             }
             println()
         }
