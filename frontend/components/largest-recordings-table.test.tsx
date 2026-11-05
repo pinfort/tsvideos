@@ -6,7 +6,7 @@ describe("LargestRecordingsTable", () => {
   it("links each recording and shows its registered bytes", () => {
     render(<LargestRecordingsTable recordings={[{ id: 7, name: "大きい番組", registeredBytes: 3000000000 }]} />);
     expect(screen.getByRole("link", { name: "大きい番組" })).toHaveAttribute("href", "/programs/7");
-    expect(screen.getByText("3,000,000,000 bytes")).toBeInTheDocument();
+    expect(screen.getByText("2.8 GiB")).toBeInTheDocument();
   });
 
   it("says when there are no recordings", () => {

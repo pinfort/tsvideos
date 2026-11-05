@@ -11,7 +11,13 @@ describe("DuplicateCandidatesList", () => {
     expect(screen.getByText("録画時間の重複")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "保持番組" })).toHaveAttribute("href", "/programs/1");
     expect(screen.getByRole("link", { name: "整理番組" })).toHaveAttribute("href", "/programs/2");
-    expect(screen.getByText(/登録 100 bytes/)).toBeInTheDocument();
+    expect(screen.getByText(/登録 100 B）/)).toBeInTheDocument();
+  });
+
+  it("shows large removable sizes in readable units", () => {
+    const large = { id: 3, name: "大きい整理番組", registeredBytes: 3000000000 };
+    render(<DuplicateCandidatesList candidates={[{ reason: "OVERLAP", retained: kept, removable: [large] }]} />);
+    expect(screen.getByText(/登録 2\.8 GiB）/)).toBeInTheDocument();
   });
 
   it("labels same-broadcast groups", () => {
