@@ -25,8 +25,10 @@ import org.springframework.transaction.support.TransactionTemplate
  * and the server, not only the UI, keeps at least one member of each: an all-selected group is rejected, and each
  * deletion runs [BulkLibraryCommand.applyGuarded]'s guard under the whole-ledger lock, re-checking that the group is
  * still detected as previewed (minus this call's successful deletions) and that its kept members still exist unchanged.
- * That re-detection is fresh for every target but reads only the kept members' channel (all groups are channel-local);
- * the lock is still whole-ledger, so other ledger writers keep waiting for each target's transaction.
+ * That re-detection is fresh for every target. For SAME_BROADCAST/OVERLAP/REBROADCAST it reads only the kept members'
+ * channel (those groups are channel-local); for OTHER_CHANNEL (#209) it runs the whole-library [DuplicateProgramCommand.detect],
+ * because a member can join from any other channel. The lock is whole-ledger either way, so other ledger writers keep
+ * waiting for each target's transaction (longer for OTHER_CHANNEL targets).
  */
 @Component
 class DuplicateDeletionCommand(
@@ -110,16 +112,25 @@ class DuplicateDeletionCommand(
                 "A recording to keep was deleted or changed; nothing was deleted. Preview again",
             )
         }
-        // Every group lies on one channel, so detecting on the kept members' channel (read just now under the lock and
-        // matching the preview fingerprints, never taken from the request) gives exactly the groups detect() would there.
-        // Kept members on different channels cannot form a detected group.
-        val channel = kept.mapNotNull { it.snapshot?.program?.channel }.distinct().singleOrNull()
         val expected = group.programIds.filter { it !in completed }
-        if (channel == null || key(group.reason, expected) !in keys(duplicates.detectOnChannel(channel))) {
-            return BulkOutcome(id, BulkOutcomeStatus.STALE, "Duplicate group changed; nothing was deleted. Preview again")
-        }
-        return null
+        val detected =
+            if (group.reason == DuplicateGroup.Reason.OTHER_CHANNEL) {
+                // An other-channel group spans channels and can gain a member from any further channel, so only the
+                // whole-library detection is exact. Fresh for every target, never cached across targets.
+                duplicates.detect()
+            } else {
+                // The other groups lie on one channel, so detecting on the kept members' channel (read just now under the
+                // lock and matching the preview fingerprints, never taken from the request) gives exactly the groups
+                // detect() would there. Kept members on different channels cannot form such a group.
+                val channel =
+                    kept.mapNotNull { it.snapshot?.program?.channel }.distinct().singleOrNull()
+                        ?: return stale(id)
+                duplicates.detectOnChannel(channel)
+            }
+        return if (key(group.reason, expected) in keys(detected)) null else stale(id)
     }
+
+    private fun stale(id: Long) = BulkOutcome(id, BulkOutcomeStatus.STALE, "Duplicate group changed; nothing was deleted. Preview again")
 
     private fun detectedKeys(): Set<String> = keys(duplicates.detect())
 

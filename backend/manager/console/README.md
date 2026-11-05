@@ -49,14 +49,18 @@ NAS 上の実際の整合性チェックではない。
 `duration`、文字列の `file`、`recordedAt`、`channel`、`title`、`channelName`、
 および `status` (`REGISTERED`、`DROPCHECKED`、`SPLITTED`) を持つ。
 
-各重複グループは、文字列の `reason` (`SAME_BROADCAST`、`OVERLAP`、`REBROADCAST` のいずれか)、
-null 許容の文字列 `comparisonTitle` (`REBROADCAST` のときだけ、判定に使った比較用タイトル)、整数の
+各重複グループは、文字列の `reason` (`SAME_BROADCAST`、`OVERLAP`、`REBROADCAST`、`OTHER_CHANNEL` のいずれか)、
+null 許容の文字列 `comparisonTitle` (`REBROADCAST`・`OTHER_CHANNEL` のときだけ、判定に使った比較用タイトル)、整数の
 `recommendedId`、整数配列の `candidateIds` (その他のメンバー)、および推奨順の `programs`
-(それぞれ `tsExists` を持つ) を持つ。`REBROADCAST` は同一チャンネル・単一話の再放送候補で、
-タイトル・話数・長さだけで判定しており、内容の同一性は確認していない。通常の出力では
-`rebroadcast candidate; compared title: …` の行が付く。`--min-overlap` は
-`SAME_BROADCAST`/`OVERLAP` の判定だけに効き、再放送候補の長さの条件 (差 5 秒以内かつ比 0.995 以上) は変わらない。
-判定規則と意図した取りこぼしは [duplicate-review.md](../../docs/duplicate-review.md#再放送候補-rebroadcast) を参照。
+(それぞれ `channel`・元の `title`・`tsExists` を持つ) を持つ。`REBROADCAST` は同一チャンネル・単一話の再放送候補、
+`OTHER_CHANNEL` は前の段階のどのグループにも入らなかった録画のうち、異なるチャンネル (同時放送を含む、各チャンネル 1 件) で
+同じ単一話と判定された候補で、どちらもタイトル・話数・長さだけで判定しており、内容の同一性は確認していない。
+推奨 (`recommendedId`) は既存の順序 (ドロップ数 → 状態 → 長さ → サイズ → ID) によるもので、画質や完全性の保証ではない。
+通常の出力では `rebroadcast candidate; compared title: …` の行、`OTHER_CHANNEL` では各メンバーのチャンネルと
+`other-channel candidate (content not verified); compared title: …` の行、メンバーごとの `channel …; title …` の行が付く。
+`--min-overlap` は `SAME_BROADCAST`/`OVERLAP` の判定だけに効き、再放送候補・別局候補の長さの条件 (差 5 秒以内かつ比 0.995 以上) は変わらない。
+判定規則と意図した取りこぼしは [duplicate-review.md](../../docs/duplicate-review.md#再放送候補-rebroadcast) と
+[別局の同一話候補](../../docs/duplicate-review.md#別局の同一話候補-other_channel) を参照。
 
 `--ids-only` は、1 行につき 1 つの program ID を出力する。search は指定されたページを
 選択された並び順で出力し、get は指定された program ID を出力する。duplicates は、
@@ -67,6 +71,11 @@ executed-file の ID は program の ID ではないため。
 `duplicates` と `cleanup plan --duplicates` は、Web の重複レビューで「意図した重複」として
 非表示にしたグループも除かずに扱う (非表示はレビューの表示だけに効く。
 [duplicate-review.md](../../docs/duplicate-review.md))。
+
+`cleanup plan --duplicates --channel X` は、メンバー全員が `X` のグループだけを対象にする。
+`OTHER_CHANNEL` のグループは局をまたぐので、どの `--channel` でも対象外になり、指定外の局の録画が
+削除対象に入ることはない。局をまたぐグループは `--channel` なしでプランを作り、`--keep <ID>` で
+残す番組を選ぶ (グループごとに 1 件。複数残す場合は Web の重複レビューを使う)。
 
 | 終了コード | 意味 |
 | --- | --- |

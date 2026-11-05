@@ -39,9 +39,21 @@ describe("setDuplicateGroupHidden", () => {
       );
     }
   });
+  it("hides and restores an other-channel candidate group", async () => {
+    for (const hidden of [true, false]) {
+      await expect(
+        setDuplicateGroupHidden({ reason: "OTHER_CHANNEL", programIds: [7, 8], hidden }),
+      ).resolves.toEqual({ ok: true });
+      expect(fetchJson).toHaveBeenLastCalledWith(
+        `/api/v1/programs/duplicates/${hidden ? "hide" : "restore"}`,
+        expect.objectContaining({ body: JSON.stringify({ reason: "OTHER_CHANNEL", programIds: [7, 8] }) }),
+      );
+    }
+  });
   it.each([
     { reason: "OTHER", programIds: [1, 2], hidden: true },
     { reason: "rebroadcast", programIds: [1, 2], hidden: true },
+    { reason: "other_channel", programIds: [1, 2], hidden: true },
     { reason: "OVERLAP", programIds: [1], hidden: true },
     { reason: "OVERLAP", programIds: [1, 1], hidden: true },
     { reason: "OVERLAP", programIds: [0, 1], hidden: true },

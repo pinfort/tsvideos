@@ -4,10 +4,17 @@ vi.mock("./client", () => ({ fetchJson }));
 import { duplicateReasonLabels, getDuplicateReview, isDuplicateReason } from "./duplicates";
 describe("duplicate reasons", () => {
   it("accepts every server reason, labels each one and rejects anything else", () => {
-    expect(["SAME_BROADCAST", "OVERLAP", "REBROADCAST"].every(isDuplicateReason)).toBe(true);
+    expect(["SAME_BROADCAST", "OVERLAP", "REBROADCAST", "OTHER_CHANNEL"].every(isDuplicateReason)).toBe(true);
     expect(duplicateReasonLabels.REBROADCAST).toBe("再放送候補");
-    expect(Object.keys(duplicateReasonLabels)).toEqual(["SAME_BROADCAST", "OVERLAP", "REBROADCAST"]);
-    for (const value of ["OTHER", "rebroadcast", "", null, 1]) expect(isDuplicateReason(value)).toBe(false);
+    expect(duplicateReasonLabels.OTHER_CHANNEL).toBe("別局の同一話候補");
+    expect(Object.keys(duplicateReasonLabels)).toEqual([
+      "SAME_BROADCAST",
+      "OVERLAP",
+      "REBROADCAST",
+      "OTHER_CHANNEL",
+    ]);
+    for (const value of ["OTHER", "rebroadcast", "other_channel", "", null, 1])
+      expect(isDuplicateReason(value)).toBe(false);
   });
 });
 describe("duplicate review API", () => {

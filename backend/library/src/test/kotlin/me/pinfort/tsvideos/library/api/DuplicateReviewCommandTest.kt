@@ -267,6 +267,43 @@ class DuplicateReviewCommandTest : ExpectSpec() {
             )
             visibleIds() shouldBe listOf(listOf(1L, 2L, 3L))
         }
+        expect("an other-channel candidate is reviewed with its comparison title, hides, restores and reappears on a third channel") {
+            sql(
+                listOf(
+                    "INSERT INTO executed_file VALUES " +
+                        "(1,'a',0,100,'2026-01-01 00:00:00','gr','番組#1.m2ts','GR',1800,'SPLITTED')," +
+                        "(2,'b',0,100,'2026-01-01 00:00:00','bs','[新]番組　＃1.m2ts','BS',1801,'SPLITTED')",
+                    "INSERT INTO program VALUES (1,'a',1,'COMPLETED'),(2,'b',2,'COMPLETED')",
+                ),
+            )
+            val group = command().review(includeHidden = false).groups.single()
+            group.reason shouldBe DuplicateGroup.Reason.OTHER_CHANNEL
+            group.comparisonTitle shouldBe "番組 #1"
+            // Original titles and both channels are returned for the review; the comparison key never replaces them.
+            group.members.map { it.program.channel to it.program.title }.toSet() shouldBe
+                setOf("gr" to "番組#1.m2ts", "bs" to "[新]番組　＃1.m2ts")
+            val identity = DuplicateGroupIdentity(DuplicateGroup.Reason.OTHER_CHANNEL, listOf(2, 1))
+            val wrongReason = DuplicateGroupIdentity(DuplicateGroup.Reason.REBROADCAST, listOf(1, 2))
+            shouldThrow<StaleDuplicateGroupException> { command().hide(wrongReason) }
+            command().hide(identity)
+            visibleIds() shouldBe emptyList()
+            command()
+                .review(includeHidden = true)
+                .groups
+                .single()
+                .hidden shouldBe true
+            command().restore(identity)
+            visibleIds() shouldBe listOf(listOf(1L, 2L))
+            command().hide(identity)
+            sql(
+                listOf(
+                    "INSERT INTO executed_file VALUES (3,'c',0,100,'2026-07-01 00:00:00','cs','番組 #1','CS',1802,'SPLITTED')",
+                    "INSERT INTO program VALUES (3,'c',3,'COMPLETED')",
+                ),
+            )
+            // Hiding names the exact members, so the group with a third channel is shown again.
+            visibleIds() shouldBe listOf(listOf(1L, 2L, 3L))
+        }
         expect("hiding changes no recording or file") {
             seed()
             sql(

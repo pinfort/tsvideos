@@ -68,6 +68,25 @@ class DuplicateDeletionControllerTest : DescribeSpec() {
             }
         }
 
+        it("accepts an other-channel group and passes its reason to the guarded command") {
+            every { command.preview(any()) } returns
+                DuplicateDeletionPlan(
+                    BulkRequest(listOf(4), BulkAction.DELETE),
+                    listOf(DuplicateDeletionPlanGroup(DuplicateGroup.Reason.OTHER_CHANNEL, listOf(3, 4), listOf(4), listOf(3))),
+                    emptyList(),
+                    emptyList(),
+                )
+            send("preview", """{"groups":[{"reason":"OTHER_CHANNEL","programIds":[3,4],"deleteIds":[4]}]}""")
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.groups[0].reason").value("OTHER_CHANNEL"))
+                .andExpect(jsonPath("$.groups[0].keptIds[0]").value(3))
+            verify(exactly = 1) {
+                command.preview(
+                    DuplicateDeletionRequest(listOf(DuplicateDeletionGroup(DuplicateGroup.Reason.OTHER_CHANNEL, listOf(3, 4), listOf(4)))),
+                )
+            }
+        }
+
         it("applies with the target and kept fingerprints and returns the outcomes") {
             every { command.apply(any()) } returns BulkResult(listOf(BulkOutcome(2, BulkOutcomeStatus.STALE, "changed")))
             send(

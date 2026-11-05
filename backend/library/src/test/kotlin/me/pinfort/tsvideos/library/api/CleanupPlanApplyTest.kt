@@ -125,14 +125,17 @@ class CleanupPlanApplyTest : ExpectSpec() {
         }
     }
 
-    /** One recording with a file per entry: id to (recorded_at, duration, title), all on channel 1. */
-    private fun seedRows(rows: Map<Long, Triple<String, Int, String>>) {
+    /** One recording with a file per entry: id to (recorded_at, duration, title), on channel 1 unless [channels] names another. */
+    private fun seedRows(
+        rows: Map<Long, Triple<String, Int, String>>,
+        channels: Map<Long, String> = emptyMap(),
+    ) {
         listOf("created_file", "splitted_file", "program", "executed_file").forEach { sql("DELETE FROM $it") }
         rows.forEach { (id, row) ->
             val (recordedAt, duration, title) = row
             sql(
                 "INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) " +
-                    "VALUES($id,'original$id.m2ts',0,10,'$recordedAt','1','$title','channel',$duration,'SPLITTED')",
+                    "VALUES($id,'original$id.m2ts',0,10,'$recordedAt','${channels[id] ?: "1"}','$title','channel',$duration,'SPLITTED')",
             )
             sql("INSERT INTO program(id,name,executed_file_id,status) VALUES($id,'program$id',$id,'COMPLETED')")
             sql(
@@ -464,6 +467,69 @@ class CleanupPlanApplyTest : ExpectSpec() {
                 .plan(CleanupCriteria(CleanupMode.DUPLICATES))
                 .groups
                 .map { it.memberIds } shouldBe listOf(listOf(1L, 3L), listOf(4L, 5L))
+        }
+        expect("with a channel only groups wholly on it are planned; other-channel groups need no channel and honour --keep") {
+            // 1/2: same broadcast on channel 1. 3 (channel 1) and 4 (channel 2): the same episode on two channels.
+            seedRows(
+                mapOf(
+                    1L to Triple("2026-01-01 00:00:00", 60, "title"),
+                    2L to Triple("2026-01-01 00:00:00", 60, "title"),
+                    3L to Triple("2026-01-02 00:00:00", 1800, "番組 #1"),
+                    4L to Triple("2026-03-02 00:00:00", 1801, "番組 #1"),
+                ),
+                channels = mapOf(4L to "2"),
+            )
+            val nas = nas()
+            val channelOne = cleanup.plan(CleanupCriteria(CleanupMode.DUPLICATES, channel = "1"))
+            channelOne.groups.map { it.memberIds } shouldBe listOf(listOf(1L, 2L))
+            channelOne.targets.map { it.id } shouldBe listOf(2L)
+            // The cross-channel group is never cut to the requested channel, so nothing on channel 2 is ever a target.
+            cleanup.plan(CleanupCriteria(CleanupMode.DUPLICATES, channel = "2")).groups shouldBe emptyList()
+            io.kotest.assertions.throwables.shouldThrow<IllegalArgumentException> {
+                cleanup.plan(CleanupCriteria(CleanupMode.DUPLICATES, channel = "1", keepIds = listOf(3)))
+            }
+            verify { nas wasNot Called }
+
+            // Without a channel the other-channel group is planned; keep 3 instead of the recommended (longer) 4.
+            val plan = cleanup.plan(CleanupCriteria(CleanupMode.DUPLICATES, keepIds = listOf(3)))
+            plan.groups.map { it.memberIds to it.keepId } shouldBe listOf(listOf(1L, 2L) to 1L, listOf(3L, 4L) to 3L)
+            plan.targets.map { it.id to it.reason } shouldBe
+                listOf(
+                    2L to "Duplicate candidate (SAME_BROADCAST); preserve selected copy 1",
+                    4L to "Duplicate candidate (OTHER_CHANNEL); preserve selected copy 3",
+                )
+            cleanup.apply(plan).outcomes.map { it.id to it.status } shouldBe
+                listOf(2L to BulkOutcomeStatus.SUCCESS, 4L to BulkOutcomeStatus.SUCCESS)
+            inventory.allIds() shouldBe listOf(1L, 3L)
+        }
+        expect("an other-channel group that gains a third channel after planning is STALE; a channel plan ignores it") {
+            seedRows(
+                mapOf(
+                    1L to Triple("2026-01-01 00:00:00", 60, "title"),
+                    2L to Triple("2026-01-01 00:00:00", 60, "title"),
+                    3L to Triple("2026-01-02 00:00:00", 1800, "番組 #1"),
+                    4L to Triple("2026-03-02 00:00:00", 1801, "番組 #1"),
+                ),
+                channels = mapOf(4L to "2"),
+            )
+            val nas = nas()
+            val all = cleanup.plan(CleanupCriteria(CleanupMode.DUPLICATES))
+            val channelOne = cleanup.plan(CleanupCriteria(CleanupMode.DUPLICATES, channel = "1"))
+            sql(
+                "INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) " +
+                    "VALUES(5,'original5.m2ts',0,10,'2026-05-02 00:00:00','3','番組 #1','channel',1802,'SPLITTED')",
+            )
+            sql("INSERT INTO program(id,name,executed_file_id,status) VALUES(5,'program5',5,'COMPLETED')")
+            cleanup
+                .plan(CleanupCriteria(CleanupMode.DUPLICATES))
+                .groups
+                .map { it.memberIds } shouldBe listOf(listOf(1L, 2L), listOf(3L, 4L, 5L))
+            // The whole-library plan is regenerated for every target, so its changed group stops it before NAS.
+            cleanup.apply(all).outcomes.map { it.status } shouldBe listOf(BulkOutcomeStatus.STALE, BulkOutcomeStatus.STALE)
+            verify { nas wasNot Called }
+            // The channel-1 plan never contained the cross-channel group, so it is unaffected.
+            cleanup.apply(channelOne).outcomes.map { it.id to it.status } shouldBe listOf(2L to BulkOutcomeStatus.SUCCESS)
+            inventory.allIds() shouldBe listOf(1L, 3L, 4L, 5L)
         }
         expect("one NAS failure remains explicit while independent later target succeeds") {
             seed(3)

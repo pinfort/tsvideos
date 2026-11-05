@@ -74,13 +74,17 @@ class DuplicateProgramCommandTest :
 
             fun assertParity(all: List<Program>) {
                 library(all)
-                val full = duplicateProgramCommand.detect()
+                val detected = duplicateProgramCommand.detect()
+                // OTHER_CHANNEL groups (#209) span channels and are never returned per channel; every one has one member
+                // per channel. The other reasons are exactly the per-channel results.
+                val (otherChannel, full) = detected.partition { it.reason == DuplicateGroup.Reason.OTHER_CHANNEL }
+                otherChannel.all { group -> group.programs.distinctBy { it.channel }.size == group.programs.size } shouldBe true
                 val channels = all.map { it.channel }.distinct()
                 channels.forEach { channel ->
                     shape(duplicateProgramCommand.detectOnChannel(channel)) shouldBe
                         shape(full.filter { group -> group.programs.all { it.channel == channel } })
                 }
-                // Every detected group lies on one channel, so the per-channel results together are the whole result.
+                // Every other detected group lies on one channel, so the per-channel results together are the whole result.
                 full.all { group ->
                     group.programs
                         .map { it.channel }
@@ -129,6 +133,11 @@ class DuplicateProgramCommandTest :
                         // The same episode on another channel only: never grouped with the channels above.
                         listOf(program(500, base.plusDays(5), channel = "BS103", title = "番組 #2[再]")),
                 )
+                // Only the leftover C of the mixed case pairs across channels; 500's same-channel peers are already taken.
+                duplicateProgramCommand
+                    .detect()
+                    .filter { it.reason == DuplicateGroup.Reason.OTHER_CHANNEL }
+                    .map { group -> group.programs.map { it.id }.toSet() } shouldBe listOf(setOf(8L, 108L))
             }
 
             expect("matches detect() on each channel of a large multi-channel library") {
@@ -150,7 +159,9 @@ class DuplicateProgramCommandTest :
 
                 assertParity(all)
                 library(all)
-                duplicateProgramCommand.detect().map { it.reason }.toSet() shouldBe DuplicateGroup.Reason.entries.toSet()
+                duplicateProgramCommand.detect().map { it.reason }.toSet().containsAll(
+                    listOf(DuplicateGroup.Reason.SAME_BROADCAST, DuplicateGroup.Reason.OVERLAP, DuplicateGroup.Reason.REBROADCAST),
+                ) shouldBe true
             }
         }
 
@@ -412,6 +423,156 @@ class DuplicateProgramCommandTest :
 
                 duplicateProgramCommand.group(programs, 0.1).shouldBeEmpty()
                 duplicateProgramCommand.group(programs, 1.0).shouldBeEmpty()
+            }
+        }
+
+        context("other-channel candidates (#209)") {
+            val episode = "番組 #1「副題」"
+
+            fun group(programs: List<Program>) = duplicateProgramCommand.group(programs, DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO)
+
+            fun shape(groups: List<DuplicateGroup>) = groups.map { it.reason to it.programs.map { p -> p.id } }
+
+            expect("the same single episode on another channel is OTHER_CHANNEL with its comparison title and keep order") {
+                val actual =
+                    group(
+                        listOf(
+                            program(1, title = "$episode[新]", channel = "GR16", drops = 3),
+                            program(2, recordedAt = base.plusDays(400), title = "[再]$episode", channel = "BSBS01_0", duration = 1801.0),
+                        ),
+                    )
+
+                actual.single().reason shouldBe DuplicateGroup.Reason.OTHER_CHANNEL
+                actual.single().comparisonTitle shouldBe "番組 #1 「副題」"
+                // The existing keep order (drops first) picks the recommendation; quality is not inferred from the channel.
+                actual.single().programs.map { it.id } shouldBe listOf(2L, 1L)
+            }
+
+            expect("a simultaneous broadcast on two channels is an OTHER_CHANNEL candidate, not SAME_BROADCAST") {
+                group(listOf(program(1, title = episode), program(2, title = episode, channel = "BS101"))).map { it.reason } shouldBe
+                    listOf(DuplicateGroup.Reason.OTHER_CHANNEL)
+            }
+
+            expect("earlier stages are unchanged and only their leftovers can pair across channels") {
+                val earlier =
+                    listOf(
+                        // Same broadcast A/B, and C of the same episode on another channel: A/B only (intended miss).
+                        program(1, title = episode),
+                        program(2, title = episode),
+                        program(3, recordedAt = base.plusDays(30), title = episode, channel = "BS101"),
+                        // Rebroadcast pair D/E, and F of that episode on another channel: D/E only.
+                        program(4, recordedAt = base.plusDays(1), title = "番組 #2"),
+                        program(5, recordedAt = base.plusDays(91), title = "番組 #2"),
+                        program(6, recordedAt = base.plusDays(2), title = "番組 #2", channel = "BS101"),
+                    )
+                val actual = group(earlier)
+
+                shape(actual.filter { it.reason != DuplicateGroup.Reason.OTHER_CHANNEL }) shouldBe
+                    shape(group(earlier.filter { it.channel == "GR27" }))
+                actual.map { it.reason to it.programs.map { p -> p.id }.toSet() } shouldBe
+                    listOf(DuplicateGroup.Reason.SAME_BROADCAST to setOf(1L, 2L), DuplicateGroup.Reason.REBROADCAST to setOf(4L, 5L))
+                val ids = actual.flatMap { g -> g.programs.map { it.id } }
+                ids.distinct() shouldBe ids
+            }
+
+            expect("a component with a repeated channel or a non-clique chain is left out entirely, in any input order") {
+                // 1 and 3 share GR27 but are not connected (3 is a third of 1's overlap and length), so 1-2 and 3-4 are
+                // two separate groups: a same-channel recording outside the component does not affect it.
+                val separate =
+                    listOf(
+                        program(1, title = episode),
+                        program(2, recordedAt = base.plusDays(7), title = episode, channel = "BS101"),
+                        program(3, recordedAt = base.plusMinutes(1), title = episode, duration = 600.0),
+                        program(4, recordedAt = base.plusDays(9), title = episode, channel = "BS103", duration = 600.0),
+                    )
+                group(separate).map { it.programs.map { p -> p.id }.toSet() } shouldBe listOf(setOf(1L, 2L), setOf(3L, 4L))
+                val sameChannelPair =
+                    listOf(
+                        program(1, title = episode),
+                        program(2, recordedAt = base.plusDays(7), title = episode, channel = "BS101"),
+                        // Overlaps 1 on GR27 too little for OVERLAP (0.67) and too much for a rebroadcast.
+                        program(3, recordedAt = base.plusMinutes(10), title = episode),
+                    )
+                // 1-2 and 2-3 are compatible across channels, but 1 and 3 share GR27: the whole component is withheld.
+                group(sameChannelPair).shouldBeEmpty()
+                group(sameChannelPair.reversed()).shouldBeEmpty()
+                val chain =
+                    listOf(
+                        program(1, title = episode, channel = "A"),
+                        program(2, recordedAt = base.plusDays(1), title = episode, channel = "B", duration = 1804.0),
+                        program(3, recordedAt = base.plusDays(2), title = episode, channel = "C", duration = 1808.0),
+                    )
+                group(chain).shouldBeEmpty()
+                group(listOf(chain[2], chain[0], chain[1])).shouldBeEmpty()
+            }
+
+            expect("three channels that all agree form one group and the result does not depend on input order") {
+                val programs =
+                    listOf(
+                        program(1, title = episode, channel = "A"),
+                        program(2, recordedAt = base.plusDays(1), title = episode, channel = "B", duration = 1802.0),
+                        program(3, recordedAt = base.plusDays(2), title = episode, channel = "C", duration = 1804.0),
+                        program(4, recordedAt = base.plusDays(3), title = "番組 #2", channel = "A"),
+                        program(5, recordedAt = base.plusDays(4), title = "番組 #2", channel = "B"),
+                    )
+                val actual = group(programs)
+
+                actual.map { it.programs.map { p -> p.id }.toSet() } shouldBe listOf(setOf(1L, 2L, 3L), setOf(4L, 5L))
+                shape(group(programs.reversed())) shouldBe shape(actual)
+                shape(group(programs.shuffled(kotlin.random.Random(209)))) shouldBe shape(actual)
+            }
+
+            expect("different episodes, seasons, editions, subtitles and multi-episode titles never pair across channels") {
+                listOf(
+                    "番組 #1" to "番組 #2",
+                    "番組 第1期 #1" to "番組 第2期 #1",
+                    "番組 #1「副題」" to "番組 #1「別の副題」",
+                    // An omitted subtitle is not a wildcard.
+                    "番組 #1" to "番組 #1「副題」",
+                    "番組 #1[字]" to "番組 #1[吹]",
+                    "番組 #1,2" to "番組 #1,2",
+                    "番組 第1話〜3話" to "番組 第1話〜3話",
+                    "番組" to "番組",
+                ).forEach { (a, b) ->
+                    group(listOf(program(1, title = a), program(2, recordedAt = base.plusDays(7), title = b, channel = "BS101")))
+                        .shouldBeEmpty()
+                }
+            }
+
+            expect("the duration rule is bounded by both 5 seconds and 0.995, and needs finite positive durations") {
+                fun pair(
+                    a: Double,
+                    b: Double,
+                ): List<DuplicateGroup.Reason> {
+                    val programs =
+                        listOf(
+                            program(1, title = episode, duration = a),
+                            program(2, recordedAt = base.plusDays(7), title = episode, channel = "BS101", duration = b),
+                        )
+                    return group(programs).map { it.reason }
+                }
+
+                pair(1800.0, 1805.0) shouldBe listOf(DuplicateGroup.Reason.OTHER_CHANNEL)
+                pair(1800.0, 1805.01).shouldBeEmpty()
+                pair(1000.0, 995.0) shouldBe listOf(DuplicateGroup.Reason.OTHER_CHANNEL)
+                pair(1000.0, 994.99).shouldBeEmpty()
+                pair(300.0, 298.0).shouldBeEmpty()
+                // マリッジトキシン #01's durations (121.4 s apart on CSCS16/GR17; the real titles also differ by a subtitle).
+                pair(1807.14, 1685.737033).shouldBeEmpty()
+                pair(0.0, 0.0).shouldBeEmpty()
+                pair(-1.0, -1.0).shouldBeEmpty()
+                pair(Double.NaN, Double.NaN).shouldBeEmpty()
+                pair(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY).shouldBeEmpty()
+            }
+
+            expect("detectOnChannel never returns an other-channel group") {
+                val all = listOf(program(1, title = episode), program(2, recordedAt = base.plusDays(7), title = episode, channel = "BS101"))
+                every { inventory.recordedPrograms() } returns all
+                every { inventory.recordedProgramsOnChannel(any()) } answers { all.filter { it.channel == firstArg<String>() } }
+
+                duplicateProgramCommand.detect().single().reason shouldBe DuplicateGroup.Reason.OTHER_CHANNEL
+                duplicateProgramCommand.detectOnChannel("GR27").shouldBeEmpty()
+                duplicateProgramCommand.detectOnChannel("BS101").shouldBeEmpty()
             }
         }
     })

@@ -77,7 +77,8 @@ class RebroadcastDataValidationTest :
                     println(report)
 
                     RebroadcastData.sharedMembers(groups).shouldBeEmpty()
-                    shape(groups.filter { it.reason != DuplicateGroup.Reason.REBROADCAST }) shouldBe shape(baseline)
+                    // OTHER_CHANNEL (#209, the third stage) is validated by OtherChannelDataValidationTest.
+                    shape(groups.filter { it.reason in FIRST_STAGE }) shouldBe shape(baseline)
                     known.flatten().filter { it !in byId }.shouldBeEmpty()
                     // A negative that is absent from the searches would pass vacuously, so every one must be present.
                     NEGATIVE_PAIRS.flatMap { listOf(it.first, it.second) }.filter { it !in byId }.shouldBeEmpty()
@@ -120,6 +121,8 @@ private val NEGATIVE_PAIRS =
         // 劇場版 魔法少女まどか☆マギカ ［前編］: a film, no episode number.
         37944L to 39413L,
     )
+
+private val FIRST_STAGE = setOf(DuplicateGroup.Reason.SAME_BROADCAST, DuplicateGroup.Reason.OVERLAP)
 
 // Specials, digests, films, binge broadcasts and multi-episode lists must never become rebroadcast candidates.
 private val EXCLUDED_TITLE = Regex("""特番|ダイジェスト|劇場版|一挙|#\d+\s*[,、・]""")
@@ -175,6 +178,7 @@ private fun report(
         groups.forEach { group ->
             val kind =
                 when {
+                    group.reason == DuplicateGroup.Reason.OTHER_CHANNEL -> "other-channel (#209)"
                     group.reason != DuplicateGroup.Reason.REBROADCAST -> "baseline"
                     group.ids() in known -> "known"
                     else -> "ADDITIONAL"
