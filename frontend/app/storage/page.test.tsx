@@ -56,8 +56,8 @@ describe("StoragePage", () => {
     render(await StoragePage());
     expect(screen.getAllByRole("link", { name: "保持番組" })[0]).toHaveAttribute("href", "/programs/1");
     expect(screen.getAllByRole("link", { name: "整理番組" })[1]).toHaveAttribute("href", "/programs/2");
-    expect(screen.getByText("3,000,000,000 bytes")).toBeInTheDocument();
-    expect(screen.getByText("50 bytes")).toBeInTheDocument();
+    expect(screen.getByText("2.8 GiB")).toBeInTheDocument();
+    expect(screen.getByText("50 B")).toBeInTheDocument();
     expect(screen.getByText(/保持する番組と共有する 1/)).toBeInTheDocument();
     expect(screen.getByText(/転送完了前の登録も含み/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /削除/ })).not.toBeInTheDocument();
@@ -67,6 +67,6 @@ describe("StoragePage", () => {
     getStorageOverview.mockRejectedValue(new Error("secret"));
     render(await StoragePage());
     expect(screen.getByRole("alert")).toHaveTextContent("取得できませんでした");
-    expect(screen.queryByText(/secret|0 bytes/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/secret|^0 B$/)).not.toBeInTheDocument();
   });
 });

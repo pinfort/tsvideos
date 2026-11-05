@@ -21,8 +21,8 @@ const totals: Totals = {
 describe("StorageTotals", () => {
   it("labels each registered byte category and leaves physical usage unknown", () => {
     render(<StorageTotals totals={totals} />);
-    expect(screen.getByText("総容量").nextSibling).toHaveTextContent("3,000,000,000 bytes");
-    expect(screen.getByText("転送完了前の登録").nextSibling).toHaveTextContent("5 bytes");
+    expect(screen.getByText("総容量").nextSibling).toHaveTextContent("2.8 GiB");
+    expect(screen.getByText("転送完了前の登録").nextSibling).toHaveTextContent("5 B");
     expect(screen.getByText("検証済みの物理使用量").nextSibling).toHaveTextContent("不明（未検証）");
   });
 
