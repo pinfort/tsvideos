@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 const { fetchJson } = vi.hoisted(() => ({ fetchJson: vi.fn() }));
 vi.mock("./client", () => ({ fetchJson }));
-import { getDuplicateReview } from "./duplicates";
+import { duplicateReasonLabels, getDuplicateReview, isDuplicateReason } from "./duplicates";
+describe("duplicate reasons", () => {
+  it("accepts every server reason, labels each one and rejects anything else", () => {
+    expect(["SAME_BROADCAST", "OVERLAP", "REBROADCAST"].every(isDuplicateReason)).toBe(true);
+    expect(duplicateReasonLabels.REBROADCAST).toBe("再放送候補");
+    expect(Object.keys(duplicateReasonLabels)).toEqual(["SAME_BROADCAST", "OVERLAP", "REBROADCAST"]);
+    for (const value of ["OTHER", "rebroadcast", "", null, 1]) expect(isDuplicateReason(value)).toBe(false);
+  });
+});
 describe("duplicate review API", () => {
   it("reads the server's existing detector results without hidden groups by default", async () => {
     const response = { groups: [] };

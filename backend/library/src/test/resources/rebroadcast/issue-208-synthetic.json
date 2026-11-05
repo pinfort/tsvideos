@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "note": "Issue #208 SYNTHETIC boundary cases. These rows are not recordings: ids (99xxxx), titles, times and durations are made up to pin down rules that the saved real data does not exercise (edition markers, duration tolerance, season numbers, episode ranges, untitled recordings). Real recordings live in issue-208-fixture.json.",
+  "programs": [
+    {"id": 991401, "channel": "BSBS13_0", "recordedAt": "2024-01-01T21:00:00", "duration": 2700.0, "title": "海外ドラマ #1「副題」[字]", "source": "synthetic", "copied": []},
+    {"id": 991402, "channel": "BSBS13_0", "recordedAt": "2024-01-08T21:00:00", "duration": 2700.0, "title": "海外ドラマ #1「副題」[吹]", "source": "synthetic", "copied": []},
+    {"id": 991501, "channel": "BSBS13_0", "recordedAt": "2024-02-01T21:00:00", "duration": 1800.0, "title": "境界番組 #1", "source": "synthetic", "copied": []},
+    {"id": 991502, "channel": "BSBS13_0", "recordedAt": "2024-05-01T21:00:00", "duration": 1805.01, "title": "境界番組 #1[再]", "source": "synthetic", "copied": []},
+    {"id": 991601, "channel": "BSBS13_0", "recordedAt": "2024-03-01T21:00:00", "duration": 1800.0, "title": "番組 第1期 #1", "source": "synthetic", "copied": []},
+    {"id": 991602, "channel": "BSBS13_0", "recordedAt": "2025-03-01T21:00:00", "duration": 1800.0, "title": "番組 第2期 #1", "source": "synthetic", "copied": []},
+    {"id": 991701, "channel": "BSBS13_0", "recordedAt": "2024-04-01T21:00:00", "duration": 3600.0, "title": "番組 第1話〜3話", "source": "synthetic", "copied": []},
+    {"id": 991702, "channel": "BSBS13_0", "recordedAt": "2024-07-01T21:00:00", "duration": 3600.0, "title": "番組 第1話〜3話", "source": "synthetic", "copied": []},
+    {"id": 991801, "channel": "BSBS13_0", "recordedAt": "2024-04-02T21:00:00", "duration": 1800.0, "title": "[再]第1話[ID:1].m2ts", "source": "synthetic", "copied": []},
+    {"id": 991802, "channel": "BSBS13_0", "recordedAt": "2024-07-02T21:00:00", "duration": 1800.0, "title": "#1", "source": "synthetic", "copied": []}
+  ],
+  "expectedRebroadcastGroups": [],
+  "notTogether": [
+    [991401, 991402],
+    [991501, 991502],
+    [991601, 991602],
+    [991701, 991702],
+    [991801, 991802]
+  ]
+}

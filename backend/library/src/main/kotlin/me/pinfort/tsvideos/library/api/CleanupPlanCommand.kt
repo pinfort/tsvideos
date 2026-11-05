@@ -13,6 +13,7 @@ import me.pinfort.tsvideos.library.domain.CleanupGroup
 import me.pinfort.tsvideos.library.domain.CleanupMode
 import me.pinfort.tsvideos.library.domain.CleanupPlan
 import me.pinfort.tsvideos.library.domain.CleanupTarget
+import me.pinfort.tsvideos.library.domain.DuplicateGroup
 import org.springframework.stereotype.Component
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
@@ -112,6 +113,8 @@ class CleanupPlanCommand(
         known: Set<Long> = programs.allIds().toSet(),
     ): CleanupPlan {
         validateCriteria(criteria)
+        // CleanupGroup (schemaVersion 1) has no reason field; each target's reason text carries it instead.
+        val reasons = mutableMapOf<Long, DuplicateGroup.Reason>()
         val groups: List<CleanupGroup>
         val ids: List<Long>
         when (criteria.mode) {
@@ -139,6 +142,7 @@ class CleanupPlanCommand(
                             val members = group.members.map { it.program.id }.sorted()
                             val overrides = criteria.keepIds.filter { it in members }
                             require(overrides.size <= 1) { "Select one kept copy per group" }
+                            members.forEach { reasons[it] = group.reason }
                             CleanupGroup(members, overrides.singleOrNull() ?: group.recommendedId)
                         }.sortedBy { it.memberIds.first() }
                 ids = groups.flatMap { it.memberIds - it.keepId }.sorted()
@@ -169,7 +173,8 @@ class CleanupPlanCommand(
                     when (criteria.mode) {
                         CleanupMode.DUPLICATES -> {
                             val keepId = groups.single { target.id in it.memberIds }.keepId
-                            "Duplicate broadcast candidate; preserve selected copy $keepId"
+                            // The detection reason is part of the reviewed text, so a regrouped target compares STALE.
+                            "Duplicate candidate (${reasons.getValue(target.id).name}); preserve selected copy $keepId"
                         }
                         CleanupMode.RETENTION -> "Recorded before ${criteria.recordedBefore}; channel ${criteria.channel ?: "any"}"
                     }
@@ -266,7 +271,7 @@ class CleanupPlanCommand(
     }
 
     companion object {
-        /** Matches BulkLibraryCommand's per-request limit; there is no implicit batching. */
-        const val MAX_PLAN_SIZE = 100
+        /** [BulkLibraryCommand.MAX_REQUEST_SIZE], under the name existing callers use. */
+        const val MAX_PLAN_SIZE = BulkLibraryCommand.MAX_REQUEST_SIZE
     }
 }

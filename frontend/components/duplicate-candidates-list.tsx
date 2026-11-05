@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { duplicateReasonLabels } from "@/lib/api/duplicates";
 import type { StorageDuplicateCandidate } from "@/lib/api/storage";
 import { formatBytes } from "@/lib/format-bytes";
 
@@ -11,7 +12,7 @@ export function DuplicateCandidatesList({ candidates }: { candidates: StorageDup
       {/* Duplicate groups never share a program, so the retained id is unique. */}
       {candidates.map((group) => (
         <li key={group.retained.id} className="rounded-lg border p-4">
-          <p className="text-sm text-gray-500">{group.reason === "SAME_BROADCAST" ? "同じ放送" : "録画時間の重複"}</p>
+          <p className="text-sm text-gray-500">{duplicateReasonLabels[group.reason]}</p>
           <p className="mt-2">
             保持を推薦：
             <Link className="font-semibold underline" href={`/programs/${group.retained.id}`}>

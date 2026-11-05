@@ -160,6 +160,27 @@ class ReadOutputTest :
             Duplicates(duplicates, programs, mockk()).testRead("--ids-only").stdout shouldBe "1\n2\n9\n"
         }
 
+        expect("rebroadcast candidates expose their reason and comparison title in JSON and their IDs in --ids-only") {
+            val duplicates = mockk<DuplicateProgramCommand>()
+            val programs = mockk<ProgramCommand>()
+            every { duplicates.detect(any()) } returns
+                listOf(
+                    DuplicateGroup(DuplicateGroup.Reason.SAME_BROADCAST, listOf(program, program.copy(id = 1))),
+                    DuplicateGroup(DuplicateGroup.Reason.REBROADCAST, listOf(program.copy(id = 4), program.copy(id = 3)), "番組 #1"),
+                )
+            every { programs.hasTsFile(any()) } returns false
+            val result = Duplicates(duplicates, programs, mockk()).testRead("--json")
+            result.statusCode shouldBe 0
+            val groups = mapper.readTree(result.stdout)["groups"]
+            groups[0]["reason"].asString() shouldBe "SAME_BROADCAST"
+            groups[0]["comparisonTitle"].isNull shouldBe true
+            groups[1]["reason"].asString() shouldBe "REBROADCAST"
+            groups[1]["comparisonTitle"].asString() shouldBe "番組 #1"
+            groups[1]["recommendedId"].asLong() shouldBe 4
+            groups[1]["candidateIds"][0].asLong() shouldBe 3
+            Duplicates(duplicates, programs, mockk()).testRead("--ids-only").stdout shouldBe "1\n3\n4\n9\n"
+        }
+
         fun missingProgram() = mockk<ProgramCommand> { every { findDetail(9) } returns null }
 
         expect("missing resources use stderr with exit 3") {

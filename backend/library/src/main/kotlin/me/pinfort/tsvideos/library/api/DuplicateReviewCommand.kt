@@ -57,6 +57,7 @@ class DuplicateReviewCommand internal constructor(
                         DuplicateReviewMember(program, movedFiles[program.executedFileId].orEmpty())
                     },
                     hidden,
+                    group.comparisonTitle,
                 )
             },
         )

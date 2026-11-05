@@ -451,6 +451,45 @@ class ProgramMapperTest : ExpectSpec() {
             }
         }
 
+        context("selectByChannel") {
+            expect("only recorded programs on the given channel") {
+                val connection = dataSource.connection
+                connection.prepareStatement("DELETE FROM program").execute()
+                connection.prepareStatement("DELETE FROM executed_file").execute()
+                connection
+                    .prepareStatement(
+                        """
+                        INSERT INTO program(id,name,executed_file_id,status)
+                        VALUES(1,'a',1,'REGISTERED'),(2,'b',2,'REGISTERED'),(3,'c',3,'COMPLETED'),(4,'orphan',4,'REGISTERED'),(5,'lower',5,'REGISTERED');
+                        """.trimIndent(),
+                    ).execute()
+                connection
+                    .prepareStatement(
+                        """
+                        INSERT INTO executed_file(id,file,drops,`size`,recorded_at,channel,title,channelName,duration,status)
+                        VALUES(1,'f1',0,2,cast('2009-08-03 23:58:01' as datetime),'BS11','t1','c',3,'SPLITTED'),
+                              (2,'f2',0,2,cast('2009-08-04 23:58:01' as datetime),'BS1','t2','c',3,'SPLITTED'),
+                              (3,'f3',0,2,cast('2009-08-05 23:58:01' as datetime),'BS11','t3','c',3,'SPLITTED'),
+                              (5,'f5',0,2,cast('2009-08-06 23:58:01' as datetime),'bs11','t5','c',3,'SPLITTED');
+                        """.trimIndent(),
+                    ).execute()
+                connection.commit()
+
+                val actual = programMapper.selectByChannel("BS11")
+                val other = programMapper.selectByChannel("BS1")
+                val none = programMapper.selectByChannel("GR1")
+                val lower = programMapper.selectByChannel("bs11")
+                connection.close()
+
+                actual.map { it.id }.sorted() shouldBe listOf(1L, 3L)
+                actual.map { it.channel }.distinct() shouldBe listOf("BS11")
+                actual.first { it.id == 3L }.title shouldBe "t3"
+                other.map { it.id } shouldBe listOf(2L)
+                none shouldBe emptyList()
+                lower.map { it.id } shouldBe listOf(5L)
+            }
+        }
+
         context("findByExecutedFileId") {
             expect("single") {
                 val connection = dataSource.connection

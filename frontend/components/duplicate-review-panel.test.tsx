@@ -3,13 +3,24 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuplicateReviewGroup } from "@/lib/api/duplicates";
 import type { Program } from "@/lib/api/types";
-const { previewBulk, applyBulk, refresh, setDuplicateGroupHidden } = vi.hoisted(() => ({
+const {
+  previewBulk,
+  applyBulk,
+  previewDuplicateDeletion,
+  applyDuplicateDeletion,
+  refresh,
+  setDuplicateGroupHidden,
+} = vi.hoisted(() => ({
   previewBulk: vi.fn(),
   applyBulk: vi.fn(),
+  previewDuplicateDeletion: vi.fn(),
+  applyDuplicateDeletion: vi.fn(),
   refresh: vi.fn(),
   setDuplicateGroupHidden: vi.fn(),
 }));
+// The generic bulk endpoints must never be used from the review: deletion goes through the guarded duplicate API.
 vi.mock("@/lib/api/bulk", () => ({ previewBulk, applyBulk }));
+vi.mock("@/lib/api/duplicate-deletion", () => ({ previewDuplicateDeletion, applyDuplicateDeletion }));
 vi.mock("@/lib/api/duplicate-dismissals", () => ({ setDuplicateGroupHidden }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 import { DuplicateReviewPanel } from "./duplicate-review-panel";
@@ -63,6 +74,23 @@ const group: DuplicateReviewGroup = {
 const hiddenGroup: DuplicateReviewGroup = { ...group, hidden: true };
 const plan = {
   request: { ids: [2], action: "DELETE" },
+  groups: [{ reason: "SAME_BROADCAST", programIds: [1, 2], deleteIds: [2], keptIds: [1] }],
+  keptTargets: [
+    {
+      id: 1,
+      fingerprint: "kept",
+      eligible: true,
+      reason: null,
+      estimatedMetadataBytes: 500,
+      destinations: {},
+      snapshot: {
+        program: programs[0],
+        executed: { file: "original1.ts" },
+        createdFiles: [],
+        splitFiles: [],
+      },
+    },
+  ],
   targets: [
     {
       id: 2,
@@ -83,8 +111,8 @@ const plan = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
-  previewBulk.mockResolvedValue(plan);
-  applyBulk.mockResolvedValue({ outcomes: [{ id: 2, status: "SUCCESS", message: "done" }] });
+  previewDuplicateDeletion.mockResolvedValue(plan);
+  applyDuplicateDeletion.mockResolvedValue({ outcomes: [{ id: 2, status: "SUCCESS", message: "done" }] });
   setDuplicateGroupHidden.mockResolvedValue({ ok: true });
 });
 describe("DuplicateReviewPanel", () => {
@@ -99,8 +127,8 @@ describe("DuplicateReviewPanel", () => {
     expect(screen.getByRole("link", { name: "番組1" })).toHaveAttribute("href", "/programs/1");
     expect(screen.queryByLabelText("操作")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "対象をプレビュー" })).toBeDisabled();
-    expect(previewBulk).not.toHaveBeenCalled();
-    expect(applyBulk).not.toHaveBeenCalled();
+    expect(previewDuplicateDeletion).not.toHaveBeenCalled();
+    expect(applyDuplicateDeletion).not.toHaveBeenCalled();
   });
   it("treats probe failure duration zero as unknown in comparison and recommendation", () => {
     const unknown = {
@@ -116,62 +144,97 @@ describe("DuplicateReviewPanel", () => {
     expect(screen.getByText(/推薦値/)).toHaveTextContent("/ 不明 /");
     expect(screen.queryByText("0 秒")).not.toBeInTheDocument();
   });
-  it("uses existing preview, original-preservation details, cancel and explicit apply", async () => {
+  it("previews through the guarded duplicate API with the whole group, shows kept copies, cancels and applies explicitly", async () => {
     const user = userEvent.setup();
     render(<DuplicateReviewPanel groups={[group]} />);
     await user.click(screen.getByLabelText("削除対象に選択 #2"));
     await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
-    expect(previewBulk).toHaveBeenCalledWith({ ids: [2], action: "DELETE" });
+    expect(previewDuplicateDeletion).toHaveBeenCalledWith([
+      { reason: "SAME_BROADCAST", programIds: [1, 2], deleteIds: [2] },
+    ]);
     expect(await screen.findByText("保持する元録画: original.ts")).toBeInTheDocument();
+    expect(screen.getByText(/残す録画/)).toBeInTheDocument();
+    expect(screen.getByText("#1 番組1")).toBeInTheDocument();
     expect(screen.getByText(/nas\/2.mp4/)).toBeInTheDocument();
-    expect(applyBulk).not.toHaveBeenCalled();
+    expect(applyDuplicateDeletion).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "キャンセル" }));
     expect(screen.queryByRole("button", { name: "確認して削除を実行" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
     await user.click(await screen.findByRole("button", { name: "確認して削除を実行" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
-    expect(applyBulk).toHaveBeenCalledWith(plan);
+    expect(applyDuplicateDeletion).toHaveBeenCalledWith(plan);
     expect(screen.getByText(/#2: 成功/)).toBeInTheDocument();
+    expect(previewBulk).not.toHaveBeenCalled();
+    expect(applyBulk).not.toHaveBeenCalled();
   });
   it("allows explicit selection of the recommendation and retains partial/stale failure reports after groups disappear", async () => {
     const user = userEvent.setup();
-    applyBulk.mockResolvedValue({
+    const three: DuplicateReviewGroup = {
+      ...group,
+      members: [1, 2, 3].map((id) => ({
+        program: { ...programs[0], id, executedFileId: id, name: `番組${id}` },
+        availableFiles: [],
+      })),
+    };
+    applyDuplicateDeletion.mockResolvedValue({
       outcomes: [
         { id: 1, status: "SUCCESS", message: "done" },
-        { id: 2, status: "STALE", message: "preview again" },
+        { id: 3, status: "STALE", message: "preview again" },
       ],
     });
-    const { rerender } = render(<DuplicateReviewPanel groups={[group]} />);
+    const { rerender } = render(<DuplicateReviewPanel groups={[three]} />);
     await user.click(screen.getByLabelText("削除対象に選択 #1"));
-    await user.click(screen.getByLabelText("削除対象に選択 #2"));
+    await user.click(screen.getByLabelText("削除対象に選択 #3"));
     await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
-    expect(previewBulk).toHaveBeenCalledWith({ ids: [1, 2], action: "DELETE" });
+    expect(previewDuplicateDeletion).toHaveBeenCalledWith([
+      { reason: "SAME_BROADCAST", programIds: [1, 2, 3], deleteIds: [1, 3] },
+    ]);
     await user.click(await screen.findByRole("button", { name: "確認して削除を実行" }));
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
     expect(screen.getByLabelText("削除対象に選択 #1")).not.toBeChecked();
-    expect(screen.getByLabelText("削除対象に選択 #2")).toBeChecked();
+    expect(screen.getByLabelText("削除対象に選択 #3")).toBeChecked();
     rerender(<DuplicateReviewPanel groups={[]} />);
     expect(screen.getByText("重複録画の候補はありません。")).toBeInTheDocument();
-    expect(screen.getByText(/#2: 変更あり・再確認が必要/)).toBeInTheDocument();
+    expect(screen.getByText(/#3: 変更あり・再確認が必要/)).toBeInTheDocument();
   });
-  it("warns while every member of a group is selected, since nothing would be kept", async () => {
+  it("refuses to preview while every member of a group is selected, since nothing would be kept", async () => {
     const user = userEvent.setup();
     render(<DuplicateReviewPanel groups={[group]} />);
+    const preview = screen.getByRole("button", { name: "対象をプレビュー" });
     await user.click(screen.getByLabelText("削除対象に選択 #2"));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(preview).toBeEnabled();
     await user.click(screen.getByLabelText("削除対象に選択 #1"));
     expect(screen.getByRole("alert")).toHaveTextContent("すべて選択しています");
+    expect(screen.getByText(/少なくとも 1 件は残してください/)).toBeInTheDocument();
+    expect(preview).toBeDisabled();
+    await user.click(preview);
+    expect(previewDuplicateDeletion).not.toHaveBeenCalled();
     await user.click(screen.getByLabelText("削除対象に選択 #1"));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(preview).toBeEnabled();
   });
   it("shows preview failure without triggering deletion", async () => {
     const user = userEvent.setup();
-    previewBulk.mockRejectedValue(new Error("secret"));
+    previewDuplicateDeletion.mockRejectedValue(new Error("secret"));
     render(<DuplicateReviewPanel groups={[group]} />);
     await user.click(screen.getByLabelText("削除対象に選択 #2"));
     await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("プレビューを取得できません");
-    expect(applyBulk).not.toHaveBeenCalled();
+    expect(applyDuplicateDeletion).not.toHaveBeenCalled();
+  });
+  it("labels a rebroadcast candidate with its comparison title and hides it by its reason", async () => {
+    const user = userEvent.setup();
+    const rebroadcast: DuplicateReviewGroup = { ...group, reason: "REBROADCAST", comparisonTitle: "番組 #1 「副題」" };
+    render(<DuplicateReviewPanel groups={[rebroadcast]} />);
+    expect(screen.getByRole("heading", { name: "再放送候補" })).toBeInTheDocument();
+    expect(screen.getByText(/比較用タイトル「番組 #1 「副題」」/)).toBeInTheDocument();
+    expect(screen.getByText(/内容が同一であることや、どれが初回放送かは確認していません/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "意図した重複として非表示（#1, #2）" }));
+    expect(setDuplicateGroupHidden).toHaveBeenCalledWith({ reason: "REBROADCAST", programIds: [1, 2], hidden: true });
+    await user.click(screen.getByLabelText("削除対象に選択 #2"));
+    await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
+    expect(previewDuplicateDeletion).toHaveBeenCalledWith([{ reason: "REBROADCAST", programIds: [1, 2], deleteIds: [2] }]);
   });
   it("hides a group as an intentional duplicate by its exact members and refreshes", async () => {
     const user = userEvent.setup();
@@ -186,8 +249,8 @@ describe("DuplicateReviewPanel", () => {
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
     expect(screen.getByText(/#1, #2）を意図した重複として非表示にしました/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(previewBulk).not.toHaveBeenCalled();
-    expect(applyBulk).not.toHaveBeenCalled();
+    expect(previewDuplicateDeletion).not.toHaveBeenCalled();
+    expect(applyDuplicateDeletion).not.toHaveBeenCalled();
   });
   it("shows a stale or failed update without refreshing and allows retrying", async () => {
     const user = userEvent.setup();
@@ -290,7 +353,9 @@ describe("DuplicateReviewPanel", () => {
     expect(screen.queryByLabelText("削除対象に選択 #2")).not.toBeInTheDocument();
     expect(screen.getByText("1件選択中")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "対象をプレビュー" }));
-    expect(previewBulk).toHaveBeenCalledWith({ ids: [3], action: "DELETE" });
+    expect(previewDuplicateDeletion).toHaveBeenCalledWith([
+      { reason: "SAME_BROADCAST", programIds: [3, 4], deleteIds: [3] },
+    ]);
     await user.click(await screen.findByRole("button", { name: "キャンセル" }));
     rerender(<DuplicateReviewPanel groups={[group, other]} />);
     expect(screen.getByLabelText("削除対象に選択 #2")).not.toBeChecked();

@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional
  *
  * Coordinated changes call these in exactly this order (backend/docs/module-boundaries.md §7.3):
  * 1. [lockCreatedFilePaths]
- * 2. [lockCreatedFileRows]; or, when the caller re-checks library-wide state under the locks (guarded cleanup),
+ * 2. [lockCreatedFileRows]; or, when the caller re-checks library-wide state under the locks (guarded cleanup or duplicate deletion),
  *    [lockCreatedFiles] and then [lockWholeLedger]
  * 3. [lockProgramGraph]
  *
@@ -59,7 +59,10 @@ class LedgerLocks internal constructor(
     @Transactional(propagation = Propagation.MANDATORY)
     fun lockCreatedFiles(): List<CreatedFileSnapshot> = locks.lockFiles().map { it.toSnapshot() }
 
-    /** Locks every `program`, then every `executed_file`, then every `splitted_file` row. Operator CLI only. */
+    /**
+     * Locks every `program`, then every `executed_file`, then every `splitted_file` row. Only for guarded deletions that
+     * re-check library-wide state (cleanup plans from the operator CLI, duplicate-review deletion from the API).
+     */
     @Transactional(propagation = Propagation.MANDATORY)
     fun lockWholeLedger() {
         locks.lockAllPrograms()

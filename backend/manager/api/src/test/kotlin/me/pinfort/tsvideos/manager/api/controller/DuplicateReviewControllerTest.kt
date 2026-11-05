@@ -75,6 +75,24 @@ class DuplicateReviewControllerTest : DescribeSpec() {
             verify(exactly = 1) { command.restore(DuplicateGroupIdentity(DuplicateGroup.Reason.OVERLAP, listOf(1, 2))) }
         }
 
+        it("hides and restores a rebroadcast candidate group") {
+            every { command.hide(any()) } just Runs
+            every { command.restore(any()) } just Runs
+            listOf("hide" to true, "restore" to false).forEach { (path, hidden) ->
+                mockMvc
+                    .perform(
+                        post("/api/v1/programs/duplicates/$path")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""{"reason":"REBROADCAST","programIds":[5,4]}"""),
+                    ).andExpect(status().isOk)
+                    .andExpect(jsonPath("$.reason").value("REBROADCAST"))
+                    .andExpect(jsonPath("$.programIds[0]").value(4))
+                    .andExpect(jsonPath("$.hidden").value(hidden))
+            }
+            verify(exactly = 1) { command.hide(DuplicateGroupIdentity(DuplicateGroup.Reason.REBROADCAST, listOf(5, 4))) }
+            verify(exactly = 1) { command.restore(DuplicateGroupIdentity(DuplicateGroup.Reason.REBROADCAST, listOf(5, 4))) }
+        }
+
         it("rejects malformed bodies before the command and maps invalid and stale groups") {
             listOf(
                 """{"programIds":[1,2]}""",
@@ -146,6 +164,55 @@ class DuplicateReviewControllerTest : DescribeSpec() {
                 .andExpect(jsonPath("$.groups[0].members[0].availableFiles[0].status").value("FILE_MOVED"))
                 .andExpect(jsonPath("$.groups[0].members[1].availableFiles").isEmpty)
                 .andExpect(jsonPath("$.groups[0].hidden").value(false))
+                .andExpect(jsonPath("$.groups[0].comparisonTitle").isEmpty)
+        }
+
+        it("serializes a rebroadcast candidate with its comparison title") {
+            fun member(id: Long) =
+                DuplicateReviewMember(
+                    Program(
+                        id,
+                        "p$id",
+                        id,
+                        Program.Status.COMPLETED,
+                        0,
+                        100,
+                        LocalDateTime.of(2026, id.toInt(), 1, 0, 0),
+                        "ch",
+                        "t #1",
+                        "CH",
+                        60.0,
+                    ),
+                    emptyList(),
+                )
+            val recommendation =
+                DuplicateRecommendation(
+                    DuplicateKeepCriterion.entries,
+                    DuplicateKeepCriterion.ID,
+                    2,
+                    0,
+                    Program.Status.COMPLETED,
+                    60.0,
+                    100,
+                    1,
+                )
+            every { command.review(false) } returns
+                DuplicateReview(
+                    listOf(
+                        DuplicateReviewGroup(
+                            DuplicateGroup.Reason.REBROADCAST,
+                            1,
+                            recommendation,
+                            listOf(member(1), member(2)),
+                            comparisonTitle = "t #1",
+                        ),
+                    ),
+                )
+            mockMvc
+                .perform(get("/api/v1/programs/duplicates"))
+                .andExpect(status().isOk)
+                .andExpect(jsonPath("$.groups[0].reason").value("REBROADCAST"))
+                .andExpect(jsonPath("$.groups[0].comparisonTitle").value("t #1"))
         }
 
         it("serializes a hidden group with its reason and members when hidden groups are asked for") {

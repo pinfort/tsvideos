@@ -122,7 +122,7 @@ Spring の組み立て:
 | 現行クラス | 移動先 | 補足 |
 | --- | --- | --- |
 | [ProgramCommand](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/ProgramCommand.kt) | `catalog` (分割) | 読み取り、登録/状態更新、協調削除/移動を用途別の公開操作に分ける (§6.1)。#134 で検索を台帳の条件だけにした (ライブラリ絞り込みは `LibraryProgramSearchCommand`、§13 U1) |
-| [ProgramInventory](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/ProgramInventory.kt) | `catalog` | #134 で追加。library 向けの番組の読み取り (重複検出の入力 `recordedPrograms`、検証対象 `allPrograms`、`allIds`、存在確認 `exists`、複数 ID による取得 `summaries`、状態/ドロップ別 `withStatus` / `withDrops`)。結果は `Program` と `ProgramSummary` |
+| [ProgramInventory](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/ProgramInventory.kt) | `catalog` | #134 で追加。library 向けの番組の読み取り (重複検出の入力 `recordedPrograms`、重複削除の再検出用の 1 チャンネル分 `recordedProgramsOnChannel` (#208)、検証対象 `allPrograms`、`allIds`、存在確認 `exists`、複数 ID による取得 `summaries`、状態/ドロップ別 `withStatus` / `withDrops`)。結果は `Program` と `ProgramSummary` |
 | [LedgerSnapshots](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/LedgerSnapshots.kt) | `catalog` | #134 で追加。一括スナップショットの読み取り (`programSnapshot`、`allCreatedFiles`、`createdFilesOfPrograms`、`referencingPrograms`、#112 でパスとそのエイリアスの行を索引で引く `createdFilesAt`)。結果は `ProgramSnapshot` / `CreatedFileSnapshot` |
 | [LedgerLocks](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/LedgerLocks.kt) | `catalog` | #134 で追加。台帳行のロック (`lockCreatedFilePaths` → `lockCreatedFileRows` (ガード付きは `lockCreatedFiles` → `lockWholeLedger`) → `lockProgramGraph`、関連付け用の `lockProgramRow`)。すべて `MANDATORY` (§7.3) |
 | [CatalogStatistics](../catalog/src/main/kotlin/me/pinfort/tsvideos/catalog/api/CatalogStatistics.kt) | `catalog` | #134 で追加。統計の集計元 (`programs` / `files`) と保存領域の参照 (`storageReferences`)。結果は `ProgramStatsRow` / `FileStatsRow` / `StorageReference` |
@@ -273,7 +273,7 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 | `LibraryHealthMapper.findingPrograms` | `LibraryHealthCommand.read` (library) | program, executed_file (条件に library 所有の `health_verification_finding` の subquery を含む) | **SQL ごと catalog へ移すと catalog が library のテーブルを参照する逆依存になるため移さない。** library が自分の Mapper で対象 run の findings (`program_id` を含む) を読み、その program ID 集合で catalog の「複数 ID による番組取得」(存在しない ID は結果に含めない) を呼ぶ。両方の読み取りは `LibraryHealthCommand.read` の `readOnly` + `REPEATABLE_READ` トランザクション内で行い、catalog の操作は `REQUIRED` で参加するので同じ read snapshot になる。結果に含まれない ID を「削除済みの番組」(`programRemoved`) とする現状の判定と、名前・並び順を変えない。ID が空なら catalog を呼ばない。library の参照クエリとしては残さない。**#134 で実施**: `ProgramInventory.summaries(ids)` (重複除去・昇順・1000 件ずつ。空なら SQL を発行しない) |
 | `LibraryStatsMapper.programs` / `files` | `LibraryStatsCommand` (library) | program, executed_file, splitted_file, created_file | catalog の用途別集計操作にする (全件取得してアプリ側で集計し直さない)。#134 で `CatalogStatistics.programs` / `files` (SQL は同じ) |
 | `StorageOverviewMapper.references` | `StorageOverviewCommand` (library) | program, splitted_file, created_file | 同上。#134 で `CatalogStatistics.storageReferences` |
-| `ProgramMapper.selectAll` / `selectAllIds` / `selectAllOrderById` | `DuplicateProgramCommand`, `CleanupPlanCommand`, `LibraryVerificationCommand` (library) | program, executed_file | catalog の読み取り操作。#134 で `ProgramInventory.recordedPrograms` / `allIds` / `allPrograms` |
+| `ProgramMapper.selectAll` / `selectAllIds` / `selectAllOrderById` | `DuplicateProgramCommand`, `CleanupPlanCommand`, `LibraryVerificationCommand` (library) | program, executed_file | catalog の読み取り操作。#134 で `ProgramInventory.recordedPrograms` / `allIds` / `allPrograms`。#208 の重複削除の再検出用に、1 チャンネル分だけを読む `ProgramMapper.selectByChannel` (`ProgramInventory.recordedProgramsOnChannel`) を追加 |
 | `CreatedFileMapper.selectMovedByExecutedFileIds` / `selectAllWithExecutedFileId` / `selectByExecutedFileId` | `DuplicateReviewCommand`, `LibraryVerificationCommand` (library) | created_file, splitted_file | catalog の読み取り操作。#134 で `CreatedFileCatalog.movedFilesByRecording` / `filesByRecording` / `filesOfRecording` |
 | `BulkLibraryMapper` の読み取り (`allFiles`, `createdFilesOfPrograms`, `filesWithPathKeys`, `filesWithoutPathKey`, `references`) と `ExecutedFileMapper`/`SplittedFileMapper`/`CreatedFileMapper` の直接使用 | `BulkLibraryCommand` (library) | catalog の全テーブル | catalog の一括スナップショット操作 (§11.1)。#134 で `LedgerSnapshots` |
 | `CreatedFileMapper.find` | `VerifiedUploadCommand` (processing) | created_file | catalog の読み取り操作。#131 で `CreatedFileCatalog.find` に置き換え済み (`VerifiedUploadCommand` は `CreatedFileMapper` を参照しない) |
@@ -370,6 +370,7 @@ DDL は [db/migrations](../database-schema/src/main/resources/db/migrations/) �
 | `ProcessingHistoryCommand` (内部の `TransactionTemplate`) | `REQUIRES_NEW` (一部 `REPEATABLE_READ`) | 履歴の書き込みを処理本体と独立に確定 |
 | `BulkLibraryCommand` の `read` / `write` テンプレート | `read`: `readOnly` + `REPEATABLE_READ`。`write`: `REQUIRES_NEW` + `REPEATABLE_READ` | 対象ごとに独立したトランザクション (§7.3) |
 | `CleanupPlanCommand` の `read` テンプレート | `readOnly` + `REPEATABLE_READ` | 計画生成と dry-run |
+| `DuplicateDeletionCommand` の `read` テンプレート | `readOnly` + `REPEATABLE_READ` | 重複削除のプレビュー (グループの検出と削除対象・残す番組のスナップショットを 1 スナップショットで)。apply は `BulkLibraryCommand` の `write` (§7.5.1) |
 | `VerifiedUploadCommand` (クラス) | `NOT_SUPPORTED`。内部の `TransactionTemplate` は `REQUIRES_NEW` | NAS 操作中に DB トランザクションを持たない (§7.6) |
 | `CreatedFileCatalog.register` / `fillMimeIfMissing` / `fillResolutionIfMissing` | `MANDATORY` | 呼び出し元 (`VerifiedUploadCommand` の `REQUIRES_NEW`) のトランザクションに参加し、独自に commit しない。トランザクション外では `IllegalTransactionStateException` (§7.6、§7.7) |
 | `CreatedFileCatalog.find` / `findStreamableVideo` | なし (呼び出し元のトランザクションがあれば参加) | 読み取り |
@@ -416,9 +417,18 @@ NAS の副作用と復旧: 削除/移動の NAS 操作は DB トランザクシ�
 
 ### 7.5 CleanupPlanCommand (ガード付き apply)
 
-[CleanupPlanCommand](../library/src/main/kotlin/me/pinfort/tsvideos/library/api/CleanupPlanCommand.kt) (#158 で library に移動済み) の `apply` は計画を検証し、dry-run なら `read` の中で各対象を現状と照合するだけで終わる。通常は `BulkLibraryCommand.applyGuarded` に DELETE として渡し、ガードで `checkCurrent` を実行する。ガードは §7.3 の全行ロックの下で、残りの対象・グループ・保持対象を `generate` で作り直し、計画と一致しなければ STALE を返す。`applyGuarded` は `internal` で、同じ library モジュール内の `CleanupPlanCommand` だけが呼ぶ。
+[CleanupPlanCommand](../library/src/main/kotlin/me/pinfort/tsvideos/library/api/CleanupPlanCommand.kt) (#158 で library に移動済み) の `apply` は計画を検証し、dry-run なら `read` の中で各対象を現状と照合するだけで終わる。通常は `BulkLibraryCommand.applyGuarded` に DELETE として渡し、ガードで `checkCurrent` を実行する。ガードは §7.3 の全行ロックの下で、残りの対象・グループ・保持対象を `generate` で作り直し、計画と一致しなければ STALE を返す。対象の説明文には検出理由 (`SAME_BROADCAST`/`OVERLAP`/`REBROADCAST`) を含めるので、理由が変わったグループも STALE になる。`applyGuarded` は `internal` で、同じ library モジュール内の `CleanupPlanCommand` と `DuplicateDeletionCommand` (§7.5.1) だけが呼ぶ。
 
-契約: `CleanupPlanCommand` と `BulkLibraryCommand` は同じ library モジュールに置き、ガード付き apply は library 内部の操作のまま (`internal`) にする。ガードが必要とする全行ロックは catalog のロック操作で提供する。
+契約: `CleanupPlanCommand`・`DuplicateDeletionCommand` と `BulkLibraryCommand` は同じ library モジュールに置き、ガード付き apply は library 内部の操作のまま (`internal`) にする。ガードが必要とする全行ロックは catalog のロック操作で提供する。
+
+#### 7.5.1 DuplicateDeletionCommand (重複レビューからの削除、#208)
+
+[DuplicateDeletionCommand](../library/src/main/kotlin/me/pinfort/tsvideos/library/api/DuplicateDeletionCommand.kt) は、重複レビューで選んだ番組を、グループごとに少なくとも 1 件残して削除する。manager:api の `POST /api/v1/programs/duplicates/delete/preview` と `/apply` (`DuplicateDeletionController`) から呼ばれる。
+
+- 入力はグループごとの理由・メンバー全体・削除する ID。全件選択、メンバー外、複数グループへの所属、削除/保持それぞれ 100 件超 (`BulkLibraryCommand.MAX_REQUEST_SIZE`、`CleanupPlanCommand.MAX_PLAN_SIZE` も同じ値) は `InvalidBulkRequestException` (400)。
+- **preview**: §7.3 と同じく `path_key` を埋めてから、1 つの `read` (`readOnly`, `REPEATABLE_READ`) で、各グループが現在ちょうど検出されること (`DuplicateProgramCommand.detect`。違えば `StaleDuplicateGroupException`、409) を確かめ、削除対象と残す番組のスナップショット・フィンガープリントを `previewInTransaction` で作る。ロックは取らない。
+- **apply**: `applyGuarded` に DELETE として渡す。ガードは §7.3 の全行ロック (`lockCreatedFiles` → `lockWholeLedger`) の下で、対象のグループの残す番組を `previewInTransaction` で作り直してプレビュー時のフィンガープリントと比べ、グループが「プレビュー時の理由 + メンバーから成功済みの ID を除いたもの」で現在も検出されることを確かめる。違えば STALE で、その対象には触れない。再検出は対象ごとに毎回行い (対象のトランザクションをまたいで使い回さない)、読み直してフィンガープリントが一致した残す番組のチャンネルの録画だけを読む (`DuplicateProgramCommand.detectOnChannel` → `ProgramInventory.recordedProgramsOnChannel`)。どのグループも 1 チャンネル内でしか作られないので、結果は `detect` のそのチャンネル分と同じ。チャンネルはリクエストから受け取らず、番組名では絞らない。ロックは台帳全体のままで、絞り込みはロック中の読み取り量を減らすだけ (ほかの台帳の書き込みはこれまでどおり各対象のトランザクションの間待つ)。ロック順序は §7.3 のガード付きのものと同じで、新しいロックは追加しない。全行ロックで直列化されるので、互いの残す番組を消し合う同時のリクエストや、通常の一括削除との競合でも、グループの最後の 1 件はこの操作では消えない。
+- 割り込みは `BulkInterruptedException` を受けて、完了済みの結果に残りの対象の FAILED を加えて返す (Web の呼び出し元向け)。
 
 ### 7.6 VerifiedUploadCommand
 
@@ -614,7 +624,7 @@ storage の例外型 (#132 以降は `storage.api`、jcifs に依存しない):
 
 ### 11.2 library
 
-- `BulkLibraryCommand` (preview / apply)、`CleanupPlanCommand` (plan / apply、ガード付き apply は internal)、`DuplicateProgramCommand` / `DuplicateReviewCommand`、`LibraryOrganizationCommand`、`LibraryStatsCommand`、`StorageOverviewCommand`、`LibraryVerificationCommand`、`LibraryHealthCommand` / `LibraryHealthScanCommand` / `HealthVerificationStore` の現行の公開操作。
+- `BulkLibraryCommand` (preview / apply)、`CleanupPlanCommand` (plan / apply、ガード付き apply は internal)、`DuplicateProgramCommand` / `DuplicateReviewCommand` / `DuplicateDeletionCommand` (preview / apply、#208)、`LibraryOrganizationCommand`、`LibraryStatsCommand`、`StorageOverviewCommand`、`LibraryVerificationCommand`、`LibraryHealthCommand` / `LibraryHealthScanCommand` / `HealthVerificationStore` の現行の公開操作。
 - 結果型: `BulkPlan` / `BulkResult` / `BulkOutcome`、`CleanupPlan`、`DuplicateGroup` / `DuplicateReview`、`LibraryLabel` / `ProgramOrganization`、`LibraryStats`、`StorageOverview`、`VerificationReport`、`LibraryHealth`。例外型 (`InvalidBulkRequestException`、`BulkInterruptedException`、`LibraryItemNotFoundException`、`DuplicateLibraryNameException`、`HealthScanAlreadyRunning`、`CleanupResourceMissing`) も公開する (controller/CLI が HTTP や終了コードに変換するため)。
 
 ### 11.3 processing

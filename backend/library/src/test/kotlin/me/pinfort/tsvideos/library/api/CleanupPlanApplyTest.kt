@@ -125,6 +125,24 @@ class CleanupPlanApplyTest : ExpectSpec() {
         }
     }
 
+    /** One recording with a file per entry: id to (recorded_at, duration, title), all on channel 1. */
+    private fun seedRows(rows: Map<Long, Triple<String, Int, String>>) {
+        listOf("created_file", "splitted_file", "program", "executed_file").forEach { sql("DELETE FROM $it") }
+        rows.forEach { (id, row) ->
+            val (recordedAt, duration, title) = row
+            sql(
+                "INSERT INTO executed_file(id,file,drops,size,recorded_at,channel,title,channelName,duration,status) " +
+                    "VALUES($id,'original$id.m2ts',0,10,'$recordedAt','1','$title','channel',$duration,'SPLITTED')",
+            )
+            sql("INSERT INTO program(id,name,executed_file_id,status) VALUES($id,'program$id',$id,'COMPLETED')")
+            sql(
+                "INSERT INTO splitted_file(id,executed_file_id,file,size,duration,status) " +
+                    "VALUES($id,$id,'split$id',10,60,'ENCODE_TASK_ADDED')",
+            )
+            sql("INSERT INTO created_file(id,splitted_file_id,file,size,status) VALUES($id,$id,'base/a/p$id/file.mp4',10,'FILE_MOVED')")
+        }
+    }
+
     // The NAS mock is the context's bean, so it is reset for each use.
     private fun nas(): NasComponent =
         nasComponent.also {
@@ -380,6 +398,72 @@ class CleanupPlanApplyTest : ExpectSpec() {
             } finally {
                 executor.shutdownNow()
             }
+        }
+        expect("target reasons name the detection reason, and a rebroadcast group honours a keep override") {
+            seedRows(
+                mapOf(
+                    1L to Triple("2026-01-01 00:00:00", 1800, "番組 #1[新]"),
+                    2L to Triple("2026-04-01 00:00:00", 1801, "番組 #1[再]"),
+                    3L to Triple("2026-01-02 00:00:00", 60, "title"),
+                    4L to Triple("2026-01-02 00:00:00", 60, "title"),
+                ),
+            )
+            nas()
+            val plan = cleanup.plan(CleanupCriteria(CleanupMode.DUPLICATES, keepIds = listOf(2)))
+            plan.groups.map { it.memberIds to it.keepId } shouldBe listOf(listOf(1L, 2L) to 2L, listOf(3L, 4L) to 3L)
+            plan.targets.map { it.id to it.reason } shouldBe
+                listOf(
+                    1L to "Duplicate candidate (REBROADCAST); preserve selected copy 2",
+                    4L to "Duplicate candidate (SAME_BROADCAST); preserve selected copy 3",
+                )
+            cleanup.apply(plan).outcomes.map { it.status } shouldBe listOf(BulkOutcomeStatus.SUCCESS, BulkOutcomeStatus.SUCCESS)
+            inventory.allIds() shouldBe listOf(2L, 3L)
+        }
+        expect("a group regrouped as a rebroadcast after planning is STALE") {
+            seedRows(
+                mapOf(
+                    1L to Triple("2026-01-01 00:00:00", 1800, "番組 #1"),
+                    2L to Triple("2026-01-01 00:00:00", 1800, "番組 #1"),
+                ),
+            )
+            val nas = nas()
+            val plan = cleanup.plan(CleanupCriteria(CleanupMode.DUPLICATES))
+            plan.targets.single().reason shouldBe "Duplicate candidate (SAME_BROADCAST); preserve selected copy 1"
+            sql("UPDATE executed_file SET recorded_at='2026-04-01 00:00:00' WHERE id=2")
+            cleanup
+                .plan(CleanupCriteria(CleanupMode.DUPLICATES))
+                .targets
+                .single()
+                .reason shouldBe "Duplicate candidate (REBROADCAST); preserve selected copy 1"
+            cleanup
+                .apply(plan)
+                .outcomes
+                .single()
+                .status shouldBe BulkOutcomeStatus.STALE
+            verify { nas wasNot Called }
+        }
+        expect("mixed same-broadcast A/B plus rebroadcast C: the saved plan is never silently extended to A/C") {
+            seedRows(
+                mapOf(
+                    1L to Triple("2026-01-01 00:00:00", 1800, "番組 #1"),
+                    2L to Triple("2026-01-01 00:00:00", 1800, "番組 #1"),
+                    3L to Triple("2026-04-01 00:00:00", 1800, "番組 #1"),
+                    4L to Triple("2026-01-02 00:00:00", 60, "title"),
+                    5L to Triple("2026-01-02 00:00:00", 60, "title"),
+                ),
+            )
+            nas()
+            val plan = cleanup.plan(CleanupCriteria(CleanupMode.DUPLICATES))
+            // C (3) is left out while A/B is a same-broadcast group.
+            plan.groups.map { it.memberIds } shouldBe listOf(listOf(1L, 2L), listOf(4L, 5L))
+            // Deleting B makes A/C a rebroadcast group, which the reviewed plan never contained: stop.
+            cleanup.apply(plan).outcomes.map { it.id to it.status } shouldBe
+                listOf(2L to BulkOutcomeStatus.SUCCESS, 5L to BulkOutcomeStatus.STALE)
+            inventory.allIds() shouldBe listOf(1L, 3L, 4L, 5L)
+            cleanup
+                .plan(CleanupCriteria(CleanupMode.DUPLICATES))
+                .groups
+                .map { it.memberIds } shouldBe listOf(listOf(1L, 3L), listOf(4L, 5L))
         }
         expect("one NAS failure remains explicit while independent later target succeeds") {
             seed(3)

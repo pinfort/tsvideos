@@ -236,6 +236,33 @@ internal interface ProgramMapper {
     )
     fun selectAll(): List<ProgramDto>
 
+    /** [selectAll] limited to recordings on [channel]. */
+    @Select(
+        """
+            SELECT
+                pg.id,
+                pg.name,
+                pg.executed_file_id,
+                pg.status,
+                ex.drops,
+                ex.size,
+                ex.recorded_at,
+                ex.channel,
+                ex.title,
+                ex.channelName,
+                ex.duration
+            FROM
+                program pg
+                INNER JOIN executed_file ex
+                    ON pg.executed_file_id = ex.id
+            WHERE
+                ex.channel = #{channel}
+        """,
+    )
+    fun selectByChannel(
+        @Param("channel") channel: String,
+    ): List<ProgramDto>
+
     @Update(
         """
             UPDATE

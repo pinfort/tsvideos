@@ -7,6 +7,7 @@ import io.kotest.matchers.shouldBe
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import me.pinfort.tsvideos.catalog.api.ProgramInventory
 import me.pinfort.tsvideos.catalog.domain.Program
 import me.pinfort.tsvideos.library.domain.DuplicateGroup
@@ -33,6 +34,7 @@ class DuplicateProgramCommandTest :
             drops: Int = 0,
             status: Program.Status = Program.Status.COMPLETED,
             size: Long = 100,
+            title: String = "title",
         ): Program =
             Program(
                 id = id,
@@ -43,7 +45,7 @@ class DuplicateProgramCommandTest :
                 size = size,
                 recordedAt = recordedAt,
                 channel = channel,
-                title = "title",
+                title = title,
                 channelName = "channelName",
                 duration = duration,
             )
@@ -56,6 +58,99 @@ class DuplicateProgramCommandTest :
 
                 actual shouldHaveSize 1
                 actual[0].programs.map { it.id } shouldBe listOf(1L, 2L)
+            }
+        }
+
+        context("detectOnChannel") {
+            val episode = "番組 #1「副題」"
+
+            fun shape(groups: List<DuplicateGroup>) = groups.map { Triple(it.reason, it.programs.map { p -> p.id }, it.comparisonTitle) }
+
+            /** Mocks the catalog so each channel query returns exactly that channel's rows of [all]. */
+            fun library(all: List<Program>) {
+                every { inventory.recordedPrograms() } returns all
+                every { inventory.recordedProgramsOnChannel(any()) } answers { all.filter { it.channel == firstArg<String>() } }
+            }
+
+            fun assertParity(all: List<Program>) {
+                library(all)
+                val full = duplicateProgramCommand.detect()
+                val channels = all.map { it.channel }.distinct()
+                channels.forEach { channel ->
+                    shape(duplicateProgramCommand.detectOnChannel(channel)) shouldBe
+                        shape(full.filter { group -> group.programs.all { it.channel == channel } })
+                }
+                // Every detected group lies on one channel, so the per-channel results together are the whole result.
+                full.all { group ->
+                    group.programs
+                        .map { it.channel }
+                        .distinct()
+                        .size == 1
+                } shouldBe true
+                channels.sumOf { duplicateProgramCommand.detectOnChannel(it).size } shouldBe full.size
+            }
+
+            expect("reads only the given channel from the catalog, never the whole library") {
+                library(listOf(program(1), program(2), program(3, channel = "BS101"), program(4, channel = "BS101")))
+
+                val actual = duplicateProgramCommand.detectOnChannel("BS101")
+
+                actual.map { group -> group.programs.map { it.id } } shouldBe listOf(listOf(3L, 4L))
+                verify(exactly = 1) { inventory.recordedProgramsOnChannel("BS101") }
+                verify(exactly = 0) { inventory.recordedPrograms() }
+            }
+
+            expect("matches detect() on each channel for same-broadcast, overlap and rebroadcast groups including mixed and chains") {
+                val day = base.plusDays(90)
+                assertParity(
+                    listOf("GR27", "BS101").flatMapIndexed { index, channel ->
+                        val offset = index * 100L
+                        listOf(
+                            // Same broadcast whose members have different titles: a title-scoped read would split it.
+                            program(offset + 1, channel = channel, title = "A"),
+                            program(offset + 2, channel = channel, title = "B"),
+                            // Transitive overlap chain across titles.
+                            program(offset + 3, base.plusDays(1), channel = channel, title = "番組 #5"),
+                            program(offset + 4, base.plusDays(1).plusMinutes(4), channel = channel, title = "other"),
+                            program(offset + 5, base.plusDays(1).plusMinutes(8), channel = channel, title = "番組 #5"),
+                            // Mixed: A/B same broadcast plus a rebroadcast C of the same episode -> only A/B.
+                            program(offset + 6, base.plusDays(2), channel = channel, title = episode),
+                            program(offset + 7, base.plusDays(2), channel = channel, title = episode),
+                            program(offset + 8, day, channel = channel, title = episode),
+                            // Rebroadcast pair.
+                            program(offset + 9, base.plusDays(3), channel = channel, title = "番組 #2[新]"),
+                            program(offset + 10, day.plusDays(3), channel = channel, title = "番組 #2[再]", duration = 1801.0),
+                            // Non-clique chain (1800-1803-1806): left out entirely.
+                            program(offset + 11, base.plusDays(4), channel = channel, title = "番組 #3"),
+                            program(offset + 12, base.plusDays(40), channel = channel, title = "番組 #3", duration = 1803.0),
+                            program(offset + 13, base.plusDays(80), channel = channel, title = "番組 #3", duration = 1806.0),
+                        )
+                    } +
+                        // The same episode on another channel only: never grouped with the channels above.
+                        listOf(program(500, base.plusDays(5), channel = "BS103", title = "番組 #2[再]")),
+                )
+            }
+
+            expect("matches detect() on each channel of a large multi-channel library") {
+                val random = kotlin.random.Random(208)
+                val channels = listOf("GR21", "GR22", "GR27", "BS101", "BS103", "BS141")
+                val markers = listOf("", "[新]", "[再]", "[字]")
+                val all =
+                    (1L..3000L).map { id ->
+                        // Four 30-minute slots a day with a few minutes of jitter: same broadcasts, overlaps and rebroadcasts.
+                        val minutes = random.nextLong(0, 4) * 30 + random.nextLong(0, 6)
+                        program(
+                            id,
+                            recordedAt = base.plusDays(random.nextLong(0, 120)).plusMinutes(minutes),
+                            duration = 1800.0 + random.nextInt(0, 9),
+                            channel = channels[random.nextInt(channels.size)],
+                            title = "シリーズ${random.nextInt(0, 60)} #${random.nextInt(1, 6)}" + markers[random.nextInt(markers.size)],
+                        )
+                    }
+
+                assertParity(all)
+                library(all)
+                duplicateProgramCommand.detect().map { it.reason }.toSet() shouldBe DuplicateGroup.Reason.entries.toSet()
             }
         }
 
@@ -225,6 +320,98 @@ class DuplicateProgramCommandTest :
                     )
 
                 actual.map { group -> group.programs.map { it.id }.toSet() } shouldBe listOf(setOf(3L, 4L), setOf(1L, 2L))
+            }
+        }
+
+        context("rebroadcast candidates") {
+            val episode = "番組 #1「副題」"
+
+            fun group(programs: List<Program>) = duplicateProgramCommand.group(programs, DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO)
+
+            expect("a same-channel single-episode rebroadcast is REBROADCAST with its comparison title and keep order") {
+                val actual =
+                    group(
+                        listOf(
+                            program(1, title = "$episode[新]", drops = 3),
+                            program(2, recordedAt = base.plusDays(90), title = "$episode[再]", duration = 1801.0),
+                        ),
+                    )
+
+                actual shouldHaveSize 1
+                actual[0].reason shouldBe DuplicateGroup.Reason.REBROADCAST
+                actual[0].comparisonTitle shouldBe "番組 #1 「副題」"
+                // The existing keep order (drops first) picks the recommendation.
+                actual[0].programs.map { it.id } shouldBe listOf(2L, 1L)
+            }
+
+            expect("existing SAME_BROADCAST/OVERLAP groups and recommendations are unchanged by the second stage") {
+                val broadcastOnly =
+                    listOf(
+                        program(1, drops = 2),
+                        program(2),
+                        program(3, recordedAt = base.plusDays(1)),
+                        program(4, recordedAt = base.plusDays(1).plusMinutes(4)),
+                    )
+                val withEpisodes = broadcastOnly.map { it.copy(title = episode) }
+                val before = group(broadcastOnly)
+                val after = group(withEpisodes)
+
+                after.map { it.reason to it.programs.map { p -> p.id } } shouldBe before.map { it.reason to it.programs.map { p -> p.id } }
+                after.map { it.reason } shouldBe listOf(DuplicateGroup.Reason.SAME_BROADCAST, DuplicateGroup.Reason.OVERLAP)
+                after.all { it.comparisonTitle == null } shouldBe true
+            }
+
+            expect("mixed A/B same broadcast plus a later rebroadcast C returns only A/B (intended miss)") {
+                val actual =
+                    group(
+                        listOf(
+                            program(1, title = episode),
+                            program(2, title = episode),
+                            program(3, recordedAt = base.plusDays(90), title = episode),
+                        ),
+                    )
+
+                actual.map { it.reason to it.programs.map { p -> p.id }.toSet() } shouldBe
+                    listOf(DuplicateGroup.Reason.SAME_BROADCAST to setOf(1L, 2L))
+            }
+
+            expect("after the same-broadcast copy is removed, the remaining A and C become a rebroadcast candidate") {
+                val actual = group(listOf(program(1, title = episode), program(3, recordedAt = base.plusDays(90), title = episode)))
+
+                actual.single().reason shouldBe DuplicateGroup.Reason.REBROADCAST
+            }
+
+            expect("no program belongs to two groups and groups are ordered by their earliest recording") {
+                val actual =
+                    group(
+                        listOf(
+                            program(1, recordedAt = base.plusDays(2), title = "番組 #2"),
+                            program(2, recordedAt = base.plusDays(92), title = "番組 #2"),
+                            program(3, title = episode),
+                            program(4, title = episode),
+                            program(5, recordedAt = base.plusDays(1), title = "番組 #9"),
+                            program(6, recordedAt = base.plusDays(91), title = "番組 #9"),
+                        ),
+                    )
+
+                val ids = actual.flatMap { group -> group.programs.map { it.id } }
+                ids.distinct() shouldBe ids
+                actual.map { it.reason to it.programs.map { p -> p.id }.toSet() } shouldBe
+                    listOf(
+                        DuplicateGroup.Reason.SAME_BROADCAST to setOf(3L, 4L),
+                        DuplicateGroup.Reason.REBROADCAST to setOf(5L, 6L),
+                        DuplicateGroup.Reason.REBROADCAST to setOf(1L, 2L),
+                    )
+                group(actual.flatMap { it.programs }.reversed()).map { it.programs.map { p -> p.id }.toSet() } shouldBe
+                    actual.map { it.programs.map { p -> p.id }.toSet() }
+            }
+
+            expect("--min-overlap does not change the rebroadcast duration rule") {
+                val programs =
+                    listOf(program(1, title = episode), program(2, recordedAt = base.plusDays(90), title = episode, duration = 1806.0))
+
+                duplicateProgramCommand.group(programs, 0.1).shouldBeEmpty()
+                duplicateProgramCommand.group(programs, 1.0).shouldBeEmpty()
             }
         }
     })

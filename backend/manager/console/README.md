@@ -49,9 +49,14 @@ NAS 上の実際の整合性チェックではない。
 `duration`、文字列の `file`、`recordedAt`、`channel`、`title`、`channelName`、
 および `status` (`REGISTERED`、`DROPCHECKED`、`SPLITTED`) を持つ。
 
-各重複グループは、文字列の `reason` (`SAME_BROADCAST` または `OVERLAP`)、整数の
+各重複グループは、文字列の `reason` (`SAME_BROADCAST`、`OVERLAP`、`REBROADCAST` のいずれか)、
+null 許容の文字列 `comparisonTitle` (`REBROADCAST` のときだけ、判定に使った比較用タイトル)、整数の
 `recommendedId`、整数配列の `candidateIds` (その他のメンバー)、および推奨順の `programs`
-(それぞれ `tsExists` を持つ) を持つ。
+(それぞれ `tsExists` を持つ) を持つ。`REBROADCAST` は同一チャンネル・単一話の再放送候補で、
+タイトル・話数・長さだけで判定しており、内容の同一性は確認していない。通常の出力では
+`rebroadcast candidate; compared title: …` の行が付く。`--min-overlap` は
+`SAME_BROADCAST`/`OVERLAP` の判定だけに効き、再放送候補の長さの条件 (差 5 秒以内かつ比 0.995 以上) は変わらない。
+判定規則と意図した取りこぼしは [duplicate-review.md](../../docs/duplicate-review.md#再放送候補-rebroadcast) を参照。
 
 `--ids-only` は、1 行につき 1 つの program ID を出力する。search は指定されたページを
 選択された並び順で出力し、get は指定された program ID を出力する。duplicates は、

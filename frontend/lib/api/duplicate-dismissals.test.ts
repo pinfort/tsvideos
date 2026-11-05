@@ -28,8 +28,20 @@ describe("setDuplicateGroupHidden", () => {
       expect.objectContaining({ method: "POST", body: JSON.stringify({ reason: "OVERLAP", programIds: [3, 4] }) }),
     );
   });
+  it("hides and restores a rebroadcast candidate group", async () => {
+    for (const hidden of [true, false]) {
+      await expect(
+        setDuplicateGroupHidden({ reason: "REBROADCAST", programIds: [5, 6], hidden }),
+      ).resolves.toEqual({ ok: true });
+      expect(fetchJson).toHaveBeenLastCalledWith(
+        `/api/v1/programs/duplicates/${hidden ? "hide" : "restore"}`,
+        expect.objectContaining({ body: JSON.stringify({ reason: "REBROADCAST", programIds: [5, 6] }) }),
+      );
+    }
+  });
   it.each([
     { reason: "OTHER", programIds: [1, 2], hidden: true },
+    { reason: "rebroadcast", programIds: [1, 2], hidden: true },
     { reason: "OVERLAP", programIds: [1], hidden: true },
     { reason: "OVERLAP", programIds: [1, 1], hidden: true },
     { reason: "OVERLAP", programIds: [0, 1], hidden: true },

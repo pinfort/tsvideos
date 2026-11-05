@@ -21,13 +21,17 @@ class Duplicates(
     private val programCommand: ProgramCommand,
     private val terminalTextColorComponent: TerminalTextColorComponent,
 ) : ReadCommand() {
-    override fun help(context: Context): String = "detect programs recorded from the same broadcast"
+    override fun help(context: Context): String =
+        "detect programs recorded from the same broadcast (SAME_BROADCAST, OVERLAP) and same-channel single-episode " +
+            "rebroadcast candidates (REBROADCAST: matched by title, episode and duration; content is not verified)"
 
     private val datetimeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")
 
     private val minOverlapRatio by option(
         "--min-overlap",
-        help = "minimum overlap ratio against the longer recording to treat as duplicate",
+        help =
+            "minimum overlap ratio against the longer recording to treat as duplicate; applies to SAME_BROADCAST/OVERLAP " +
+                "only, REBROADCAST uses its own fixed duration rule",
     ).double()
         .default(DuplicateProgramCommand.DEFAULT_MIN_OVERLAP_RATIO)
         .check("must be greater than 0 and at most 1") { it > 0.0 && it <= 1.0 }
@@ -40,6 +44,7 @@ class Duplicates(
                 groups.map { group ->
                     linkedMapOf(
                         "reason" to group.reason.name,
+                        "comparisonTitle" to group.comparisonTitle,
                         "recommendedId" to group.recommended.id,
                         "candidateIds" to group.others.map { it.id },
                         "programs" to group.programs.map { ReadJson.program(it) + ("tsExists" to programCommand.hasTsFile(it)) },
@@ -60,6 +65,7 @@ class Duplicates(
 
         groups.forEach { group ->
             println("[${group.reason}] ${group.recommended.channelName}")
+            group.comparisonTitle?.let { println("rebroadcast candidate; compared title: $it") }
             println("keep\tid\trecorded_at\t\tduration\tdrops\tstatus\t\ttsExists\tname")
             group.programs.forEach {
                 val keep = if (it == group.recommended) "*" else ""

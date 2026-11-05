@@ -19,6 +19,11 @@ describe("DuplicateCandidatesList", () => {
     expect(screen.getByText("同じ放送")).toBeInTheDocument();
   });
 
+  it("labels rebroadcast candidates", () => {
+    render(<DuplicateCandidatesList candidates={[{ reason: "REBROADCAST", retained: kept, removable: [other] }]} />);
+    expect(screen.getByText("再放送候補")).toBeInTheDocument();
+  });
+
   it("says when there are no candidates", () => {
     render(<DuplicateCandidatesList candidates={[]} />);
     expect(screen.getByText("重複の整理候補はありません。")).toBeInTheDocument();

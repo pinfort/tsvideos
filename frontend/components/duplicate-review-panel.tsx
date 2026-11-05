@@ -2,10 +2,19 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BulkPrograms } from "./bulk-programs";
+import { BulkPrograms, type BulkOperations } from "./bulk-programs";
 import { Button } from "@/components/ui/button";
+import {
+  applyDuplicateDeletion,
+  previewDuplicateDeletion,
+  type DuplicateDeletionPlan,
+} from "@/lib/api/duplicate-deletion";
 import { setDuplicateGroupHidden } from "@/lib/api/duplicate-dismissals";
-import type { DuplicateReviewGroup, KeepCriterion } from "@/lib/api/duplicates";
+import {
+  duplicateReasonLabels,
+  type DuplicateReviewGroup,
+  type KeepCriterion,
+} from "@/lib/api/duplicates";
 import { programStatusToJapanese } from "@/lib/api/status-labels";
 
 const criteria: Record<KeepCriterion, string> = {
@@ -21,7 +30,51 @@ function formatDuration(seconds: number) {
 }
 
 function reasonLabel(group: DuplicateReviewGroup) {
-  return group.reason === "SAME_BROADCAST" ? "同じ放送" : "録画時間が重複";
+  return duplicateReasonLabels[group.reason];
+}
+const keepOneMessage =
+  "グループの録画をすべて選択しているため、プレビューと削除はできません。各グループで少なくとも 1 件は残してください。";
+
+/**
+ * Deletion from the review goes through the duplicate-specific endpoints: the server re-checks each named group and
+ * keeps at least one member of it, also against concurrent changes. The all-selected check here only explains why the
+ * preview is disabled.
+ */
+function deletionOperations(groups: DuplicateReviewGroup[]): BulkOperations<DuplicateDeletionPlan> {
+  const selectedGroups = (ids: number[]) =>
+    groups
+      .map((group) => ({
+        group,
+        deleteIds: memberIds(group).filter((id) => ids.includes(id)),
+      }))
+      .filter(({ deleteIds }) => deleteIds.length > 0);
+  return {
+    preview: (ids) =>
+      previewDuplicateDeletion(
+        selectedGroups(ids).map(({ group, deleteIds }) => ({
+          reason: group.reason,
+          programIds: memberIds(group),
+          deleteIds,
+        })),
+      ),
+    apply: applyDuplicateDeletion,
+    blocked: (ids) =>
+      selectedGroups(ids).some(({ group, deleteIds }) => deleteIds.length === group.members.length)
+        ? keepOneMessage
+        : null,
+    details: (plan) => (
+      <div className="border-b py-2">
+        <h3 className="font-semibold">残す録画（実行直前にサーバーで再確認）</h3>
+        <ul>
+          {plan.keptTargets.map((t) => (
+            <li key={t.id}>
+              #{t.id} {t.snapshot?.program.name ?? "（見つかりません）"}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ),
+  };
 }
 function memberIds(group: DuplicateReviewGroup) {
   return group.members.map(({ program }) => program.id).sort((a, b) => a - b);
@@ -42,7 +95,7 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const status = pending ? "更新中…" : notice;
-  const visible =groups.filter((group) => !group.hidden);
+  const visible = groups.filter((group) => !group.hidden);
   const hidden = groups.filter((group) => group.hidden);
   // Hidden groups are not offered for deletion, and BulkPrograms drops their members from the selection.
   const programs = visible.flatMap((group) => group.members.map((member) => member.program));
@@ -79,6 +132,7 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
     <BulkPrograms
       programs={programs}
       deleteOnly
+      operations={deletionOperations(visible)}
       renderPrograms={(selected, onSelect) => (
         <div className="space-y-8">
           {visible.length === 0 && <p>重複録画の候補はありません。</p>}
@@ -103,6 +157,12 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
                   意図した重複として非表示
                 </Button>
               </div>
+              {group.reason === "REBROADCAST" && (
+                <p className="mt-1 text-sm">
+                  同じチャンネルで、比較用タイトル「{group.comparisonTitle}
+                  」と話数が一致し、録画時間がほぼ同じ録画です。内容が同一であることや、どれが初回放送かは確認していません。
+                </p>
+              )}
               <p className="mt-1 text-sm">
                 非表示にしても録画とファイルは削除されません。録画が増減してグループの構成が変わると、再びここに表示されます。
               </p>
@@ -124,8 +184,8 @@ export function DuplicateReviewPanel({ groups }: { groups: DuplicateReviewGroup[
               </p>
               {group.members.every(({ program }) => selected.includes(program.id)) && (
                 <p role="alert" className="mt-2 font-bold text-red-700 dark:text-red-300">
-                  このグループの録画をすべて選択しています。実行すると、この放送の録画は 1
-                  件も残りません。
+                  このグループの録画をすべて選択しています。1
+                  件も残らないため、プレビューと削除はできません。
                 </p>
               )}
               <div className="mt-4 overflow-x-auto">
