@@ -76,6 +76,7 @@ class DuplicateDeletionCommand(
         val request = BulkApplyRequest(BulkRequest(deleteIds, BulkAction.DELETE), input.fingerprints)
         return try {
             bulk.applyGuarded(request) { id, completed ->
+                // single is safe: validate rejects a recording in more than one group, so each target has exactly one.
                 guard(id, groups.single { id in it.deleteIds }, input.keptFingerprints, completed)
             }
         } catch (error: BulkInterruptedException) {

@@ -199,9 +199,9 @@ class DuplicateDeletionCommandTest : ExpectSpec() {
             inventory.allIds() shouldBe listOf(1L, 2L)
         }
 
-        expect("malformed, foreign and missing-fingerprint requests are rejected") {
+        expect("malformed, foreign and missing-, extra- or wrong-fingerprint requests are rejected before NAS") {
             sameBroadcast(3)
-            nas()
+            val nas = nas()
             listOf(
                 listOf(group(listOf(1), listOf(1))),
                 listOf(group(listOf(1, 2), emptyList())),
@@ -214,6 +214,14 @@ class DuplicateDeletionCommandTest : ExpectSpec() {
             val plan = preview(group(listOf(1, 2, 3), listOf(3)))
             shouldThrow<InvalidBulkRequestException> { command.apply(applyRequest(plan).copy(keptFingerprints = emptyMap())) }
             shouldThrow<InvalidBulkRequestException> { command.apply(applyRequest(plan).copy(fingerprints = emptyMap())) }
+            val kept = applyRequest(plan).keptFingerprints
+            // A delete target listed as kept, and a kept fingerprint under a recording outside the group.
+            val extra = kept + (3L to plan.targets.single().fingerprint)
+            val wrong = mapOf(1L to kept.getValue(1L), 9L to kept.getValue(2L))
+            listOf(extra, wrong).forEach { keptFingerprints ->
+                shouldThrow<InvalidBulkRequestException> { command.apply(applyRequest(plan).copy(keptFingerprints = keptFingerprints)) }
+            }
+            verify { nas wasNot Called }
             inventory.allIds() shouldBe listOf(1L, 2L, 3L)
         }
 
@@ -327,6 +335,47 @@ class DuplicateDeletionCommandTest : ExpectSpec() {
             apply(plan).outcomes.map { it.id to it.status } shouldBe
                 listOf(2L to BulkOutcomeStatus.SUCCESS, 3L to BulkOutcomeStatus.STALE)
             inventory.allIds() shouldBe listOf(1L, 3L)
+        }
+
+        expect("deleting two of three rebroadcasts keeps the chosen non-default copy") {
+            // 3 is the longest, so the default keep; the operator keeps 1. After 2 goes, 1 and 3 still pair up.
+            seed(
+                mapOf(
+                    1L to Triple("2026-01-01 00:00:00", 1800, "番組 #1[新]"),
+                    2L to Triple("2026-02-01 00:00:00", 1801, "番組 #1[再]"),
+                    3L to Triple("2026-03-01 00:00:00", 1802, "番組 #1"),
+                ),
+            )
+            val nas = nas()
+            duplicates.detect().single().let {
+                it.reason shouldBe DuplicateGroup.Reason.REBROADCAST
+                it.programs.first().id shouldBe 3L
+            }
+            val plan = preview(group(listOf(1, 2, 3), listOf(2, 3), DuplicateGroup.Reason.REBROADCAST))
+            apply(plan).outcomes.map { it.id to it.status } shouldBe
+                listOf(2L to BulkOutcomeStatus.SUCCESS, 3L to BulkOutcomeStatus.SUCCESS)
+            inventory.allIds() shouldBe listOf(1L)
+            verify(exactly = 1) { nas.deleteResource("base/a/p2/file.mp4") }
+            verify(exactly = 1) { nas.deleteResource("base/a/p3/file.mp4") }
+            verify(exactly = 2) { nas.deleteResource(any()) }
+        }
+
+        expect("an overlap group that becomes a same-broadcast pair after a deletion stops the remaining targets") {
+            // 1 starts 5 s later than 2 and 3; deleting 1 first (lowest id) turns the rest into SAME_BROADCAST 2-3.
+            seed(
+                mapOf(
+                    1L to Triple("2026-01-01 00:00:05", 60, "title"),
+                    2L to Triple("2026-01-01 00:00:00", 60, "title"),
+                    3L to Triple("2026-01-01 00:00:00", 60, "title"),
+                ),
+            )
+            val nas = nas()
+            val plan = preview(group(listOf(1, 2, 3), listOf(1, 3), DuplicateGroup.Reason.OVERLAP))
+            apply(plan).outcomes.map { it.id to it.status } shouldBe
+                listOf(1L to BulkOutcomeStatus.SUCCESS, 3L to BulkOutcomeStatus.STALE)
+            inventory.allIds() shouldBe listOf(2L, 3L)
+            verify(exactly = 1) { nas.deleteResource("base/a/p1/file.mp4") }
+            verify(exactly = 1) { nas.deleteResource(any()) }
         }
 
         expect("a member added to the group after preview makes the target STALE") {
