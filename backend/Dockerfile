@@ -5,7 +5,7 @@
 # to configure; the build also applies database-schema's and processing's runtime-isolation.gradle.kts and the
 # root module-graph.gradle.kts).
 
-FROM eclipse-temurin:24-jdk-alpine AS deps
+FROM eclipse-temurin:25-jdk-alpine AS deps
 WORKDIR /app
 
 COPY gradlew settings.gradle.kts module-graph.gradle.kts ./
@@ -31,7 +31,7 @@ RUN --mount=type=cache,id=gradle-home,target=/root/.gradle \
     ./gradlew :manager:api:bootJar --no-daemon -x ktlintCheck \
     && cp manager/api/build/libs/$(ls manager/api/build/libs | grep -v -- -plain.jar) app.jar
 
-FROM eclipse-temurin:24-jre-alpine AS runner
+FROM eclipse-temurin:25-jre-alpine AS runner
 WORKDIR /app
 
 RUN addgroup --system --gid 1001 spring \
